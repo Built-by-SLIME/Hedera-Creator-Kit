@@ -1,0 +1,41 @@
+{
+  "name": "hedera-nft-toolkit",
+  "version": "1.0.0",
+  "description": "Complete toolkit for creating, minting, and managing NFT collections on Hedera",
+  "main": "index.js",
+  "scripts": {
+    "create-collection": "node 1-collection-management/create_collection.js",
+    "update-name": "node 1-collection-management/update_collection_name.js",
+    "delete-collection": "node 1-collection-management/delete_collection.js",
+    "get-info": "node 1-collection-management/get_token_info.js",
+    "dissociate": "node 1-collection-management/dissociate_token.js",
+    "mint": "node 2-nft-minting/mint_nfts.js",
+    "burn": "node 2-nft-minting/burn_nfts.js",
+    "clean-upload": "node 3-metadata-tools/clean_and_upload_metadata.js",
+    "generate-cids": "node 3-metadata-tools/generate_cids.js",
+    "query-mirror": "node 4-utilities/query_mirror_node.js"
+  },
+  "keywords": [
+    "hedera",
+    "hashgraph",
+    "nft",
+    "hts",
+    "token-service",
+    "ipfs",
+    "pinata",
+    "web3"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@hashgraph/sdk": "^2.75.0",
+    "axios": "^1.13.2",
+    "csv-parser": "^3.2.0",
+    "dotenv": "^17.2.3",
+    "form-data": "^4.0.5"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
+
