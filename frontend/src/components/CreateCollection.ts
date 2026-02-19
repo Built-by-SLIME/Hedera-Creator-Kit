@@ -3,7 +3,7 @@
  * Creates an NFT collection on Hedera via TokenCreateTransaction + WalletConnect signing
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { API_BASE_URL, MIRROR_NODE_URL } from '../config'
+import { API_BASE_URL, MIRROR_NODE_URL, getHederaClient } from '../config'
 import {
   TokenCreateTransaction,
   TokenType,
@@ -13,7 +13,6 @@ import {
   Hbar,
   AccountId,
   PublicKey,
-  Client,
   TransactionId,
 } from '@hashgraph/sdk'
 
@@ -756,7 +755,7 @@ export class CreateCollection {
       const signer = WalletConnectService.getSigner(accountId);
       const acctId = AccountId.fromString(accountId);
       tx.setTransactionId(TransactionId.generate(acctId));
-      tx.freezeWith(Client.forMainnet());
+      tx.freezeWith(getHederaClient());
       const txResponse = await tx.executeWithSigner(signer);
 
       this.statusMessage = 'Getting receipt...';

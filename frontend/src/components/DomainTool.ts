@@ -3,19 +3,14 @@
  * Register .hbar domains via HNS (Hedera Name Service) API + TransferTransaction + WalletConnect
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { MIRROR_NODE_URL } from '../config'
+import { MIRROR_NODE_URL, HNS_API_BASE, HNS_NFT_TOKEN_ID, HNS_FEE_ACCOUNT, getHederaClient } from '../config'
 import {
   TransferTransaction,
   TokenAssociateTransaction,
   AccountId,
   Hbar,
-  Client,
   TransactionId,
 } from '@hashgraph/sdk'
-
-const HNS_API_BASE = 'https://api.prod.hashgraph.name'
-const HNS_NFT_TOKEN_ID = '0.0.1234197'  // .hbar domain NFT token
-const HNS_FEE_ACCOUNT = '0.0.1233811'   // HNS fee collection account
 
 type DomainStep = 'form' | 'success'
 
@@ -409,7 +404,7 @@ export class DomainTool {
       const accountId = ws.accountId
       const signer = WalletConnectService.getSigner(accountId)
       const acctId = AccountId.fromString(accountId)
-      const client = Client.forMainnet()
+      const client = getHederaClient()
 
       // Step 1: Ensure user has associated the HNS NFT token
       const assocRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/tokens?token.id=${HNS_NFT_TOKEN_ID}`)

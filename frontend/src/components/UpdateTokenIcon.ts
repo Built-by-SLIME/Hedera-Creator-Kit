@@ -3,12 +3,11 @@
  * Updates a token's metadata/icon on Hedera via TokenUpdateTransaction + WalletConnect signing
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { API_BASE_URL, MIRROR_NODE_URL } from '../config'
+import { API_BASE_URL, MIRROR_NODE_URL, getHederaClient } from '../config'
 import {
   TokenUpdateTransaction,
   TokenId,
   AccountId,
-  Client,
   TransactionId,
 } from '@hashgraph/sdk'
 
@@ -349,7 +348,7 @@ export class UpdateTokenIcon {
       const signer = WalletConnectService.getSigner(accountId);
       const acctId = AccountId.fromString(accountId);
       tx.setTransactionId(TransactionId.generate(acctId));
-      tx.freezeWith(Client.forMainnet());
+      tx.freezeWith(getHederaClient());
       const txResponse = await tx.executeWithSigner(signer);
 
       this.statusMessage = 'Confirming on network...';

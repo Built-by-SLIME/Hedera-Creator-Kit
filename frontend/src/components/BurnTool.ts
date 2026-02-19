@@ -3,12 +3,11 @@
  * Permanently burn tokens/NFTs on Hedera via TokenBurnTransaction + WalletConnect signing
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { MIRROR_NODE_URL } from '../config'
+import { MIRROR_NODE_URL, getHederaClient } from '../config'
 import {
   TokenBurnTransaction,
   TokenId,
   AccountId,
-  Client,
   TransactionId,
 } from '@hashgraph/sdk'
 
@@ -543,7 +542,7 @@ export class BurnTool {
             .setSerials(batch)
 
           tx.setTransactionId(TransactionId.generate(acctId))
-          tx.freezeWith(Client.forMainnet())
+          tx.freezeWith(getHederaClient())
           const txResponse = await tx.executeWithSigner(signer)
 
           const txId = txResponse?.transactionId?.toString() || `batch-${batchNum}`
@@ -566,7 +565,7 @@ export class BurnTool {
           .setAmount(rawAmount)
 
         tx.setTransactionId(TransactionId.generate(acctId))
-        tx.freezeWith(Client.forMainnet())
+        tx.freezeWith(getHederaClient())
         const txResponse = await tx.executeWithSigner(signer)
 
         const txId = txResponse?.transactionId?.toString() || 'burn-tx'

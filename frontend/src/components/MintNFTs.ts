@@ -4,12 +4,11 @@
  * Supports CSV import (from Art Generator) and direct upload with IPFS pinning
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { API_BASE_URL, MIRROR_NODE_URL } from '../config'
+import { API_BASE_URL, MIRROR_NODE_URL, getHederaClient } from '../config'
 import JSZip from 'jszip'
 import {
   TokenMintTransaction,
   AccountId,
-  Client,
   TransactionId,
 } from '@hashgraph/sdk'
 
@@ -1122,7 +1121,7 @@ export class MintNFTs {
         const signer = WalletConnectService.getSigner(accountId);
         const acctId = AccountId.fromString(accountId);
         tx.setTransactionId(TransactionId.generate(acctId));
-        tx.freezeWith(Client.forMainnet());
+        tx.freezeWith(getHederaClient());
         const txResponse = await tx.executeWithSigner(signer);
 
         // Try to get receipt for serial numbers

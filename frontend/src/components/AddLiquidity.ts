@@ -3,6 +3,7 @@
  * Adds liquidity to SaucerSwap V1 HBAR/Token pools via ContractExecuteTransaction + WalletConnect
  */
 import WalletConnectService from '../services/WalletConnectService'
+import { MIRROR_NODE_URL, SAUCER_V1_ROUTER, WHBAR_TOKEN_ID, getHederaClient } from '../config'
 import {
   ContractExecuteTransaction,
   ContractFunctionParameters,
@@ -11,16 +12,10 @@ import {
   TokenId,
   AccountId,
   Hbar,
-  Client,
   TransactionId,
 } from '@hashgraph/sdk'
 
-import { MIRROR_NODE_URL } from '../config'
-
 type LiquidityStep = 'form' | 'processing' | 'success';
-
-const SAUCER_V1_ROUTER = '0.0.3045981';
-const WHBAR_TOKEN_ID = '0.0.1456986';
 
 export class AddLiquidity {
   // Form state
@@ -421,7 +416,7 @@ export class AddLiquidity {
       const accountId = ws.accountId;
       const signer = WalletConnectService.getSigner(accountId);
       const acctId = AccountId.fromString(accountId);
-      const client = Client.forMainnet();
+      const client = getHederaClient();
 
       // Convert amounts to smallest units
       const tokenSmallestUnit = Math.round(tokenAmt * Math.pow(10, this.tokenInfo.decimals));

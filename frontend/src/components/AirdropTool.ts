@@ -3,10 +3,9 @@
  * Distribute NFTs or Fungible Tokens to multiple accounts
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { MIRROR_NODE_URL } from '../config'
+import { MIRROR_NODE_URL, getHederaClient } from '../config'
 import {
   AccountId,
-  Client,
   TransactionId,
   TokenId,
   NftId,
@@ -625,7 +624,7 @@ export class AirdropTool {
           }
 
           tx.setTransactionId(TransactionId.generate(acctId))
-          tx.freezeWith(Client.forMainnet())
+          tx.freezeWith(getHederaClient())
           const txResponse = await tx.executeWithSigner(signer)
 
           batch.forEach(r => { r.status = 'success'; this.successCount++ })

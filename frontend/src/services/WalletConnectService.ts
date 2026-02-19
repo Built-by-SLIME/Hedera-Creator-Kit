@@ -10,7 +10,7 @@ import {
   HederaChainId,
 } from '@hashgraph/hedera-wallet-connect'
 import { LedgerId, AccountId } from '@hashgraph/sdk'
-import { MIRROR_NODE_URL, WALLETCONNECT_PROJECT_ID } from '../config'
+import { MIRROR_NODE_URL, WALLETCONNECT_PROJECT_ID, SLIME_TOKEN_ID } from '../config'
 
 export interface WalletState {
   connected: boolean
@@ -23,7 +23,6 @@ export interface WalletState {
 class WalletConnectService {
   private static instance: WalletConnectService
   private dAppConnector: DAppConnector | null = null
-  private static readonly SLIME_TOKEN_ID = '0.0.9474754'
 
   private walletState: WalletState = {
     connected: false,
@@ -175,7 +174,7 @@ class WalletConnectService {
       }
 
       // Check for SLIME NFT
-      const nftRes = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${WalletConnectService.SLIME_TOKEN_ID}/balances?account.id=${accountId}`)
+      const nftRes = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${SLIME_TOKEN_ID}/balances?account.id=${accountId}`)
       if (nftRes.ok) {
         const nftData = await nftRes.json()
         const hasSlime = nftData.balances && nftData.balances.length > 0 && parseInt(nftData.balances[0].balance) > 0
