@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@hashgraph/proto": "^2.25.0",
-    "@hashgraph/sdk": "^2.79.0",
+    "@hashgraph/sdk": "^2.80.0",
     "jszip": "^3.10.1",
     "serve": "^14.2.5"
   }
