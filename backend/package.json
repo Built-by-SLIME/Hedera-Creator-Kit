@@ -16,10 +16,10 @@
     "query-mirror": "node 4-utilities/query_mirror_node.js",
     "generate-art": "ts-node 5-art-generator/generate.ts",
     "build-generator": "cd 5-art-generator && tsc",
-    "api-server": "ts-node api-server/server.ts",
-    "dev": "ts-node api-server/server.ts",
+    "api-server": "ts-node --transpile-only api-server/server.ts",
+    "dev": "ts-node --transpile-only api-server/server.ts",
     "build": "echo 'Backend ready (ts-node runtime)'",
-    "start": "ts-node api-server/server.ts"
+    "start": "ts-node --transpile-only api-server/server.ts"
   },
   "keywords": [
     "hedera",

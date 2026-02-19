@@ -129,11 +129,9 @@ app.use((err: any, req: Request, res: Response, next: any) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Art Generator API Server running on port ${PORT}`);
-  console.log(`📡 Preview endpoint: http://localhost:${PORT}/api/preview-collection`);
-  console.log(`🎨 Generate endpoint: http://localhost:${PORT}/api/generate-collection`);
+// Start server — bind to 0.0.0.0 so Railway's proxy can reach the app
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log(`🚀 Art Generator API Server running on 0.0.0.0:${PORT}`);
 });
 
 export default app;
