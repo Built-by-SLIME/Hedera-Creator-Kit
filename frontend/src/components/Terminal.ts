@@ -3,6 +3,8 @@
  * Full terminal UI with command input, history, and interactive menu
  */
 
+import WalletConnectService from '../services/WalletConnectService'
+
 interface TerminalLine {
   type: 'prompt' | 'command' | 'output' | 'success' | 'error' | 'warning'
   content: string
@@ -20,39 +22,48 @@ interface Tool {
 
 interface WalletData {
   connected: boolean
-  accountId: string
+  accountId: string | null
   hbarBalance: string
   network: string
+  hasSlime: boolean | null  // null = not checked yet
 }
 
 export class Terminal {
   private static history: TerminalLine[] = []
   private static commandHistory: string[] = []
   private static historyIndex: number = -1
-  private static currentInput: string = ''
+  // @ts-expect-error reserved for future use
+  private static _currentInput: string = ''
 
+  private static walletSubscribed: boolean = false
+  private static connectingWallet: boolean = false
   private static walletData: WalletData = {
     connected: false,
-    accountId: '0.0.1234567',
-    hbarBalance: '1,247.83',
-    network: 'TESTNET'
+    accountId: null,
+    hbarBalance: '0',
+    network: 'MAINNET',
+    hasSlime: null
   }
 
   private static tools: Tool[] = [
-    { id: 'art-generator', number: 1, title: 'Art Generator', description: 'Generate NFT artwork', icon: '◆', status: 'coming-soon', accessRequired: 'Shittles NFT' },
+    { id: 'art-generator', number: 1, title: 'Art Generator', description: 'Generate NFT artwork', icon: '◆', status: 'active', accessRequired: 'Shittles NFT' },
     { id: 'create-collection', number: 2, title: 'Create Collection', description: 'Create a new NFT collection', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'mint-nfts', number: 3, title: 'Mint NFTs', description: 'Batch mint NFTs (up to 10)', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
-    { id: 'create-token', number: 4, title: 'Create Token', description: 'Create a new fungible token', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
-    { id: 'update-token-icon', number: 5, title: 'Update Token Icon', description: 'Update token metadata/icon', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
-    { id: 'add-liquidity', number: 6, title: 'Add Liquidity', description: 'Add liquidity to DEX', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
+    { id: 'create-token', number: 4, title: 'Create Token', description: 'Create a new fungible token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'update-token-icon', number: 5, title: 'Update Token Icon', description: 'Update token metadata/icon', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'add-liquidity', number: 6, title: 'Add Liquidity', description: 'Add liquidity to DEX', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'token-viewer', number: 7, title: 'Token Viewer', description: 'View token information', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'snapshot', number: 8, title: 'Snapshot Tool', description: 'Capture holder accounts', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
     { id: 'airdrop', number: 9, title: 'Airdrop Tool', description: 'Distribute tokens to wallets', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'swap', number: 10, title: 'Swap Tool', description: 'Migrate holders to new token', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
     { id: 'burn', number: 11, title: 'Burn Tool', description: 'Permanently burn tokens/NFTs', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'staking', number: 12, title: 'Staking Tool', description: 'Rewards for holders', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
-    { id: 'domain-registration', number: 13, title: 'Domain Registration', description: 'Register HNS domains (.hbar)', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' }
+    { id: 'domain-registration', number: 13, title: 'Domain Registration', description: 'Register .hbar domains (KNS)', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' }
   ]
+
+  private static isTokenGateVerified(): boolean {
+    return this.walletData.connected && this.walletData.hasSlime === true
+  }
 
   static render(): string {
     return `
@@ -61,6 +72,60 @@ export class Terminal {
         ${this.renderTerminalContent()}
         ${this.renderInputArea()}
         ${this.renderStatusBar()}
+      </div>
+      ${!this.isTokenGateVerified() && !this.connectingWallet ? this.renderTokenGateOverlay() : ''}
+    `
+  }
+
+  private static renderTokenGateOverlay(): string {
+    let statusContent = ''
+
+    if (!this.walletData.connected) {
+      // State 1: Not connected — show connect button
+      statusContent = `
+        <button class="token-gate-connect-btn" id="token-gate-connect-btn">
+          ⚡ CONNECT WALLET
+        </button>
+      `
+    } else if (this.walletData.hasSlime === null) {
+      // State 2: Connected, verifying SLIME
+      statusContent = `
+        <div class="token-gate-status verifying">
+          <span class="token-gate-spinner">⟳</span> Verifying SLIME NFT ownership...
+        </div>
+      `
+    } else if (this.walletData.hasSlime === false) {
+      // State 3: Connected, no SLIME found
+      statusContent = `
+        <div class="token-gate-status error">
+          ✗ No SLIME NFT found in wallet <strong>${this.walletData.accountId}</strong>
+        </div>
+        <div class="token-gate-status error" style="margin-top: 0.75rem;">
+          A <strong>SLIME NFT</strong> is required to access the Creator Kit tools.
+        </div>
+        <div class="token-gate-status" style="margin-top: 1rem;">
+          <a href="https://sentx.io/nft-marketplace/0.0.9474754" target="_blank" rel="noopener">
+            → Get a SLIME on SentX
+          </a>
+        </div>
+        <button class="token-gate-connect-btn" id="token-gate-disconnect-btn" style="margin-top: 1.5rem; background: transparent; border: 1px solid var(--terminal-purple); color: var(--terminal-purple);">
+          ↻ DISCONNECT & TRY ANOTHER WALLET
+        </button>
+      `
+    }
+
+    return `
+      <div class="token-gate-overlay" id="token-gate-overlay">
+        <div class="token-gate-card">
+          <div class="token-gate-icon">🔒</div>
+          <div class="token-gate-title">Token-Gated Access</div>
+          <div class="token-gate-subtitle">
+            The Hedera Creator Kit is exclusively available to<br/>
+            <strong>SLIME NFT</strong> holders (Token ID: 0.0.9474754).
+          </div>
+          <hr class="token-gate-divider" />
+          ${statusContent}
+        </div>
       </div>
     `
   }
@@ -79,11 +144,12 @@ export class Terminal {
   }
 
   private static renderTerminalContent(): string {
-    const output = this.history.length === 0 ? this.getWelcomeScreen() : this.history
+    // Always show the clean welcome screen — no command history on the homepage
+    const welcome = this.getWelcomeScreen()
 
     return `
       <div class="terminal-content" id="terminal-content">
-        ${output.map(line => this.renderLine(line)).join('')}
+        ${welcome.map(line => this.renderLine(line)).join('')}
       </div>
     `
   }
@@ -102,12 +168,6 @@ export class Terminal {
       { type: 'success', content: '╚════════════════════════════════════════════════════════════╝' },
       { type: 'output', content: '' }
     ]
-
-    // Only show wallet warning if not connected
-    if (!this.walletData.connected) {
-      lines.push({ type: 'warning', content: '⚠  Wallet not connected. Type "connect" to connect your wallet.' })
-      lines.push({ type: 'output', content: '' })
-    }
 
     lines.push({ type: 'output', content: 'Type "help" for available commands or select a tool below:' })
     lines.push({ type: 'output', content: '' })
@@ -141,9 +201,13 @@ export class Terminal {
   }
 
   private static renderInputArea(): string {
+    const promptUser = this.walletData.connected && this.walletData.accountId
+      ? this.walletData.accountId
+      : 'hedera-creator-kit'
+
     return `
       <div class="terminal-input-area">
-        <span class="input-prompt">user@hedera:~$</span>
+        <span class="input-prompt">${promptUser}@hedera:~$</span>
         <input
           type="text"
           class="terminal-input"
@@ -197,6 +261,42 @@ export class Terminal {
   }
 
   static init(): void {
+    // Subscribe to wallet state changes (only once)
+    if (!this.walletSubscribed) {
+      this.walletSubscribed = true
+      WalletConnectService.subscribe((state) => {
+        this.walletData.connected = state.connected
+        this.walletData.accountId = state.accountId
+        this.walletData.network = state.network
+        this.walletData.hbarBalance = state.hbarBalance || '0'
+        this.walletData.hasSlime = state.hasSlime
+        this.refresh()
+      })
+
+      // Check for existing WalletConnect sessions on first init
+      WalletConnectService.init().catch((err: unknown) => {
+        console.error('WalletConnect init error:', err)
+      })
+    }
+
+    // Wire up the token-gate connect button
+    const connectBtn = document.getElementById('token-gate-connect-btn')
+    if (connectBtn) {
+      connectBtn.addEventListener('click', () => {
+        this.connectWallet()
+      })
+    }
+
+    // Wire up the token-gate disconnect button
+    const disconnectBtn = document.getElementById('token-gate-disconnect-btn')
+    if (disconnectBtn) {
+      disconnectBtn.addEventListener('click', async () => {
+        await WalletConnectService.disconnect()
+        // Refresh page to clear all state
+        window.location.reload()
+      })
+    }
+
     const input = document.getElementById('terminal-input') as HTMLInputElement
     if (!input) return
 
@@ -234,22 +334,23 @@ export class Terminal {
       }
     })
 
-    // Auto-focus input
-    input.focus()
+    // Auto-focus input (only if no overlay blocking)
+    if (this.isTokenGateVerified()) {
+      input.focus()
+    }
 
     // Keep input focused when clicking anywhere in terminal
     document.querySelector('.terminal-content')?.addEventListener('click', () => {
-      input.focus()
+      if (this.isTokenGateVerified()) {
+        input.focus()
+      }
     })
   }
 
   private static handleCommand(command: string): void {
-    // Add command to history
-    this.history.push({ type: 'prompt', content: `user@hedera:~$ ${command}` })
-
     const cmd = command.toLowerCase().trim()
 
-    // Check for number input (1-13)
+    // Check for number input (1-13) — navigate to tool, no history
     if (/^([1-9]|1[0-3])$/.test(cmd)) {
       const toolNumber = parseInt(cmd)
       const tool = this.tools.find(t => t.number === toolNumber)
@@ -261,34 +362,27 @@ export class Terminal {
 
     // Command routing
     switch (cmd) {
-      case 'help':
-        this.showHelp()
-        break
-      case 'connect':
-        this.connectWallet()
-        break
       case 'clear':
         this.clearScreen()
         return
+      case 'help':
       case 'tools':
       case 'list':
-        this.listTools()
-        break
       case 'wallet':
-        this.showWallet()
-        break
+        // These are informational — just refresh the homepage (no history text)
+        this.refresh()
+        return
       default:
         // Fuzzy search for tool names
         const matchedTool = this.findToolByName(cmd)
         if (matchedTool) {
           this.openTool(matchedTool)
         } else {
-          this.history.push({ type: 'error', content: `Command not found: ${command}` })
-          this.history.push({ type: 'output', content: 'Type "help" for available commands' })
+          // Unknown command — just refresh, no error text on homepage
+          this.refresh()
         }
+        return
     }
-
-    this.refresh()
   }
 
   private static findToolByName(search: string): Tool | null {
@@ -299,11 +393,11 @@ export class Terminal {
     ) || null
   }
 
-  private static showHelp(): void {
+  // @ts-expect-error reserved for future use
+  private static _showHelp(): void {
     this.history.push({ type: 'success', content: '═══ AVAILABLE COMMANDS ═══' })
     this.history.push({ type: 'output', content: '' })
     this.history.push({ type: 'output', content: '  help              Show this help message' })
-    this.history.push({ type: 'output', content: '  connect           Connect your wallet' })
     this.history.push({ type: 'output', content: '  wallet            Show wallet information' })
     this.history.push({ type: 'output', content: '  tools, list       List all available tools' })
     this.history.push({ type: 'output', content: '  clear             Clear the terminal' })
@@ -312,19 +406,37 @@ export class Terminal {
     this.history.push({ type: 'output', content: '' })
   }
 
-  private static connectWallet(): void {
+  private static async connectWallet(): Promise<void> {
     if (this.walletData.connected) {
-      this.history.push({ type: 'warning', content: 'Wallet already connected!' })
       return
     }
 
-    this.history.push({ type: 'output', content: 'Connecting wallet...' })
-    this.walletData.connected = true
-    this.history.push({ type: 'success', content: `✓ Connected: ${this.walletData.accountId}` })
-    this.history.push({ type: 'success', content: `✓ Balance: ${this.walletData.hbarBalance} ℏ` })
+    // Set flag to prevent refresh() from re-rendering the overlay while WC modal is open
+    this.connectingWallet = true
+
+    // Hide our overlay so the WalletConnect modal is fully visible
+    const overlay = document.getElementById('token-gate-overlay')
+    if (overlay) {
+      overlay.style.display = 'none'
+    }
+
+    try {
+      await WalletConnectService.connect()
+    } catch (error: any) {
+      console.error('WalletConnect error:', error)
+    }
+
+    // Clear the flag — allow overlay to render again
+    this.connectingWallet = false
+
+    // If still not verified, re-render to show the overlay again
+    if (!this.isTokenGateVerified()) {
+      this.refresh()
+    }
   }
 
-  private static showWallet(): void {
+  // @ts-expect-error reserved for future use
+  private static _showWallet(): void {
     if (!this.walletData.connected) {
       this.history.push({ type: 'warning', content: 'No wallet connected. Type "connect" to connect.' })
       return
@@ -336,7 +448,8 @@ export class Terminal {
     this.history.push({ type: 'output', content: `  Network:    ${this.walletData.network}` })
   }
 
-  private static listTools(): void {
+  // @ts-expect-error reserved for future use
+  private static _listTools(): void {
     this.history.push({ type: 'success', content: '═══ AVAILABLE TOOLS ═══' })
     this.history.push({ type: 'output', content: '' })
     this.history.push(...this.getToolsList())
@@ -344,8 +457,7 @@ export class Terminal {
 
   private static openTool(tool: Tool): void {
     if (tool.status === 'coming-soon') {
-      this.history.push({ type: 'warning', content: `⚠ ${tool.title} is coming soon!` })
-      this.refresh()
+      // Coming soon — just stay on homepage, no text added
       return
     }
 

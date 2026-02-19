@@ -19,6 +19,9 @@
     "creator-tools"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@hashgraph/hedera-wallet-connect": "^2.0.4",
+    "@walletconnect/modal": "^2.7.0"
+  }
 }
-

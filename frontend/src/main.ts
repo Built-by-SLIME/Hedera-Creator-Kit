@@ -3,6 +3,14 @@ import { Terminal } from './components/Terminal'
 import { TokenViewer } from './components/TokenViewer'
 import { SnapshotTool } from './components/SnapshotTool'
 import { AirdropTool } from './components/AirdropTool'
+import { ArtGenerator } from './components/ArtGenerator'
+import { CreateCollection } from './components/CreateCollection'
+import { MintNFTs } from './components/MintNFTs'
+import { CreateToken } from './components/CreateToken'
+import { UpdateTokenIcon } from './components/UpdateTokenIcon'
+import { AddLiquidity } from './components/AddLiquidity'
+import { BurnTool } from './components/BurnTool'
+import { DomainTool } from './components/DomainTool'
 
 // Initialize the application
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -34,6 +42,65 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       app.innerHTML = AirdropTool.render()
       AirdropTool.init()
       console.log('AirdropTool initialized')
+      break
+    case 'art-generator':
+      console.log('Rendering ArtGenerator')
+      app.innerHTML = ArtGenerator.render()
+      ArtGenerator.init()
+      console.log('ArtGenerator initialized')
+      break
+    case 'create-collection':
+      console.log('Rendering CreateCollection')
+      app.innerHTML = CreateCollection.render()
+      CreateCollection.init()
+      console.log('CreateCollection initialized')
+      break
+    case 'mint-nfts':
+      console.log('Rendering MintNFTs')
+      app.innerHTML = MintNFTs.render()
+      MintNFTs.init()
+      console.log('MintNFTs initialized')
+      break
+    case 'create-token':
+      console.log('Rendering CreateToken')
+      app.innerHTML = CreateToken.render()
+      CreateToken.init()
+      console.log('CreateToken initialized')
+      break
+    case 'update-token-icon':
+      console.log('Rendering UpdateTokenIcon')
+      app.innerHTML = UpdateTokenIcon.render()
+      UpdateTokenIcon.init()
+      console.log('UpdateTokenIcon initialized')
+      break
+    case 'add-liquidity':
+      console.log('Rendering AddLiquidity')
+      app.innerHTML = AddLiquidity.render()
+      AddLiquidity.init()
+      console.log('AddLiquidity initialized')
+      break
+    case 'burn':
+      console.log('Rendering BurnTool')
+      app.innerHTML = BurnTool.render()
+      BurnTool.init()
+      console.log('BurnTool initialized')
+      break
+    case 'domain-registration':
+      console.log('Rendering DomainTool')
+      app.innerHTML = DomainTool.render()
+      DomainTool.init()
+      console.log('DomainTool initialized')
+      break
+    case 'home':
+    case 'menu':
+      console.log('Returning to menu')
+      console.log('App element:', app)
+      const rendered = Terminal.render()
+      console.log('Rendered HTML length:', rendered.length)
+      app.innerHTML = rendered
+      console.log('App innerHTML set, length:', app.innerHTML.length)
+      Terminal.init()
+      console.log('Terminal.init() called')
       break
     // Add other tools here as they're implemented
     default:

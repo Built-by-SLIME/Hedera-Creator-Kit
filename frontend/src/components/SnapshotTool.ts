@@ -25,7 +25,7 @@ export class SnapshotTool {
   private static loading: boolean = false
   private static error: string | null = null
   private static treasuryAccount: string | null = null
-  private static mirrorNodeUrl: string = 'https://mainnet-public.mirrornode.hedera.com'
+  private static mirrorNodeUrl: string = 'https://mainnet.hedera.validationcloud.io/v1/amIlRBQJ2H_JqUtx4ZhMrGGJ8u27_JZ3E-mMobLOJXA'
 
   static render(): string {
     return `
@@ -372,7 +372,7 @@ export class SnapshotTool {
         holder.serials.push(serial)
       }
 
-      nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null
+      nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null as any
     }
 
     // Convert to array and apply balance filters
@@ -420,7 +420,7 @@ export class SnapshotTool {
         })
       }
 
-      nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null
+      nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null as any
     }
 
     this.holders = holders.sort((a, b) => parseInt(b.balance) - parseInt(a.balance))

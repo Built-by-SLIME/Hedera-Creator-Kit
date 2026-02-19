@@ -33,7 +33,7 @@ export class TokenViewer {
   private static totalHolders: number = 0
   private static loading: boolean = false
   private static error: string | null = null
-  private static mirrorNodeUrl: string = 'https://mainnet-public.mirrornode.hedera.com'
+  private static mirrorNodeUrl: string = 'https://mainnet.hedera.validationcloud.io/v1/amIlRBQJ2H_JqUtx4ZhMrGGJ8u27_JZ3E-mMobLOJXA'
 
   static render(): string {
     return `
@@ -304,10 +304,10 @@ export class TokenViewer {
       let nextLink: string | null = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/balances?limit=100`
 
       while (nextLink) {
-        const response = await fetch(nextLink)
+        const response: Response = await fetch(nextLink)
         if (!response.ok) throw new Error('Failed to fetch holders')
 
-        const data = await response.json()
+        const data: any = await response.json()
         allBalances = allBalances.concat(data.balances)
 
         // Check if there's a next page

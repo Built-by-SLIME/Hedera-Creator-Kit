@@ -13,7 +13,11 @@
     "burn": "node 2-nft-minting/burn_nfts.js",
     "clean-upload": "node 3-metadata-tools/clean_and_upload_metadata.js",
     "generate-cids": "node 3-metadata-tools/generate_cids.js",
-    "query-mirror": "node 4-utilities/query_mirror_node.js"
+    "query-mirror": "node 4-utilities/query_mirror_node.js",
+    "generate-art": "ts-node 5-art-generator/generate.ts",
+    "build-generator": "cd 5-art-generator && tsc",
+    "api-server": "ts-node api-server/server.ts",
+    "dev": "ts-node api-server/server.ts"
   },
   "keywords": [
     "hedera",
@@ -29,13 +33,30 @@
   "license": "MIT",
   "dependencies": {
     "@hashgraph/sdk": "^2.75.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/multer": "^1.4.13",
+    "@types/node": "^25.0.3",
+    "adm-zip": "^0.5.16",
     "axios": "^1.13.2",
+    "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
     "dotenv": "^17.2.3",
-    "form-data": "^4.0.5"
+    "express": "^4.22.1",
+    "form-data": "^4.0.5",
+    "fs-extra": "^11.3.3",
+    "multer": "^1.4.5-lts.1",
+    "sharp": "^0.34.5",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/fs-extra": "^11.0.4",
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
   },
   "engines": {
     "node": ">=16.0.0"
   }
 }
-

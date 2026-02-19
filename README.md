@@ -8,9 +8,9 @@ A cyberpunk-themed dashboard for creating and managing NFT collections on Hedera
 - ✅ **Create Collection** - Create NFT collections with custom royalties
 - ✅ **Mint NFTs** - Batch mint up to 10 NFTs per transaction
 - ✅ **Burn NFTs** - Permanently burn NFTs from collections
+- ✅ **Art Generator** - Generate NFT collections with automatic IPFS upload
 
 ### Coming Soon
-- ⚪ **Art Generator** - Generate NFT artwork from trait layers
 - ⚪ **Airdrop Tool** - Distribute tokens & NFTs to multiple wallets
 - ⚪ **Snapshot Tool** - Capture holder accounts for any token
 - ⚪ **Token Swap** - Migrate holders between tokens
@@ -27,15 +27,39 @@ npm run install:all
 ```bash
 cd backend
 cp .env.example .env
-# Edit .env with your Hedera credentials
+# Edit .env with your Hedera credentials and Pinata API keys
 ```
 
-### 3. Run Development Server
+### 3. Run Servers
+
+**Terminal 1 - Backend API (for Art Generator):**
 ```bash
+cd backend
 npm run dev
 ```
 
-Open http://localhost:3000
+**Terminal 2 - Frontend:**
+```bash
+cd frontend
+npm run dev
+```
+
+Open http://localhost:5173
+
+## 🎨 Art Generator Setup
+
+For detailed Art Generator setup and usage, see [ART_GENERATOR_SETUP.md](./ART_GENERATOR_SETUP.md)
+
+**Quick Setup:**
+1. Get Pinata API credentials from [pinata.cloud](https://pinata.cloud)
+2. Add to `backend/.env`:
+   ```env
+   PINATA_API_KEY=your_key
+   PINATA_API_SECRET=your_secret
+   ```
+3. Start backend API: `cd backend && npm run dev`
+4. Start frontend: `cd frontend && npm run dev`
+5. Navigate to Art Generator in the dashboard
 
 ## 📁 Project Structure
 

@@ -16,7 +16,7 @@ const NETWORK = process.env.NETWORK || 'testnet';
 const TOKEN_ID = process.env.TOKEN_ID;
 
 const MIRROR_NODE_URL = NETWORK.toLowerCase() === 'mainnet'
-    ? 'https://mainnet-public.mirrornode.hedera.com'
+    ? 'https://mainnet.hedera.validationcloud.io/v1/REDACTED_API_KEY'
     : 'https://testnet.mirrornode.hedera.com';
 
 // ============================================================================
