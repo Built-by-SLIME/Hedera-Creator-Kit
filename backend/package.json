@@ -18,8 +18,8 @@
     "build-generator": "cd 5-art-generator && tsc",
     "api-server": "ts-node --transpile-only api-server/server.ts",
     "dev": "ts-node --transpile-only api-server/server.ts",
-    "build": "echo 'Backend ready (ts-node runtime)'",
-    "start": "ts-node --transpile-only api-server/server.ts"
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/api-server/server.js"
   },
   "keywords": [
     "hedera",

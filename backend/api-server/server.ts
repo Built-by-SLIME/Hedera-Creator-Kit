@@ -14,7 +14,14 @@ import { pinCollectionMetadata } from './routes/pin-collection-metadata';
 import { pinNftMetadata } from './routes/pin-nft-metadata';
 
 
-dotenv.config({ path: path.join(__dirname, '../.env') });
+// Resolve the backend root directory regardless of ts-node vs compiled mode.
+// ts-node:  __dirname = <repo>/backend/api-server
+// compiled: __dirname = <repo>/backend/dist/api-server
+export const BACKEND_ROOT = __dirname.includes('dist')
+  ? path.join(__dirname, '../..')   // dist/api-server -> backend
+  : path.join(__dirname, '..');     // api-server      -> backend
+
+dotenv.config({ path: path.join(BACKEND_ROOT, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || process.env.API_PORT || 3001;
@@ -32,7 +39,7 @@ app.use(express.json());
 const upload = multer({
   storage: multer.diskStorage({
     destination: async (req, file, cb) => {
-      const uploadDir = path.join(__dirname, '../temp-uploads');
+      const uploadDir = path.join(BACKEND_ROOT, 'temp-uploads');
       await fs.ensureDir(uploadDir);
       cb(null, uploadDir);
     },
@@ -57,7 +64,7 @@ const upload = multer({
 const imageUpload = multer({
   storage: multer.diskStorage({
     destination: async (req, file, cb) => {
-      const uploadDir = path.join(__dirname, '../temp-uploads');
+      const uploadDir = path.join(BACKEND_ROOT, 'temp-uploads');
       await fs.ensureDir(uploadDir);
       cb(null, uploadDir);
     },

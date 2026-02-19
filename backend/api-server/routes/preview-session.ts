@@ -4,7 +4,7 @@ import fs from 'fs-extra';
 import { v4 as uuidv4 } from 'uuid';
 import { NFTGenerator } from '../../5-art-generator/nftGenerator';
 import { GeneratorConfig, RarityConfig } from '../../5-art-generator/types';
-import { previewSessions } from '../server';
+import { previewSessions, BACKEND_ROOT } from '../server';
 
 const MAX_PREVIEWS = 5;
 const PREVIEW_COUNT = 20;
@@ -38,7 +38,7 @@ export async function previewFromSession(req: Request, res: Response) {
     }
 
     // Find the session directory
-    const sessionDir = path.join(__dirname, '../../temp-sessions', body.sessionId);
+    const sessionDir = path.join(BACKEND_ROOT, 'temp-sessions', body.sessionId);
 
     if (!await fs.pathExists(sessionDir)) {
       return res.status(404).json({ success: false, error: 'Session not found. Please re-upload your ZIP file.' });
@@ -65,7 +65,7 @@ export async function previewFromSession(req: Request, res: Response) {
 
     // Create temp output directory
     const tempId = uuidv4();
-    outputDir = path.join(__dirname, '../../temp-previews', tempId);
+    outputDir = path.join(BACKEND_ROOT, 'temp-previews', tempId);
     const metadataDir = path.join(outputDir, 'metadata');
     const imagesDir = path.join(outputDir, 'images');
 

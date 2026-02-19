@@ -7,6 +7,7 @@ import axios from 'axios';
 import FormData from 'form-data';
 import { NFTGenerator } from '../../5-art-generator/nftGenerator';
 import { GeneratorConfig, RarityConfig } from '../../5-art-generator/types';
+import { BACKEND_ROOT } from '../server';
 
 interface GenerateRequest {
   config: {
@@ -110,7 +111,7 @@ export async function generateCollection(req: Request, res: Response) {
     const configData: GenerateRequest['config'] = JSON.parse(req.body.config || '{}');
 
     // Create temp directory
-    tempDir = path.join(__dirname, '../../temp-generation', uuidv4());
+    tempDir = path.join(BACKEND_ROOT, 'temp-generation', uuidv4());
     await fs.ensureDir(tempDir);
 
     const traitsDir = path.join(tempDir, 'traits');

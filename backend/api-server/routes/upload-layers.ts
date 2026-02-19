@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import AdmZip from 'adm-zip';
 import { v4 as uuidv4 } from 'uuid';
+import { BACKEND_ROOT } from '../server';
 
 interface LayerInfo {
   name: string;
@@ -26,7 +27,7 @@ export async function uploadLayers(req: Request, res: Response) {
 
     // Create a persistent session directory for this upload
     const sessionId = uuidv4();
-    sessionDir = path.join(__dirname, '../../temp-sessions', sessionId);
+    sessionDir = path.join(BACKEND_ROOT, 'temp-sessions', sessionId);
     const traitsDir = path.join(sessionDir, 'traits');
 
     await fs.ensureDir(traitsDir);

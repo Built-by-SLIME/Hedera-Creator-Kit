@@ -5,7 +5,7 @@ import AdmZip from 'adm-zip';
 import { v4 as uuidv4 } from 'uuid';
 import { NFTGenerator } from '../../5-art-generator/nftGenerator';
 import { GeneratorConfig, RarityConfig } from '../../5-art-generator/types';
-import { previewSessions } from '../server';
+import { previewSessions, BACKEND_ROOT } from '../server';
 
 const MAX_PREVIEWS = 5;
 const PREVIEW_COUNT = 20;
@@ -61,7 +61,7 @@ export async function previewCollection(req: Request, res: Response) {
     previewSessions.set(sessionId, session);
 
     // Create temp directory
-    tempDir = path.join(__dirname, '../../temp-previews', uuidv4());
+    tempDir = path.join(BACKEND_ROOT, 'temp-previews', uuidv4());
     await fs.ensureDir(tempDir);
 
     const traitsDir = path.join(tempDir, 'traits');
