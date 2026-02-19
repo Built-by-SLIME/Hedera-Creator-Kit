@@ -1120,7 +1120,7 @@ export class MintNFTs {
         const tx = new TokenMintTransaction()
           .setTokenId(this.tokenInfo.tokenId)
           .setMetadata(metadataList)
-          .setMaxTransactionFee(new Hbar(2)); // Set max fee for minting (higher for batches)
+          .setMaxTransactionFee(new Hbar(10)); // Max fee must exceed network minimum (default 2 HBAR is too low post v0.70.0)
 
         const signer = WalletConnectService.getSigner(accountId);
         const acctId = AccountId.fromString(accountId);
