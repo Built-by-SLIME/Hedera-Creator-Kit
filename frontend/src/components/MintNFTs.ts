@@ -1109,9 +1109,11 @@ export class MintNFTs {
       this.refresh();
 
       try {
+        // Use TextEncoder for browser-compatible encoding (instead of Node.js Buffer)
+        const encoder = new TextEncoder();
         const metadataList = batch.map(e => {
           const uri = e.tokenURI.startsWith('ipfs://') ? e.tokenURI : `ipfs://${e.metadataCID}`;
-          return Buffer.from(uri);
+          return encoder.encode(uri);
         });
 
         const tx = new TokenMintTransaction()
