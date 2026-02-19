@@ -100,7 +100,6 @@ export class DomainTool {
 
   private static renderForm(): string {
     const domainClean = this.domainInput.toLowerCase().replace(/[^a-z0-9-]/g, '')
-    const canSearch = domainClean.length >= 1
     const canRegister = this.isAvailable === true && this.priceTinybar !== null
     const priceHbar = this.priceTinybar ? (this.priceTinybar / 1e8).toFixed(2) : null
 
