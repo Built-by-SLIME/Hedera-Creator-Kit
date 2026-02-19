@@ -34,7 +34,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@hashgraph/sdk": "^2.75.0",
+    "@hashgraph/sdk": "^2.80.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.25",
     "@types/multer": "^1.4.13",
