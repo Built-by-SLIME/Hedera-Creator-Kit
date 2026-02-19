@@ -10,6 +10,7 @@ import {
   TokenMintTransaction,
   AccountId,
   TransactionId,
+  Hbar,
 } from '@hashgraph/sdk'
 
 interface NftEntry {
@@ -1118,7 +1119,8 @@ export class MintNFTs {
 
         const tx = new TokenMintTransaction()
           .setTokenId(this.tokenInfo.tokenId)
-          .setMetadata(metadataList);
+          .setMetadata(metadataList)
+          .setMaxTransactionFee(new Hbar(2)); // Set max fee for minting (higher for batches)
 
         const signer = WalletConnectService.getSigner(accountId);
         const acctId = AccountId.fromString(accountId);
