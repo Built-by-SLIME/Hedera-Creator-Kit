@@ -3,6 +3,7 @@
  * Updates a token's metadata/icon on Hedera via TokenUpdateTransaction + WalletConnect signing
  */
 import WalletConnectService from '../services/WalletConnectService'
+import { API_BASE_URL, MIRROR_NODE_URL } from '../config'
 import {
   TokenUpdateTransaction,
   TokenId,
@@ -12,9 +13,6 @@ import {
 } from '@hashgraph/sdk'
 
 type UpdateStep = 'form' | 'updating' | 'success';
-
-const API_BASE = 'http://localhost:3001';
-const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
 
 export class UpdateTokenIcon {
   // Form state
@@ -382,7 +380,7 @@ export class UpdateTokenIcon {
     if (this.imageFile) formData.append('logo', this.imageFile);
     if (this.tokenInfo?.name) formData.append('collectionName', this.tokenInfo.name);
 
-    const res = await fetch(`${API_BASE}/api/pin-collection-metadata`, {
+    const res = await fetch(`${API_BASE_URL}/api/pin-collection-metadata`, {
       method: 'POST',
       body: formData,
     });

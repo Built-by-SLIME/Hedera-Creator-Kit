@@ -3,6 +3,7 @@
  * Creates an NFT collection on Hedera via TokenCreateTransaction + WalletConnect signing
  */
 import WalletConnectService from '../services/WalletConnectService'
+import { API_BASE_URL, MIRROR_NODE_URL } from '../config'
 import {
   TokenCreateTransaction,
   TokenType,
@@ -19,9 +20,6 @@ import {
 interface RoyaltyEntry { wallet: string; percentage: number; }
 interface SocialEntry { label: string; url: string; info: string; }
 type CreateStep = 'form' | 'creating' | 'success';
-
-const API_BASE = 'http://localhost:3001';
-const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
 
 const SOCIAL_PLATFORMS = ['Discord', 'Twitter', 'LinkedIn', 'Reddit', 'Telegram', 'Facebook', 'YouTube', 'Other'];
 
@@ -834,7 +832,7 @@ export class CreateCollection {
       }
     }
 
-    const res = await fetch(`${API_BASE}/api/pin-collection-metadata`, {
+    const res = await fetch(`${API_BASE_URL}/api/pin-collection-metadata`, {
       method: 'POST',
       body: formData,
     });

@@ -3,6 +3,7 @@
  * Distribute NFTs or Fungible Tokens to multiple accounts
  */
 import WalletConnectService from '../services/WalletConnectService'
+import { MIRROR_NODE_URL } from '../config'
 import {
   AccountId,
   Client,
@@ -11,8 +12,6 @@ import {
   NftId,
   TransferTransaction,
 } from '@hashgraph/sdk'
-
-const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com'
 
 interface AirdropRecipient {
   accountId: string

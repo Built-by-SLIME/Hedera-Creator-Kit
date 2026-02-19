@@ -2,6 +2,7 @@
  * Snapshot Tool Component
  * Capture holder accounts based on various filters
  */
+import { MIRROR_NODE_URL } from '../config'
 
 interface SnapshotHolder {
   accountId: string
@@ -25,7 +26,7 @@ export class SnapshotTool {
   private static loading: boolean = false
   private static error: string | null = null
   private static treasuryAccount: string | null = null
-  private static mirrorNodeUrl: string = 'https://mainnet.hedera.validationcloud.io/v1/amIlRBQJ2H_JqUtx4ZhMrGGJ8u27_JZ3E-mMobLOJXA'
+  private static mirrorNodeUrl: string = MIRROR_NODE_URL
 
   static render(): string {
     return `

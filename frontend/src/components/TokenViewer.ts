@@ -2,6 +2,7 @@
  * Token Viewer Component
  * View detailed token information via Mirror Node API
  */
+import { MIRROR_NODE_URL } from '../config'
 
 interface TokenData {
   name: string
@@ -33,7 +34,7 @@ export class TokenViewer {
   private static totalHolders: number = 0
   private static loading: boolean = false
   private static error: string | null = null
-  private static mirrorNodeUrl: string = 'https://mainnet.hedera.validationcloud.io/v1/amIlRBQJ2H_JqUtx4ZhMrGGJ8u27_JZ3E-mMobLOJXA'
+  private static mirrorNodeUrl: string = MIRROR_NODE_URL
 
   static render(): string {
     return `

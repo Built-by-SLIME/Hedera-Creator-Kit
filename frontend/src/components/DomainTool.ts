@@ -3,6 +3,7 @@
  * Register .hbar domains via HNS (Hedera Name Service) API + TransferTransaction + WalletConnect
  */
 import WalletConnectService from '../services/WalletConnectService'
+import { MIRROR_NODE_URL } from '../config'
 import {
   TransferTransaction,
   TokenAssociateTransaction,
@@ -15,7 +16,6 @@ import {
 const HNS_API_BASE = 'https://api.prod.hashgraph.name'
 const HNS_NFT_TOKEN_ID = '0.0.1234197'  // .hbar domain NFT token
 const HNS_FEE_ACCOUNT = '0.0.1233811'   // HNS fee collection account
-const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com'
 
 type DomainStep = 'form' | 'success'
 

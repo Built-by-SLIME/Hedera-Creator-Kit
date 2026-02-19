@@ -3,6 +3,7 @@
  * Creates a fungible token on Hedera via TokenCreateTransaction + WalletConnect signing
  */
 import WalletConnectService from '../services/WalletConnectService'
+import { API_BASE_URL, MIRROR_NODE_URL } from '../config'
 import {
   TokenCreateTransaction,
   TokenType,
@@ -17,9 +18,6 @@ import {
 } from '@hashgraph/sdk'
 
 type CreateTokenStep = 'form' | 'creating' | 'success';
-
-const API_BASE = 'http://localhost:3001';
-const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
 
 export class CreateToken {
   // Form state — required
@@ -601,7 +599,7 @@ export class CreateToken {
     if (this.imageFile) formData.append('logo', this.imageFile);
     if (this.tokenName) formData.append('collectionName', this.tokenName);
 
-    const res = await fetch(`${API_BASE}/api/pin-collection-metadata`, {
+    const res = await fetch(`${API_BASE_URL}/api/pin-collection-metadata`, {
       method: 'POST',
       body: formData,
     });

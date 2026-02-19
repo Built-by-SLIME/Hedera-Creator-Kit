@@ -1,13 +1,14 @@
 /**
  * Art Generator Component
  */
+import { API_BASE_URL } from '../config'
+
 interface LayerInfo { name: string; traits: { name: string; filename: string; extension: string }[]; }
 interface TraitWeight { traitCategory: string; traitValue: string; weight: number; }
 interface ExclusionRule { trait1: { category: string; value: string }; trait2: { category: string; value: string }; }
 interface ForcedPairing { ifTrait: { category: string; value: string }; thenTrait: { category: string; value: string }; }
 interface PreviewItem { id: number; image: string; metadata: any; }
 type ArtGenStep = 'upload' | 'configure' | 'preview' | 'generate' | 'complete';
-const API_BASE = 'http://localhost:3001';
 
 export class ArtGenerator {
   private static step: ArtGenStep = 'upload';
@@ -523,7 +524,7 @@ export class ArtGenerator {
       const formData = new FormData();
       formData.append('zipFile', file);
 
-      const response = await fetch(`${API_BASE}/api/upload-layers`, {
+      const response = await fetch(`${API_BASE_URL}/api/upload-layers`, {
         method: 'POST',
         body: formData
       });
@@ -568,7 +569,7 @@ export class ArtGenerator {
         }
       };
 
-      const response = await fetch(`${API_BASE}/api/preview-session`, {
+      const response = await fetch(`${API_BASE_URL}/api/preview-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: this.sessionId, config })
@@ -612,7 +613,7 @@ export class ArtGenerator {
         }
       };
 
-      const response = await fetch(`${API_BASE}/api/generate-session`, {
+      const response = await fetch(`${API_BASE_URL}/api/generate-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: this.sessionId, config })

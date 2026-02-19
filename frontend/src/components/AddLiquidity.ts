@@ -15,9 +15,10 @@ import {
   TransactionId,
 } from '@hashgraph/sdk'
 
+import { MIRROR_NODE_URL } from '../config'
+
 type LiquidityStep = 'form' | 'processing' | 'success';
 
-const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
 const SAUCER_V1_ROUTER = '0.0.3045981';
 const WHBAR_TOKEN_ID = '0.0.1456986';
 

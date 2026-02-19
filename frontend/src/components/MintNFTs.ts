@@ -4,6 +4,7 @@
  * Supports CSV import (from Art Generator) and direct upload with IPFS pinning
  */
 import WalletConnectService from '../services/WalletConnectService'
+import { API_BASE_URL, MIRROR_NODE_URL } from '../config'
 import JSZip from 'jszip'
 import {
   TokenMintTransaction,
@@ -36,8 +37,7 @@ interface TokenInfo {
 type MintMode = 'csv' | 'direct';
 type MintStep = 'setup' | 'minting' | 'complete';
 
-const API_BASE = 'http://localhost:3001';
-const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
+
 
 export class MintNFTs {
   // State
@@ -954,7 +954,7 @@ export class MintNFTs {
           formData.append('attributes', JSON.stringify(attrs));
         }
 
-        const res = await fetch(`${API_BASE}/api/pin-nft-metadata`, {
+        const res = await fetch(`${API_BASE_URL}/api/pin-nft-metadata`, {
           method: 'POST',
           body: formData,
         });

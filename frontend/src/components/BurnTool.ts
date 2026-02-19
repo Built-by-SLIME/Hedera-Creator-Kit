@@ -3,6 +3,7 @@
  * Permanently burn tokens/NFTs on Hedera via TokenBurnTransaction + WalletConnect signing
  */
 import WalletConnectService from '../services/WalletConnectService'
+import { MIRROR_NODE_URL } from '../config'
 import {
   TokenBurnTransaction,
   TokenId,
@@ -10,8 +11,6 @@ import {
   Client,
   TransactionId,
 } from '@hashgraph/sdk'
-
-const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com'
 
 type BurnStep = 'form' | 'success'
 
