@@ -88,8 +88,11 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
         .setMetadata(metadataList)
         .setMaxTransactionFee(new Hbar(10)); // Increased fee for post-v0.70.0
 
+      // Freeze transaction with client
+      const frozenTx = await mintTx.freezeWith(client);
+
       // Sign with supply key
-      const signedTx = await mintTx.sign(supplyPrivateKey);
+      const signedTx = await frozenTx.sign(supplyPrivateKey);
 
       // Execute using user's HBAR allowance (backend pays from user's account)
       const txResponse = await signedTx.execute(client);
