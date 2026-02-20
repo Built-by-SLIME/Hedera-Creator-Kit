@@ -47,6 +47,9 @@ export const HNS_NFT_TOKEN_ID = '0.0.1234197'
 /** HNS fee collection account */
 export const HNS_FEE_ACCOUNT = '0.0.1233811'
 
+/** Backend minter account (for HBAR allowance approvals) */
+export const BACKEND_MINTER_ACCOUNT = (import.meta as any).env?.VITE_BACKEND_MINTER_ACCOUNT || '0.0.1234567' // TODO: Replace with actual backend account
+
 // ---------------------------------------------------------------------------
 // Hedera SDK helpers
 // ---------------------------------------------------------------------------

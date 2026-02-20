@@ -13,6 +13,7 @@ import {
   Hbar,
   AccountId,
   PublicKey,
+  PrivateKey,
   TransactionId,
 } from '@hashgraph/sdk'
 
@@ -73,6 +74,8 @@ export class CreateCollection {
 
   // Result
   private static tokenId: string | null = null;
+  private static generatedSupplyKey: string | null = null; // Private key to show on success
+  private static supplyKeyRevealed = false;
 
   static render(): string {
     return `<div class="terminal-window">${this.renderChrome()}${this.renderContent()}${this.renderStatusBar()}</div>`;
@@ -224,7 +227,7 @@ export class CreateCollection {
   private static renderKeysSection(): string {
     const keys = [
       { id: 'admin', label: 'Admin Key', hint: 'Update/delete the token', prop: 'keyAdmin' as const },
-      { id: 'supply', label: 'Supply Key', hint: 'Mint new NFTs', prop: 'keySupply' as const },
+      { id: 'supply', label: 'Supply Key', hint: 'Mint new NFTs (required for minting)', prop: 'keySupply' as const },
       { id: 'metadata', label: 'Metadata Key', hint: 'Update token metadata', prop: 'keyMetadata' as const },
       { id: 'freeze', label: 'Freeze Key', hint: 'Freeze/unfreeze accounts', prop: 'keyFreeze' as const },
       { id: 'wipe', label: 'Wipe Key', hint: 'Wipe tokens from accounts', prop: 'keyWipe' as const },
@@ -233,11 +236,11 @@ export class CreateCollection {
     ];
 
     return `
-      <h4 class="cc-sub-heading">Token Keys <span class="cc-field-hint">(set to your treasury wallet)</span></h4>
+      <h4 class="cc-sub-heading">Token Keys <span class="cc-field-hint">(generated keys will be shown on success)</span></h4>
       <div class="cc-keys-grid">
         ${keys.map(k => `
           <label class="cc-key-item">
-            <input type="checkbox" class="cc-key-checkbox" data-key="${k.id}" ${(this as any)[k.prop] ? 'checked' : ''} />
+            <input type="checkbox" class="cc-key-checkbox" data-key="${k.id}" ${(this as any)[k.prop] ? 'checked' : ''} ${k.id === 'supply' ? 'disabled' : ''} />
             <span class="cc-key-label">${k.label}</span>
             <span class="cc-key-hint">${k.hint}</span>
           </label>
@@ -383,6 +386,9 @@ export class CreateCollection {
 
   private static renderSuccessDetails(): string {
     const network = WalletConnectService.getState().network?.toLowerCase() || 'mainnet';
+    const maskedKey = this.generatedSupplyKey ? '•'.repeat(64) : '';
+    const displayKey = this.supplyKeyRevealed ? this.generatedSupplyKey : maskedKey;
+
     return `
       <div class="cc-right-content">
         <h4 class="section-title" style="font-size:0.95rem">🎉 Success!</h4>
@@ -394,11 +400,23 @@ export class CreateCollection {
           <label>View on HashScan</label>
           <a class="cid-link" href="https://hashscan.io/${network}/token/${this.tokenId}" target="_blank" rel="noopener">https://hashscan.io/${network}/token/${this.tokenId}</a>
         </div>
+        ${this.generatedSupplyKey ? `
+          <div class="result-block" style="margin-top:0.75rem;border:2px solid var(--warning-yellow);padding:0.75rem;border-radius:4px;background:rgba(255,193,7,0.05)">
+            <label style="color:var(--warning-yellow)">⚠️ Supply Private Key</label>
+            <p style="font-size:0.75rem;color:var(--terminal-text-dim);margin:0.25rem 0 0.5rem">Save this key securely! You need it to mint NFTs. Store it like a seed phrase.</p>
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.5rem">
+              <code class="cid-value" style="font-size:0.75rem;flex:1;word-break:break-all;font-family:monospace">${displayKey}</code>
+              <button class="terminal-button small" id="cc-toggle-key" style="padding:0.3rem 0.6rem;font-size:0.75rem">${this.supplyKeyRevealed ? 'HIDE' : 'REVEAL'}</button>
+              <button class="terminal-button small" id="cc-copy-key" style="padding:0.3rem 0.6rem;font-size:0.75rem">COPY</button>
+            </div>
+          </div>
+        ` : ''}
         <div class="result-block" style="margin-top:0.75rem">
           <label>Next Steps</label>
           <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">1. Save your Token ID: <strong>${this.tokenId}</strong></p>
-          <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">2. Prepare your metadata CIDs</p>
-          <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">3. Use the Mint NFTs tool to mint</p>
+          ${this.generatedSupplyKey ? `<p style="font-size:0.82rem;color:var(--warning-yellow);margin:0">2. <strong>Save your Supply Key above!</strong></p>` : ''}
+          <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">${this.generatedSupplyKey ? '3' : '2'}. Prepare your metadata CIDs</p>
+          <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">${this.generatedSupplyKey ? '4' : '3'}. Use the Mint NFTs tool to mint</p>
         </div>
       </div>`;
   }
@@ -470,6 +488,8 @@ export class CreateCollection {
     this.error = null;
     this.statusMessage = '';
     this.tokenId = null;
+    this.generatedSupplyKey = null;
+    this.supplyKeyRevealed = false;
   }
 
   // --- INIT: wire up event listeners ---
@@ -639,6 +659,29 @@ export class CreateCollection {
 
     // New collection button (from success screen)
     document.getElementById('cc-new')?.addEventListener('click', () => { this.resetForm(); this.refresh(); });
+
+    // Supply key reveal/hide toggle
+    document.getElementById('cc-toggle-key')?.addEventListener('click', () => {
+      this.supplyKeyRevealed = !this.supplyKeyRevealed;
+      this.refresh();
+    });
+
+    // Supply key copy button
+    document.getElementById('cc-copy-key')?.addEventListener('click', async () => {
+      if (this.generatedSupplyKey) {
+        try {
+          await navigator.clipboard.writeText(this.generatedSupplyKey);
+          const btn = document.getElementById('cc-copy-key');
+          if (btn) {
+            const originalText = btn.textContent;
+            btn.textContent = 'COPIED!';
+            setTimeout(() => { btn.textContent = originalText; }, 2000);
+          }
+        } catch (err) {
+          console.error('Failed to copy:', err);
+        }
+      }
+    });
   }
 
   // Helper: wire up a file input zone for an image key
@@ -683,12 +726,19 @@ export class CreateCollection {
       if (!ws.connected || !ws.accountId) throw new Error('Wallet not connected');
       const accountId = ws.accountId;
 
-      // 1. Fetch treasury public key from mirror node
+      // 1. Fetch treasury public key from mirror node (for admin/metadata/etc keys)
       this.statusMessage = 'Fetching account public key...';
       this.refresh();
       const pubKey = await this.fetchPublicKey(accountId);
 
-      // 2. If any HIP-766 metadata provided, pin to IPFS
+      // 2. Generate a dedicated ED25519 supply key
+      this.statusMessage = 'Generating supply key...';
+      this.refresh();
+      const supplyPrivateKey = PrivateKey.generateED25519();
+      const supplyPublicKey = supplyPrivateKey.publicKey;
+      this.generatedSupplyKey = supplyPrivateKey.toString(); // Store for display on success
+
+      // 3. If any HIP-766 metadata provided, pin to IPFS
       let metadataBytes: Uint8Array | null = null;
       const hasMetadata = this.description || this.creator ||
         this.website || this.discussion || this.whitepaper ||
@@ -700,7 +750,7 @@ export class CreateCollection {
         metadataBytes = await this.pinMetadata();
       }
 
-      // 3. Build the TokenCreateTransaction
+      // 4. Build the TokenCreateTransaction
       this.statusMessage = 'Building transaction...';
       this.refresh();
 
@@ -716,7 +766,8 @@ export class CreateCollection {
 
       // Conditionally set keys based on user selection
       if (this.keyAdmin) tx.setAdminKey(pubKey);
-      if (this.keySupply) tx.setSupplyKey(pubKey);
+      // Supply key is ALWAYS set to the generated key (required for minting)
+      tx.setSupplyKey(supplyPublicKey);
       if (this.keyMetadata) tx.setMetadataKey(pubKey);
       if (this.keyFreeze) tx.setFreezeKey(pubKey);
       if (this.keyWipe) tx.setWipeKey(pubKey);

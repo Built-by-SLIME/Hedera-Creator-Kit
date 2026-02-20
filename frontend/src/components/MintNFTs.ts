@@ -4,13 +4,15 @@
  * Supports CSV import (from Art Generator) and direct upload with IPFS pinning
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { API_BASE_URL, MIRROR_NODE_URL, getHederaClient } from '../config'
+import { API_BASE_URL, MIRROR_NODE_URL, BACKEND_MINTER_ACCOUNT, getHederaClient } from '../config'
 import JSZip from 'jszip'
 import {
   TokenMintTransaction,
   AccountId,
   TransactionId,
   Hbar,
+  AccountAllowanceApproveTransaction,
+  PrivateKey,
 } from '@hashgraph/sdk'
 
 interface NftEntry {
@@ -52,6 +54,11 @@ export class MintNFTs {
   private static tokenInfo: TokenInfo | null = null;
   private static tokenValidated = false;
   private static tokenError: string | null = null;
+
+  // Supply Key
+  private static supplyKeyInput = '';
+  private static supplyKeyRevealed = false;
+  private static supplyKeyError: string | null = null;
 
   // CSV Import
   private static csvEntries: NftEntry[] = [];
@@ -141,6 +148,9 @@ export class MintNFTs {
   }
 
   private static renderTokenIdSection(): string {
+    const maskedKey = this.supplyKeyInput ? '•'.repeat(this.supplyKeyInput.length) : '';
+    const displayKey = this.supplyKeyRevealed ? this.supplyKeyInput : maskedKey;
+
     return `
       <div class="filter-divider"></div>
       <div class="input-group">
@@ -152,6 +162,18 @@ export class MintNFTs {
         ${this.tokenError ? `<p style="color:#ff6b6b;font-size:0.8rem;margin:0.25rem 0 0">${this.tokenError}</p>` : ''}
         ${this.tokenValidated && this.tokenInfo ? `<p style="color:var(--accent-green);font-size:0.8rem;margin:0.25rem 0 0">✓ ${this.escapeHtml(this.tokenInfo.name)} (${this.tokenInfo.symbol}) — ${this.tokenInfo.totalSupply}/${this.tokenInfo.maxSupply} minted</p>` : ''}
       </div>
+
+      ${this.tokenValidated ? `
+        <div class="input-group" style="margin-top:0.75rem">
+          <label>Supply Private Key <span class="cc-field-hint">from collection creation</span></label>
+          <div style="display:flex;gap:0.5rem;align-items:flex-start">
+            <input type="${this.supplyKeyRevealed ? 'text' : 'password'}" class="token-input" id="mint-supply-key" placeholder="Paste your supply private key..." value="${this.escapeHtml(this.supplyKeyInput)}" style="flex:1;font-family:monospace;font-size:0.85rem" />
+            <button class="terminal-button small" id="mint-toggle-supply-key" style="padding:0.4rem 0.6rem">${this.supplyKeyRevealed ? 'HIDE' : 'SHOW'}</button>
+          </div>
+          ${this.supplyKeyError ? `<p style="color:#ff6b6b;font-size:0.8rem;margin:0.25rem 0 0">${this.supplyKeyError}</p>` : ''}
+          <p style="color:var(--terminal-text-dim);font-size:0.75rem;margin:0.25rem 0 0">This is the private key shown when you created the collection. Required for minting.</p>
+        </div>
+      ` : ''}
     `;
   }
 
@@ -489,6 +511,19 @@ export class MintNFTs {
 
     // Validate button
     document.getElementById('mint-validate-token')?.addEventListener('click', () => this.validateToken());
+
+    // Supply key input
+    const supplyKeyInput = document.getElementById('mint-supply-key') as HTMLInputElement | null;
+    supplyKeyInput?.addEventListener('input', () => {
+      this.supplyKeyInput = supplyKeyInput.value;
+      this.supplyKeyError = null;
+    });
+
+    // Supply key toggle button
+    document.getElementById('mint-toggle-supply-key')?.addEventListener('click', () => {
+      this.supplyKeyRevealed = !this.supplyKeyRevealed;
+      this.refresh();
+    });
 
     // Mode tabs
     document.querySelectorAll('.mint-mode-tab').forEach(btn => {
@@ -869,20 +904,6 @@ export class MintNFTs {
         throw new Error('This token has no Supply Key — minting is not possible');
       }
 
-      // Check if connected wallet's public key matches supply key
-      const ws = WalletConnectService.getState();
-      if (ws.accountId) {
-        const acctRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${ws.accountId}`);
-        if (acctRes.ok) {
-          const acctData = await acctRes.json();
-          const walletKey = acctData.key?.key;
-          const supplyKey = data.supply_key?.key;
-          if (walletKey && supplyKey && walletKey !== supplyKey) {
-            throw new Error(`Your wallet's public key does not match this token's Supply Key. You cannot mint to this collection.`);
-          }
-        }
-      }
-
       this.tokenInfo = {
         tokenId: data.token_id,
         name: data.name || 'Unnamed',
@@ -1075,6 +1096,22 @@ export class MintNFTs {
       return;
     }
 
+    // Validate supply key
+    if (!this.supplyKeyInput.trim()) {
+      this.supplyKeyError = 'Supply private key is required';
+      this.refresh();
+      return;
+    }
+
+    // Validate supply key format
+    try {
+      PrivateKey.fromString(this.supplyKeyInput.trim());
+    } catch (err) {
+      this.supplyKeyError = 'Invalid supply key format';
+      this.refresh();
+      return;
+    }
+
     const entries = this.mode === 'csv' ? this.csvEntries : this.directEntries;
     const pendingEntries = entries.filter(e => e.status === 'pending');
     if (pendingEntries.length === 0) {
@@ -1090,86 +1127,89 @@ export class MintNFTs {
       return;
     }
 
+    const accountId = ws.accountId;
+
+    // Calculate total HBAR cost (estimate: 0.05 HBAR per NFT, add 20% buffer)
+    const estimatedCostPerNFT = 0.05;
+    const totalCost = Math.ceil(pendingEntries.length * estimatedCostPerNFT * 1.2);
+
     this.step = 'minting';
     this.isMinting = true;
     this.error = null;
-    const batches: NftEntry[][] = [];
-    for (let i = 0; i < pendingEntries.length; i += this.batchSize) {
-      batches.push(pendingEntries.slice(i, i + this.batchSize));
-    }
-    this.totalBatches = batches.length;
-    this.currentBatch = 0;
+    this.statusMessage = `Approving ${totalCost} HBAR allowance for minting ${pendingEntries.length} NFTs...`;
     this.refresh();
 
-    const accountId = ws.accountId;
+    try {
+      // Step 1: Approve HBAR allowance (ONE wallet signature)
+      const allowanceTx = new AccountAllowanceApproveTransaction()
+        .approveHbarAllowance(
+          AccountId.fromString(accountId),
+          AccountId.fromString(BACKEND_MINTER_ACCOUNT),
+          new Hbar(totalCost)
+        );
 
-    for (const batch of batches) {
-      this.currentBatch++;
-      this.statusMessage = `Minting batch ${this.currentBatch}/${this.totalBatches} (${batch.length} NFTs)... Waiting for wallet approval.`;
-      batch.forEach(e => e.status = 'minting');
+      const signer = WalletConnectService.getSigner(accountId);
+      const acctId = AccountId.fromString(accountId);
+      allowanceTx.setTransactionId(TransactionId.generate(acctId));
+      allowanceTx.freezeWith(getHederaClient());
+
+      this.statusMessage = 'Waiting for wallet approval...';
       this.refresh();
 
+      await allowanceTx.executeWithSigner(signer);
+
+      this.statusMessage = 'Allowance approved! Sending to backend for minting...';
+      this.refresh();
+
+      // Step 2: Send to backend for minting
+      const metadataCIDs = pendingEntries.map(e => e.metadataCID);
+
+      const response = await fetch(`${API_BASE_URL}/api/mint-nfts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tokenId: this.tokenInfo.tokenId,
+          supplyKey: this.supplyKeyInput.trim(),
+          metadataCIDs,
+          userAccountId: accountId,
+        }),
+      });
+
+      const text = await response.text();
+      let data: any;
       try {
-        // Use TextEncoder for browser-compatible encoding (instead of Node.js Buffer)
-        const encoder = new TextEncoder();
-        const metadataList = batch.map(e => {
-          const uri = e.tokenURI.startsWith('ipfs://') ? e.tokenURI : `ipfs://${e.metadataCID}`;
-          return encoder.encode(uri);
-        });
-
-        const tx = new TokenMintTransaction()
-          .setTokenId(this.tokenInfo.tokenId)
-          .setMetadata(metadataList)
-          .setMaxTransactionFee(new Hbar(10)); // Max fee must exceed network minimum (default 2 HBAR is too low post v0.70.0)
-
-        const signer = WalletConnectService.getSigner(accountId);
-        const acctId = AccountId.fromString(accountId);
-        tx.setTransactionId(TransactionId.generate(acctId));
-        tx.freezeWith(getHederaClient());
-        const txResponse = await tx.executeWithSigner(signer);
-
-        // Try to get receipt for serial numbers
-        let serials: number[] = [];
-        if (txResponse && typeof (txResponse as any).getReceiptWithSigner === 'function') {
-          try {
-            const receipt = await (txResponse as any).getReceiptWithSigner(signer);
-            serials = (receipt?.serials || []).map((s: any) => typeof s === 'object' && s.low !== undefined ? s.low : Number(s));
-          } catch { /* receipt may not be available */ }
-        }
-
-        // If no serials from receipt, try polling mirror node
-        if (serials.length === 0 && txResponse?.transactionId) {
-          serials = await this.pollForSerials(txResponse.transactionId.toString(), batch.length);
-        }
-
-        batch.forEach((e, idx) => {
-          e.status = 'minted';
-          e.serial = serials[idx] || 0;
-          this.mintedSerials.push({ number: e.number, serial: e.serial || 0 });
-        });
-
-        // Update total supply in token info
-        this.tokenInfo.totalSupply += batch.length;
-      } catch (err: any) {
-        console.error('Mint batch error:', err);
-        batch.forEach(e => {
-          e.status = 'error';
-          e.error = err.message || 'Mint failed';
-          this.mintErrors.push({ number: e.number, error: e.error || 'Unknown error' });
-        });
-        // Stop minting on error — user can resume
-        this.isMinting = false;
-        this.statusMessage = `Batch ${this.currentBatch} failed: ${err.message}`;
-        this.refresh();
-        return;
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Server returned ${response.status}: ${text || 'empty response'}`);
       }
 
+      if (!data.success) {
+        throw new Error(data.error || 'Backend minting failed');
+      }
+
+      // Update entries with minted serials
+      const serials = data.serials || [];
+      pendingEntries.forEach((e, idx) => {
+        e.status = 'minted';
+        e.serial = serials[idx] || 0;
+        this.mintedSerials.push({ number: e.number, serial: e.serial || 0 });
+      });
+
+      // Update total supply
+      this.tokenInfo.totalSupply += pendingEntries.length;
+
+      this.isMinting = false;
+      this.statusMessage = `Successfully minted ${pendingEntries.length} NFTs!`;
+      this.step = 'complete';
+      this.refresh();
+    } catch (err: any) {
+      console.error('Minting error:', err);
+      this.isMinting = false;
+      this.error = err.message || 'Minting failed';
+      this.statusMessage = '';
+      this.step = 'setup';
       this.refresh();
     }
-
-    this.isMinting = false;
-    this.statusMessage = 'All batches complete';
-    this.refresh();
   }
 
   // ─── POLL FOR SERIALS ──────────────────────────────────────
@@ -1239,6 +1279,9 @@ export class MintNFTs {
     this.tokenInfo = null;
     this.tokenValidated = false;
     this.tokenError = null;
+    this.supplyKeyInput = '';
+    this.supplyKeyRevealed = false;
+    this.supplyKeyError = null;
     this.csvEntries = [];
     this.csvFileName = '';
     this.directEntries = [];

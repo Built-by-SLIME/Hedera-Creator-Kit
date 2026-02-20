@@ -12,6 +12,7 @@ import { previewFromSession } from './routes/preview-session';
 import { generateFromSession } from './routes/generate-session';
 import { pinCollectionMetadata } from './routes/pin-collection-metadata';
 import { pinNftMetadata } from './routes/pin-nft-metadata';
+import { mintNfts } from './routes/mint-nfts';
 
 
 // Resolve the backend root directory regardless of ts-node vs compiled mode.
@@ -120,7 +121,9 @@ app.post('/api/pin-nft-metadata', imageUpload.fields([
   pinNftMetadata(req, res).catch(next);
 });
 
-
+app.post('/api/mint-nfts', (req, res, next) => {
+  mintNfts(req, res).catch(next);
+});
 
 // Health check
 app.get('/api/health', (req: Request, res: Response) => {
