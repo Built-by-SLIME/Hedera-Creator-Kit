@@ -89,12 +89,12 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
       });
 
       // Create mint transaction with user as the payer (via allowance)
-      const userAccountId = AccountId.fromString(userAccountId);
+      const userAcctId = AccountId.fromString(userAccountId);
       const mintTx = new TokenMintTransaction()
         .setTokenId(tokenId)
         .setMetadata(metadataList)
         .setMaxTransactionFee(new Hbar(10)) // Increased fee for post-v0.70.0
-        .setTransactionId(TransactionId.generate(userAccountId)); // User pays via allowance
+        .setTransactionId(TransactionId.generate(userAcctId)); // User pays via allowance
 
       // Freeze transaction with client
       const frozenTx = await mintTx.freezeWith(client);
