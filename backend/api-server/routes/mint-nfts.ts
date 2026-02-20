@@ -1,10 +1,5 @@
 import { Request, Response } from 'express';
 import { Client, PrivateKey, TokenMintTransaction, AccountId, Hbar } from '@hashgraph/sdk';
-import dotenv from 'dotenv';
-import path from 'path';
-import { BACKEND_ROOT } from '../server';
-
-dotenv.config({ path: path.join(BACKEND_ROOT, '.env') });
 
 const BACKEND_ACCOUNT_ID = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
