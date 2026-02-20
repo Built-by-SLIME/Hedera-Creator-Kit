@@ -20,8 +20,8 @@ interface CalculateFeeResponse {
 
 /**
  * POST /api/calculate-mint-fee
- * Calculates exact minting fees using getCost() method
- * 
+ * Calculates exact minting fees using getCost() method from Hedera SDK
+ *
  * Flow:
  * 1. Takes tokenId and metadata CIDs
  * 2. Creates a sample mint transaction with first 10 metadata entries (one batch)
