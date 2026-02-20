@@ -9,6 +9,7 @@ import {
   TokenId,
   AccountId,
   TransactionId,
+  PrivateKey,
 } from '@hashgraph/sdk'
 
 type BurnStep = 'form' | 'success'
@@ -44,6 +45,9 @@ export class BurnTool {
   private static txIds: string[] = []
   private static burnedCount: number = 0
   private static showConfirmModal = false
+  private static supplyKeyInput = ''
+  private static supplyKeyRevealed = false
+  private static supplyKeyError: string | null = null
 
   // ─── RENDER ────────────────────────────────────────────────
 
@@ -143,8 +147,20 @@ export class BurnTool {
             <button class="terminal-button" id="burn-validate" style="white-space:nowrap">VALIDATE</button>
           </div>
           ${this.tokenError ? `<p style="font-size:0.78rem;color:#ff6b6b;margin:0.35rem 0 0">${this.tokenError}</p>` : ''}
-          ${this.tokenValidated && this.tokenInfo ? `<p style="font-size:0.78rem;color:#6bff9e;margin:0.35rem 0 0">✓ ${this.tokenInfo.name} (${this.tokenInfo.symbol}) — ${isNFT ? 'NFT Collection' : 'Fungible Token'} — Supply Key ✓</p>` : ''}
+          ${this.tokenValidated && this.tokenInfo ? `<p style="font-size:0.78rem;color:#6bff9e;margin:0.35rem 0 0">✓ ${this.tokenInfo.name} (${this.tokenInfo.symbol}) — ${isNFT ? 'NFT Collection' : 'Fungible Token'}</p>` : ''}
         </div>
+
+        ${this.tokenValidated ? `
+          <div class="input-group" style="margin-top:0.75rem">
+            <label for="burn-supply-key">Supply Private Key *</label>
+            <div style="display:flex;gap:0.5rem;align-items:flex-start">
+              <input type="${this.supplyKeyRevealed ? 'text' : 'password'}" id="burn-supply-key" placeholder="Paste your supply private key..." value="${this.escapeHtml(this.supplyKeyInput)}" style="flex:1;font-family:monospace;font-size:0.8rem" />
+              <button class="terminal-button small" id="burn-toggle-supply-key" style="white-space:nowrap">${this.supplyKeyRevealed ? 'HIDE' : 'SHOW'}</button>
+            </div>
+            ${this.supplyKeyError ? `<p style="font-size:0.78rem;color:#ff6b6b;margin:0.35rem 0 0">${this.supplyKeyError}</p>` : ''}
+            <p style="font-size:0.75rem;color:var(--terminal-text-dim);margin:0.35rem 0 0">Enter the supply private key shown when you created this collection.</p>
+          </div>
+        ` : ''}
 
         ${this.tokenValidated && isNFT ? this.renderNFTSelector() : ''}
         ${this.tokenValidated && isFungible ? this.renderFungibleInput() : ''}
@@ -216,7 +232,6 @@ export class BurnTool {
           <div class="info-row"><span>Type</span><span class="status-value">${isNFT ? 'NFT Collection' : 'Fungible Token'}</span></div>
           <div class="info-row"><span>Total Supply</span><span class="status-value">${this.tokenInfo.totalSupply}</span></div>
           <div class="info-row"><span>Treasury</span><span class="status-value">${this.tokenInfo.treasuryAccountId}</span></div>
-          <div class="info-row"><span>Supply Key</span><span class="status-value" style="color:#6bff9e">✓ Matches Wallet</span></div>
         </div>
         ${isNFT && selectedSerials.length > 0 ? `
           <div class="result-block" style="margin-top:0.75rem">
@@ -310,6 +325,9 @@ export class BurnTool {
     this.txIds = []
     this.burnedCount = 0
     this.showConfirmModal = false
+    this.supplyKeyInput = ''
+    this.supplyKeyRevealed = false
+    this.supplyKeyError = null
   }
 
   // ─── INIT ──────────────────────────────────────────────────
@@ -327,6 +345,19 @@ export class BurnTool {
 
     // Validate button
     document.getElementById('burn-validate')?.addEventListener('click', () => this.validateToken())
+
+    // Supply key input
+    const supplyKeyInput = document.getElementById('burn-supply-key') as HTMLInputElement
+    supplyKeyInput?.addEventListener('input', () => {
+      this.supplyKeyInput = supplyKeyInput.value
+      this.supplyKeyError = null
+    })
+
+    // Supply key toggle
+    document.getElementById('burn-toggle-supply-key')?.addEventListener('click', () => {
+      this.supplyKeyRevealed = !this.supplyKeyRevealed
+      this.refresh()
+    })
 
     // Serial checkboxes (NFT)
     document.querySelectorAll('.burn-serial-cb').forEach(cb => {
@@ -414,15 +445,7 @@ export class BurnTool {
         throw new Error('Please connect your wallet first.')
       }
 
-      const acctRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${ws.accountId}`)
-      if (!acctRes.ok) throw new Error('Could not fetch wallet info')
-      const acctData = await acctRes.json()
-      const walletKey = acctData.key?.key
       const supplyKey = data.supply_key?.key
-
-      if (walletKey && supplyKey && walletKey !== supplyKey) {
-        throw new Error(`Your wallet's public key does not match this token's Supply Key. You cannot burn these tokens.`)
-      }
 
       this.tokenInfo = {
         tokenId: data.token_id,
@@ -513,6 +536,24 @@ export class BurnTool {
     const isNFT = this.tokenInfo.type === 'NON_FUNGIBLE_UNIQUE'
     const selectedSerials = this.ownedSerials.filter(s => s.selected).map(s => s.serial)
 
+    // Validate supply key
+    if (!this.supplyKeyInput.trim()) {
+      this.error = 'Supply private key is required'
+      this.loading = false
+      this.refresh()
+      return
+    }
+
+    let supplyPrivateKey: PrivateKey
+    try {
+      supplyPrivateKey = PrivateKey.fromString(this.supplyKeyInput.trim())
+    } catch (err) {
+      this.error = 'Invalid supply key format'
+      this.loading = false
+      this.refresh()
+      return
+    }
+
     this.loading = true
     this.error = null
     this.txIds = []
@@ -534,16 +575,17 @@ export class BurnTool {
           const batchNum = Math.floor(i / BATCH_SIZE) + 1
           const totalBatches = Math.ceil(selectedSerials.length / BATCH_SIZE)
 
-          this.statusMessage = `Burning batch ${batchNum}/${totalBatches} (${batch.length} NFTs)... Waiting for wallet approval.`
+          this.statusMessage = `Burning batch ${batchNum}/${totalBatches} (${batch.length} NFTs)...`
           this.refresh()
 
           const tx = new TokenBurnTransaction()
             .setTokenId(tid)
             .setSerials(batch)
+            .setTransactionId(TransactionId.generate(acctId))
 
-          tx.setTransactionId(TransactionId.generate(acctId))
-          tx.freezeWith(getHederaClient())
-          const txResponse = await tx.executeWithSigner(signer)
+          const frozenTx = await tx.freezeWith(getHederaClient())
+          const signedTx = await frozenTx.sign(supplyPrivateKey)
+          const txResponse = await signedTx.executeWithSigner(signer)
 
           const txId = txResponse?.transactionId?.toString() || `batch-${batchNum}`
           this.txIds.push(txId)
@@ -557,16 +599,17 @@ export class BurnTool {
         const decimals = this.tokenInfo.decimals
         const rawAmount = Math.round(amount * Math.pow(10, decimals))
 
-        this.statusMessage = 'Waiting for wallet approval...'
+        this.statusMessage = 'Burning tokens...'
         this.refresh()
 
         const tx = new TokenBurnTransaction()
           .setTokenId(tid)
           .setAmount(rawAmount)
+          .setTransactionId(TransactionId.generate(acctId))
 
-        tx.setTransactionId(TransactionId.generate(acctId))
-        tx.freezeWith(getHederaClient())
-        const txResponse = await tx.executeWithSigner(signer)
+        const frozenTx = await tx.freezeWith(getHederaClient())
+        const signedTx = await frozenTx.sign(supplyPrivateKey)
+        const txResponse = await signedTx.executeWithSigner(signer)
 
         const txId = txResponse?.transactionId?.toString() || 'burn-tx'
         this.txIds.push(txId)
