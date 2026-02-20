@@ -60,7 +60,7 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
 
     // Set up Hedera client with backend operator
     const client = Client.forMainnet();
-    const backendPrivateKey = PrivateKey.fromStringED25519(BACKEND_PRIVATE_KEY!);
+    const backendPrivateKey = PrivateKey.fromString(BACKEND_PRIVATE_KEY!);
     client.setOperator(BACKEND_ACCOUNT_ID!, backendPrivateKey);
 
     // Batch metadata into groups of 10 (Hedera's hard limit)
