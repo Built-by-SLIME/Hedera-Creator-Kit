@@ -58,7 +58,7 @@ export class Terminal {
     { id: 'swap', number: 10, title: 'Swap Tool', description: 'Migrate holders to new token', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
     { id: 'burn', number: 11, title: 'Burn Tool', description: 'Permanently burn tokens/NFTs', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'staking', number: 12, title: 'Staking Tool', description: 'Rewards for holders', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
-    { id: 'domain-registration', number: 13, title: 'Domain Registration', description: 'Register .hbar domains (KNS)', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' }
+    { id: 'domain-registration', number: 13, title: 'Domain Registration', description: 'Register .hbar domains (KNS)', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' }
   ]
 
   private static isTokenGateVerified(): boolean {
