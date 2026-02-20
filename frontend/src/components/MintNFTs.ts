@@ -1146,13 +1146,14 @@ export class MintNFTs {
 
       const signer = WalletConnectService.getSigner(accountId);
       const acctId = AccountId.fromString(accountId);
-      allowanceTx.setTransactionId(TransactionId.generate(acctId));
-      allowanceTx.freezeWith(getHederaClient());
+      const frozenTx = await allowanceTx
+        .setTransactionId(TransactionId.generate(acctId))
+        .freezeWith(getHederaClient());
 
       this.statusMessage = 'Waiting for wallet approval...';
       this.refresh();
 
-      await allowanceTx.executeWithSigner(signer);
+      await frozenTx.executeWithSigner(signer);
 
       this.statusMessage = 'Allowance approved! Sending to backend for minting...';
       this.refresh();
