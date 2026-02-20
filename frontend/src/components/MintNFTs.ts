@@ -1124,6 +1124,7 @@ export class MintNFTs {
     }
 
     const accountId = ws.accountId;
+    const metadataCIDs = pendingEntries.map(e => e.metadataCID);
 
     this.step = 'minting';
     this.isMinting = true;
@@ -1173,8 +1174,6 @@ export class MintNFTs {
       this.refresh();
 
       // Step 3: Send to backend for minting
-      const metadataCIDs = pendingEntries.map(e => e.metadataCID);
-
       const response = await fetch(`${API_BASE_URL}/api/mint-nfts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
