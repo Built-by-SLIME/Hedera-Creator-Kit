@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Client, PrivateKey, TokenMintTransaction, AccountId, Hbar, TransactionId } from '@hashgraph/sdk';
+import { Client, PrivateKey, TokenMintTransaction, AccountId, Hbar } from '@hashgraph/sdk';
 
 const BACKEND_ACCOUNT_ID = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
@@ -17,12 +17,12 @@ interface MintRequest {
 
 /**
  * POST /api/mint-nfts
- * Mints NFTs using the supply key + user's HBAR allowance
- * 
+ * Mints NFTs using the supply key with operator paying fees
+ *
  * Flow:
- * 1. User approves HBAR allowance via AccountAllowanceApproveTransaction
+ * 1. User transfers HBAR to operator account to cover transaction fees
  * 2. Frontend sends supply key + metadata to this endpoint
- * 3. Backend mints in batches of 10 using supply key + user's allowance
+ * 3. Backend mints in batches of 10 using supply key (operator pays fees from received HBAR)
  * 4. Returns minted serial numbers
  */
 export async function mintNfts(req: Request, res: Response): Promise<void> {
@@ -88,13 +88,11 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
         return Buffer.from(uri);
       });
 
-      // Create mint transaction with user as the payer (via allowance)
-      const userAcctId = AccountId.fromString(userAccountId);
+      // Create mint transaction
       const mintTx = new TokenMintTransaction()
         .setTokenId(tokenId)
         .setMetadata(metadataList)
-        .setMaxTransactionFee(new Hbar(10)) // Increased fee for post-v0.70.0
-        .setTransactionId(TransactionId.generate(userAcctId)); // User pays via allowance
+        .setMaxTransactionFee(new Hbar(10)); // Increased fee for post-v0.70.0
 
       // Freeze transaction with client
       const frozenTx = await mintTx.freezeWith(client);
@@ -102,7 +100,7 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
       // Sign with supply key only (operator signs automatically for fee payment)
       const signedTx = await frozenTx.sign(supplyPrivateKey);
 
-      // Execute using user's HBAR allowance (backend pays from user's account)
+      // Execute - operator pays fees from its account (funded by user's transfer)
       const txResponse = await signedTx.execute(client);
       const receipt = await txResponse.getReceipt(client);
 

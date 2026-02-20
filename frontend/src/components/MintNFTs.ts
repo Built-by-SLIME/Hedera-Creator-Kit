@@ -10,7 +10,7 @@ import {
   AccountId,
   TransactionId,
   Hbar,
-  AccountAllowanceApproveTransaction,
+  TransferTransaction,
   PrivateKey,
 } from '@hashgraph/sdk'
 
@@ -1125,37 +1125,37 @@ export class MintNFTs {
 
     const accountId = ws.accountId;
 
-    // Calculate total HBAR cost (estimate: 0.05 HBAR per NFT, add 20% buffer)
-    const estimatedCostPerNFT = 0.05;
-    const totalCost = Math.ceil(pendingEntries.length * estimatedCostPerNFT * 1.2);
+    // Calculate total HBAR cost for transaction fees
+    // Fee estimate: ~0.01 HBAR per batch of 10 NFTs, add 10% buffer
+    const numBatches = Math.ceil(pendingEntries.length / 10);
+    const feePerBatch = 0.01;
+    const totalFee = numBatches * feePerBatch;
+    const feeWithBuffer = Math.ceil(totalFee * 1.1 * 100) / 100; // Round up to 2 decimals
 
     this.step = 'minting';
     this.isMinting = true;
     this.error = null;
-    this.statusMessage = `Approving ${totalCost} HBAR allowance for minting ${pendingEntries.length} NFTs...`;
+    this.statusMessage = `Transferring ${feeWithBuffer} HBAR to cover minting fees for ${pendingEntries.length} NFTs...`;
     this.refresh();
 
     try {
-      // Step 1: Approve HBAR allowance (ONE wallet signature)
-      const allowanceTx = new AccountAllowanceApproveTransaction()
-        .approveHbarAllowance(
-          AccountId.fromString(accountId),
-          AccountId.fromString(BACKEND_MINTER_ACCOUNT),
-          new Hbar(totalCost)
-        );
+      // Step 1: Transfer HBAR to operator to cover fees (ONE wallet signature)
+      const transferTx = new TransferTransaction()
+        .addHbarTransfer(AccountId.fromString(accountId), new Hbar(-feeWithBuffer))
+        .addHbarTransfer(AccountId.fromString(BACKEND_MINTER_ACCOUNT), new Hbar(feeWithBuffer));
 
       const signer = WalletConnectService.getSigner(accountId);
       const acctId = AccountId.fromString(accountId);
-      const frozenTx = await allowanceTx
+      const frozenTx = await transferTx
         .setTransactionId(TransactionId.generate(acctId))
         .freezeWith(getHederaClient());
 
-      this.statusMessage = 'Waiting for wallet approval...';
+      this.statusMessage = 'Waiting for wallet approval to transfer fees...';
       this.refresh();
 
       await frozenTx.executeWithSigner(signer);
 
-      this.statusMessage = 'Allowance approved! Sending to backend for minting...';
+      this.statusMessage = 'Fee transferred! Sending to backend for minting...';
       this.refresh();
 
       // Step 2: Send to backend for minting
