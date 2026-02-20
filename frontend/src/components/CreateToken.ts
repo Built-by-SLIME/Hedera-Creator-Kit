@@ -341,7 +341,7 @@ export class CreateToken {
     if (btn) btn.disabled = !this.canCreate();
   }
 
-  private static resetForm(): void {
+  static resetForm(): void {
     this.tokenName = '';
     this.symbol = '';
     this.decimals = 8;

@@ -236,7 +236,7 @@ export class DomainTool {
     if (newLeftPanel) newLeftPanel.scrollTop = scrollTop
   }
 
-  private static resetForm(): void {
+  static resetForm(): void {
     this.domainInput = ''
     this.years = 1
     this.priceTinybar = null

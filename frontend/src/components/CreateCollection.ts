@@ -454,7 +454,7 @@ export class CreateCollection {
     if (newLeftPanel) newLeftPanel.scrollTop = scrollTop;
   }
 
-  private static resetForm(): void {
+  static resetForm(): void {
     this.collectionName = '';
     this.symbol = '';
     this.maxSupply = 10000;

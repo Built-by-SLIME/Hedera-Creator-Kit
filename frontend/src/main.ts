@@ -94,6 +94,18 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
     case 'home':
     case 'menu':
       console.log('Returning to menu')
+
+      // Reset all tool states to clear any cached/persisted data
+      // This ensures tools start fresh when navigated to again
+      ArtGenerator.resetState()
+      CreateCollection.resetForm()
+      MintNFTs.resetState()
+      CreateToken.resetForm()
+      UpdateTokenIcon.resetForm()
+      AddLiquidity.resetForm()
+      BurnTool.resetForm()
+      DomainTool.resetForm()
+
       console.log('App element:', app)
       const rendered = Terminal.render()
       console.log('Rendered HTML length:', rendered.length)

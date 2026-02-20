@@ -310,7 +310,7 @@ export class BurnTool {
     if (newLeftPanel) newLeftPanel.scrollTop = scrollTop
   }
 
-  private static resetForm(): void {
+  static resetForm(): void {
     this.tokenIdInput = ''
     this.tokenValidated = false
     this.tokenInfo = null

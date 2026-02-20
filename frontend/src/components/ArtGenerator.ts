@@ -652,7 +652,7 @@ export class ArtGenerator {
     URL.revokeObjectURL(url);
   }
 
-  private static resetState(): void {
+  static resetState(): void {
     this.step = 'upload';
     this.sessionId = null;
     this.layers = [];

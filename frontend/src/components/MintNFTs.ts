@@ -1263,7 +1263,7 @@ export class MintNFTs {
   }
 
   // ─── RESET STATE ───────────────────────────────────────────
-  private static resetState(): void {
+  static resetState(): void {
     this.step = 'setup';
     this.mode = 'csv';
     this.tokenIdInput = '';

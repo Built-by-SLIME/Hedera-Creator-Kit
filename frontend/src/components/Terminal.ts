@@ -457,7 +457,12 @@ export class Terminal {
 
   private static openTool(tool: Tool): void {
     if (tool.status === 'coming-soon') {
-      // Coming soon — just stay on homepage, no text added
+      // Show "Coming Soon" message
+      this.history.push({ type: 'output', content: '' })
+      this.history.push({ type: 'warning', content: `⚠ ${tool.title} - Coming Soon` })
+      this.history.push({ type: 'output', content: 'This tool is currently under development.' })
+      this.history.push({ type: 'output', content: '' })
+      this.refresh()
       return
     }
 
