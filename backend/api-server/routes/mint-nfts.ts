@@ -91,8 +91,9 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
       // Freeze transaction with client
       const frozenTx = await mintTx.freezeWith(client);
 
-      // Sign with supply key
-      const signedTx = await frozenTx.sign(supplyPrivateKey);
+      // Sign with supply key AND operator key
+      const signedWithSupply = await frozenTx.sign(supplyPrivateKey);
+      const signedTx = await signedWithSupply.sign(backendPrivateKey);
 
       // Execute using user's HBAR allowance (backend pays from user's account)
       const txResponse = await signedTx.execute(client);
