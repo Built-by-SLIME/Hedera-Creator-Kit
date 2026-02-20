@@ -152,13 +152,13 @@ export class BurnTool {
 
         ${this.tokenValidated ? `
           <div class="input-group" style="margin-top:0.75rem">
-            <label for="burn-supply-key">Supply Private Key *</label>
+            <label>Supply Private Key <span class="cc-field-hint">from collection creation</span></label>
             <div style="display:flex;gap:0.5rem;align-items:flex-start">
-              <input type="${this.supplyKeyRevealed ? 'text' : 'password'}" id="burn-supply-key" placeholder="Paste your supply private key..." value="${this.escapeHtml(this.supplyKeyInput)}" style="flex:1;font-family:monospace;font-size:0.8rem" />
-              <button class="terminal-button small" id="burn-toggle-supply-key" style="white-space:nowrap">${this.supplyKeyRevealed ? 'HIDE' : 'SHOW'}</button>
+              <input type="${this.supplyKeyRevealed ? 'text' : 'password'}" class="token-input" id="burn-supply-key" placeholder="Paste your supply private key..." value="${this.escapeHtml(this.supplyKeyInput)}" style="flex:1;font-family:monospace;font-size:0.85rem" />
+              <button class="terminal-button small" id="burn-toggle-supply-key" style="padding:0.4rem 0.6rem">${this.supplyKeyRevealed ? 'HIDE' : 'SHOW'}</button>
             </div>
-            ${this.supplyKeyError ? `<p style="font-size:0.78rem;color:#ff6b6b;margin:0.35rem 0 0">${this.supplyKeyError}</p>` : ''}
-            <p style="font-size:0.75rem;color:var(--terminal-text-dim);margin:0.35rem 0 0">Enter the supply private key shown when you created this collection.</p>
+            ${this.supplyKeyError ? `<p style="color:#ff6b6b;font-size:0.8rem;margin:0.25rem 0 0">${this.supplyKeyError}</p>` : ''}
+            <p style="color:var(--terminal-text-dim);font-size:0.75rem;margin:0.25rem 0 0">This is the private key shown when you created the collection. Required for burning.</p>
           </div>
         ` : ''}
 
