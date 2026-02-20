@@ -7,7 +7,6 @@ import WalletConnectService from '../services/WalletConnectService'
 import { API_BASE_URL, MIRROR_NODE_URL, BACKEND_MINTER_ACCOUNT, getHederaClient } from '../config'
 import JSZip from 'jszip'
 import {
-  TokenMintTransaction,
   AccountId,
   TransactionId,
   Hbar,
@@ -148,9 +147,6 @@ export class MintNFTs {
   }
 
   private static renderTokenIdSection(): string {
-    const maskedKey = this.supplyKeyInput ? '•'.repeat(this.supplyKeyInput.length) : '';
-    const displayKey = this.supplyKeyRevealed ? this.supplyKeyInput : maskedKey;
-
     return `
       <div class="filter-divider"></div>
       <div class="input-group">
@@ -1210,25 +1206,6 @@ export class MintNFTs {
       this.step = 'setup';
       this.refresh();
     }
-  }
-
-  // ─── POLL FOR SERIALS ──────────────────────────────────────
-  private static async pollForSerials(txId: string, expectedCount: number): Promise<number[]> {
-    const formattedId = txId.replace('@', '-').replace('.', '-');
-    for (let i = 0; i < 10; i++) {
-      await new Promise(r => setTimeout(r, 3000));
-      try {
-        const res = await fetch(`${MIRROR_NODE_URL}/api/v1/transactions/${formattedId}`);
-        if (res.ok) {
-          const data = await res.json();
-          const tx = data.transactions?.[0];
-          if (tx?.nft_transfers && tx.nft_transfers.length > 0) {
-            return tx.nft_transfers.map((t: any) => t.serial_number).slice(0, expectedCount);
-          }
-        }
-      } catch { /* retry */ }
-    }
-    return [];
   }
 
   // ─── DOWNLOAD CSV TEMPLATE ──────────────────────────────────
