@@ -1133,11 +1133,12 @@ export class MintNFTs {
     this.refresh();
 
     try {
-      // Step 1: Calculate fees using Hedera's published fee schedule
+      // Step 1: Calculate exact fees using network-calculated maxTransactionFee
       const feeResponse = await fetch(`${API_BASE_URL}/api/calculate-mint-fee`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tokenId: this.tokenInfo.tokenId,
           metadataCIDs,
         }),
       });
