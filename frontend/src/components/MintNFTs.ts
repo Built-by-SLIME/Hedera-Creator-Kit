@@ -1125,21 +1125,35 @@ export class MintNFTs {
 
     const accountId = ws.accountId;
 
-    // Calculate total HBAR cost for transaction fees
-    // Fee estimate: ~0.01 HBAR per batch of 10 NFTs, add 10% buffer
-    const numBatches = Math.ceil(pendingEntries.length / 10);
-    const feePerBatch = 0.01;
-    const totalFee = numBatches * feePerBatch;
-    const feeWithBuffer = Math.ceil(totalFee * 1.1 * 100) / 100; // Round up to 2 decimals
-
     this.step = 'minting';
     this.isMinting = true;
     this.error = null;
-    this.statusMessage = `Transferring ${feeWithBuffer} HBAR to cover minting fees for ${pendingEntries.length} NFTs...`;
+    this.statusMessage = 'Calculating exact minting fees...';
     this.refresh();
 
     try {
-      // Step 1: Transfer HBAR to operator to cover fees (ONE wallet signature)
+      // Step 1: Calculate exact fees using backend endpoint
+      const feeResponse = await fetch(`${API_BASE_URL}/api/calculate-mint-fee`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tokenId: this.tokenInfo.tokenId,
+          metadataCIDs,
+        }),
+      });
+
+      if (!feeResponse.ok) {
+        const errorData = await feeResponse.json();
+        throw new Error(errorData.error || 'Failed to calculate minting fees');
+      }
+
+      const feeData = await feeResponse.json();
+      const feeWithBuffer = feeData.totalFeeWithBuffer;
+
+      this.statusMessage = `Transferring ${feeWithBuffer.toFixed(4)} HBAR to cover minting fees for ${pendingEntries.length} NFTs (${feeData.totalBatches} batches)...`;
+      this.refresh();
+
+      // Step 2: Transfer HBAR to operator to cover fees (ONE wallet signature)
       const transferTx = new TransferTransaction()
         .addHbarTransfer(AccountId.fromString(accountId), new Hbar(-feeWithBuffer))
         .addHbarTransfer(AccountId.fromString(BACKEND_MINTER_ACCOUNT), new Hbar(feeWithBuffer));
@@ -1158,7 +1172,7 @@ export class MintNFTs {
       this.statusMessage = 'Fee transferred! Sending to backend for minting...';
       this.refresh();
 
-      // Step 2: Send to backend for minting
+      // Step 3: Send to backend for minting
       const metadataCIDs = pendingEntries.map(e => e.metadataCID);
 
       const response = await fetch(`${API_BASE_URL}/api/mint-nfts`, {

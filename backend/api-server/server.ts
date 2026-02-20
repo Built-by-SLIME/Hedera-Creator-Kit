@@ -13,6 +13,7 @@ import { generateFromSession } from './routes/generate-session';
 import { pinCollectionMetadata } from './routes/pin-collection-metadata';
 import { pinNftMetadata } from './routes/pin-nft-metadata';
 import { mintNfts } from './routes/mint-nfts';
+import { calculateMintFee } from './routes/calculate-mint-fee';
 
 
 // Resolve the backend root directory regardless of ts-node vs compiled mode.
@@ -119,6 +120,10 @@ app.post('/api/pin-nft-metadata', imageUpload.fields([
   { name: 'image', maxCount: 1 },
 ]), (req, res, next) => {
   pinNftMetadata(req, res).catch(next);
+});
+
+app.post('/api/calculate-mint-fee', (req, res, next) => {
+  calculateMintFee(req, res).catch(next);
 });
 
 app.post('/api/mint-nfts', (req, res, next) => {
