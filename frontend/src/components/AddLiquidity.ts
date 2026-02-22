@@ -26,7 +26,6 @@ export class AddLiquidity {
   private static poolExists: boolean | null = null;
   private static poolCreationFeeTinybar: number = 0;
   private static hbarPriceUsd: number = 0;
-  private static estimatedGasCost: number = 0;
 
   // Amounts
   private static tokenAmount = '';
