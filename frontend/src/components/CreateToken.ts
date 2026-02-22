@@ -648,6 +648,16 @@ export class CreateToken {
       }
     });
 
+    // Allow Enter key to validate token
+    mintTokenIdInput?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        const ws = WalletConnectService.getState();
+        if (this.mintTokenId.trim() && ws.connected && !this.mintTokenInfo) {
+          this.validateMintToken();
+        }
+      }
+    });
+
     // Validate token button
     document.getElementById('ct-validate-token')?.addEventListener('click', () => {
       console.log('Validate token button clicked, token ID:', this.mintTokenId);
@@ -659,6 +669,23 @@ export class CreateToken {
     mintAmountInput?.addEventListener('input', () => {
       this.mintAmount = parseInt(mintAmountInput.value) || 0;
       this.refreshMintPreview();
+    });
+
+    // Allow Enter key to execute mint
+    mintAmountInput?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        if (this.mintTokenInfo && this.mintAmount > 0) {
+          const maxSupply = this.mintTokenInfo.maxSupply === '0' ? 0 : parseInt(this.mintTokenInfo.maxSupply);
+          const currentSupply = parseInt(this.mintTokenInfo.totalSupply);
+          const amountInSmallestUnit = this.mintAmount * Math.pow(10, this.mintTokenInfo.decimals);
+          const newSupply = currentSupply + amountInSmallestUnit;
+          const exceedsMax = maxSupply > 0 && newSupply > maxSupply;
+
+          if (!exceedsMax) {
+            this.executeMint();
+          }
+        }
+      }
     });
 
     // Execute mint button
