@@ -21,10 +21,12 @@ export class AddLiquidity {
   // Form state
   private static tokenIdInput = '';
   private static tokenValidated = false;
-  private static tokenInfo: { tokenId: string; name: string; symbol: string; decimals: number; hasCustomFees: boolean } | null = null;
+  private static tokenInfo: { tokenId: string; name: string; symbol: string; decimals: number; hasCustomFees: boolean; priceUsd?: number } | null = null;
   private static tokenError: string | null = null;
   private static poolExists: boolean | null = null;
   private static poolCreationFeeTinybar: number = 0;
+  private static hbarPriceUsd: number = 0;
+  private static estimatedGasCost: number = 0;
 
   // Amounts
   private static tokenAmount = '';
@@ -144,6 +146,21 @@ export class AddLiquidity {
     const tokenAmt = parseFloat(this.tokenAmount) || 0;
     const hbarAmt = parseFloat(this.hbarAmount) || 0;
     const ratio = tokenAmt > 0 && hbarAmt > 0 ? (hbarAmt / tokenAmt).toFixed(6) : '—';
+
+    // Calculate USD values
+    const tokenValueUsd = this.tokenInfo.priceUsd && tokenAmt > 0 ? (tokenAmt * this.tokenInfo.priceUsd).toFixed(2) : null;
+    const hbarValueUsd = this.hbarPriceUsd && hbarAmt > 0 ? (hbarAmt * this.hbarPriceUsd).toFixed(2) : null;
+    const totalValueUsd = tokenValueUsd && hbarValueUsd ? (parseFloat(tokenValueUsd) + parseFloat(hbarValueUsd)).toFixed(2) : null;
+
+    // Calculate transaction cost estimate
+    const gasCost = !this.poolExists ? 3200000 : 240000; // gas units
+    const gasCostHbar = (gasCost * 0.00000001).toFixed(4); // ~0.01 tinybar per gas
+    const gasCostUsd = this.hbarPriceUsd ? (parseFloat(gasCostHbar) * this.hbarPriceUsd).toFixed(2) : null;
+
+    // Pool creation fee in USD
+    const poolCreationFeeHbar = this.poolCreationFeeTinybar > 0 ? (this.poolCreationFeeTinybar / 100000000).toFixed(2) : null;
+    const poolCreationFeeUsd = poolCreationFeeHbar && this.hbarPriceUsd ? (parseFloat(poolCreationFeeHbar) * this.hbarPriceUsd).toFixed(2) : null;
+
     return `
       <div class="cc-right-content">
         <h4 class="section-title" style="font-size:0.95rem">Pool Preview</h4>
@@ -154,16 +171,28 @@ export class AddLiquidity {
           <div class="info-row"><span>Pool Status</span><span class="status-value" style="color:${this.poolExists ? '#6bff9e' : '#f0a040'}">${this.poolExists ? 'Exists' : 'New Pool'}</span></div>
           ${this.tokenInfo.hasCustomFees ? `<div class="info-row"><span>Custom Fees</span><span class="status-value" style="color:#ff6b6b">⚠ Yes</span></div>` : ''}
         </div>
+        ${this.tokenInfo.priceUsd || this.hbarPriceUsd ? `
+          <div class="filter-divider"></div>
+          <div class="preview-info">
+            ${this.tokenInfo.priceUsd ? `<div class="info-row"><span>${this.tokenInfo.symbol} Price</span><span class="status-value">$${this.tokenInfo.priceUsd.toFixed(6)}</span></div>` : ''}
+            ${this.hbarPriceUsd ? `<div class="info-row"><span>HBAR Price</span><span class="status-value">$${this.hbarPriceUsd.toFixed(4)}</span></div>` : ''}
+          </div>
+        ` : ''}
         ${tokenAmt > 0 || hbarAmt > 0 ? `
           <div class="filter-divider"></div>
           <div class="preview-info">
-            <div class="info-row"><span>${this.tokenInfo.symbol}</span><span class="status-value">${tokenAmt > 0 ? tokenAmt.toLocaleString() : '—'}</span></div>
-            <div class="info-row"><span>HBAR</span><span class="status-value">${hbarAmt > 0 ? hbarAmt.toLocaleString() : '—'}</span></div>
+            <div class="info-row"><span>${this.tokenInfo.symbol}</span><span class="status-value">${tokenAmt > 0 ? tokenAmt.toLocaleString() : '—'}${tokenValueUsd ? ` ($${tokenValueUsd})` : ''}</span></div>
+            <div class="info-row"><span>HBAR</span><span class="status-value">${hbarAmt > 0 ? hbarAmt.toLocaleString() : '—'}${hbarValueUsd ? ` ($${hbarValueUsd})` : ''}</span></div>
+            ${totalValueUsd ? `<div class="info-row"><span>Total Value</span><span class="status-value" style="color:#6bff9e">$${totalValueUsd}</span></div>` : ''}
             <div class="info-row"><span>Rate</span><span class="status-value">1 ${this.tokenInfo.symbol} = ${ratio} HBAR</span></div>
             <div class="info-row"><span>Slippage</span><span class="status-value">${this.slippage}%</span></div>
-            ${!this.poolExists ? `<div class="info-row"><span>Gas</span><span class="status-value" style="color:#f0a040">~3.2M (new pool)</span></div>` : `<div class="info-row"><span>Gas</span><span class="status-value">~240K</span></div>`}
           </div>
         ` : ''}
+        <div class="filter-divider"></div>
+        <div class="preview-info">
+          <div class="info-row"><span>Gas Cost</span><span class="status-value">${gasCostHbar} HBAR${gasCostUsd ? ` ($${gasCostUsd})` : ''}</span></div>
+          ${!this.poolExists && poolCreationFeeHbar ? `<div class="info-row"><span>Pool Creation Fee</span><span class="status-value" style="color:#f0a040">${poolCreationFeeHbar} HBAR${poolCreationFeeUsd ? ` (~$${poolCreationFeeUsd})` : ''}</span></div>` : ''}
+        </div>
       </div>`;
   }
 
@@ -319,6 +348,30 @@ export class AddLiquidity {
         decimals: parseInt(data.decimals) || 0,
         hasCustomFees,
       };
+
+      // Fetch token price and HBAR price from SaucerSwap API
+      try {
+        const [tokenPriceRes, hbarPriceRes] = await Promise.all([
+          fetch(`${SAUCERSWAP_API_URL}/tokens/${tokenId}`, {
+            headers: { 'x-api-key': SAUCERSWAP_API_KEY },
+          }),
+          fetch(`${SAUCERSWAP_API_URL}/tokens/${WHBAR_TOKEN_ID}`, {
+            headers: { 'x-api-key': SAUCERSWAP_API_KEY },
+          }),
+        ]);
+
+        if (tokenPriceRes.ok) {
+          const tokenData = await tokenPriceRes.json();
+          this.tokenInfo.priceUsd = tokenData.priceUsd || 0;
+        }
+
+        if (hbarPriceRes.ok) {
+          const hbarData = await hbarPriceRes.json();
+          this.hbarPriceUsd = hbarData.priceUsd || 0;
+        }
+      } catch {
+        // Non-fatal: prices are nice-to-have
+      }
 
       // Check if pool exists via SaucerSwap REST API
       try {
