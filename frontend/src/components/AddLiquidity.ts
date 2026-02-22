@@ -15,7 +15,17 @@ import {
   TransactionId,
 } from '@hashgraph/sdk'
 
-type LiquidityStep = 'form' | 'processing' | 'success';
+type LiquidityStep = 'token-input' | 'pool-selection' | 'new-pool-input' | 'liquidity-form' | 'processing' | 'success';
+
+interface PoolInfo {
+  id: number;
+  contractId: string;
+  tokenA: { id: string; symbol: string; decimals: number; priceUsd?: number };
+  tokenB: { id: string; symbol: string; decimals: number; priceUsd?: number };
+  tokenReserveA: string;
+  tokenReserveB: string;
+  lpToken: { id: string; symbol: string };
+}
 
 export class AddLiquidity {
   // Form state
@@ -23,6 +33,18 @@ export class AddLiquidity {
   private static tokenValidated = false;
   private static tokenInfo: { tokenId: string; name: string; symbol: string; decimals: number; hasCustomFees: boolean; priceUsd?: number } | null = null;
   private static tokenError: string | null = null;
+
+  // Pool selection
+  private static availablePools: PoolInfo[] = [];
+  private static selectedPool: PoolInfo | null = null;
+
+  // Second token (for new pool creation)
+  private static tokenBIdInput = '';
+  private static tokenBValidated = false;
+  private static tokenBInfo: { tokenId: string; name: string; symbol: string; decimals: number; hasCustomFees: boolean; priceUsd?: number } | null = null;
+  private static tokenBError: string | null = null;
+
+  // Legacy (will be removed)
   private static poolExists: boolean | null = null;
   private static poolCreationFeeTinybar: number = 0;
   private static hbarPriceUsd: number = 0;
@@ -33,7 +55,7 @@ export class AddLiquidity {
   private static slippage = 1.5; // percent
 
   // UI state
-  private static step: LiquidityStep = 'form';
+  private static step: LiquidityStep = 'token-input';
   private static loading = false;
   private static error: string | null = null;
   private static statusMessage = '';
@@ -65,7 +87,10 @@ export class AddLiquidity {
       return `<div class="art-gen-section"><h3 class="section-title">◆ Adding Liquidity</h3><div class="loading-state"><div class="spinner"></div><p>${this.statusMessage || 'Processing...'}</p></div></div>`;
     }
     switch (this.step) {
-      case 'form': return this.renderForm();
+      case 'token-input': return this.renderTokenInput();
+      case 'pool-selection': return this.renderPoolSelection();
+      case 'new-pool-input': return this.renderNewPoolInput();
+      case 'liquidity-form': return this.renderLiquidityForm();
       case 'success': return this.renderSuccessPanel();
       default: return '';
     }
@@ -79,14 +104,17 @@ export class AddLiquidity {
       return `<div class="cc-right-content"><div class="error-state"><p class="error-message">⚠ ${this.error}</p><button class="terminal-button" id="al-dismiss-error" style="margin-top:1rem">DISMISS</button></div></div>`;
     }
     switch (this.step) {
-      case 'form': return this.renderPreview();
+      case 'token-input': return this.renderTokenPreview();
+      case 'pool-selection': return this.renderPoolSelectionPreview();
+      case 'new-pool-input': return this.renderNewPoolPreview();
+      case 'liquidity-form': return this.renderLiquidityPreview();
       case 'success': return this.renderSuccessDetails();
       default: return '';
     }
   }
 
-  // --- FORM ---
-  private static renderForm(): string {
+  // --- TOKEN INPUT STEP ---
+  private static renderTokenInput(): string {
     const tokenValid = this.tokenValidated && this.tokenInfo;
     return `
       <div class="art-gen-section">
@@ -94,7 +122,7 @@ export class AddLiquidity {
         <div class="back-link" id="al-back"><span class="back-arrow">←</span><span>Back</span></div>
 
         <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(100,180,255,0.08);border:1px solid rgba(100,180,255,0.25);border-radius:6px">
-          <p style="font-size:0.78rem;color:#64b4ff;margin:0 0 0.35rem">◆ <strong>SaucerSwap V1</strong> — Creates an HBAR / Token liquidity pool. You will receive LP tokens representing your share of the pool.</p>
+          <p style="font-size:0.78rem;color:#64b4ff;margin:0 0 0.35rem">◆ <strong>SaucerSwap V1</strong> — Add liquidity to token pairs. You will receive LP tokens representing your share of the pool.</p>
           <p style="font-size:0.78rem;color:#f0a040;margin:0">⚠ <strong>Tokens with custom fees</strong> may behave unexpectedly on DEXes. Proceed with caution if your token has fractional or fixed fees.</p>
         </div>
 
@@ -107,90 +135,236 @@ export class AddLiquidity {
             <button class="terminal-button" id="al-validate" style="white-space:nowrap">${this.loading ? '...' : 'VALIDATE'}</button>
           </div>
           ${this.tokenError ? `<p style="font-size:0.78rem;color:#ff6b6b;margin:0.35rem 0 0">${this.tokenError}</p>` : ''}
-          ${tokenValid ? `<p style="font-size:0.78rem;color:#6bff9e;margin:0.35rem 0 0">✓ ${this.tokenInfo!.name} (${this.tokenInfo!.symbol}) — ${this.tokenInfo!.decimals} decimals${this.poolExists ? ' — Pool exists' : ' — New pool will be created'}</p>` : ''}
+          ${tokenValid ? `<p style="font-size:0.78rem;color:#6bff9e;margin:0.35rem 0 0">✓ ${this.tokenInfo!.name} (${this.tokenInfo!.symbol}) — ${this.tokenInfo!.decimals} decimals</p>` : ''}
         </div>
-
-        ${tokenValid ? this.renderAmountInputs() : ''}
       </div>`;
   }
 
-  private static renderAmountInputs(): string {
-    const canSubmit = this.tokenAmount && this.hbarAmount && parseFloat(this.tokenAmount) > 0 && parseFloat(this.hbarAmount) > 0;
+  // --- POOL SELECTION STEP ---
+  private static renderPoolSelection(): string {
     return `
-      <div class="filter-divider"></div>
-      <div class="input-group">
-        <label for="al-token-amount">${this.tokenInfo!.symbol} Amount *</label>
-        <input type="number" id="al-token-amount" class="token-input" placeholder="Amount of tokens" value="${this.escapeHtml(this.tokenAmount)}" step="any" min="0" />
-      </div>
-      <div class="input-group">
-        <label for="al-hbar-amount">HBAR Amount *</label>
-        <input type="number" id="al-hbar-amount" class="token-input" placeholder="Amount of HBAR" value="${this.escapeHtml(this.hbarAmount)}" step="any" min="0" />
-      </div>
-      <div class="input-group">
-        <label for="al-slippage">Slippage Tolerance (%)</label>
-        <input type="number" id="al-slippage" class="token-input" placeholder="1.5" value="${this.slippage}" step="0.5" min="0.5" max="50" style="width:80px" />
-      </div>
-      ${canSubmit ? `
+      <div class="art-gen-section">
+        <h3 class="section-title">◆ Select Pool</h3>
+        <div class="back-link" id="al-back-to-token"><span class="back-arrow">←</span><span>Back</span></div>
+
+        <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(100,180,255,0.08);border:1px solid rgba(100,180,255,0.25);border-radius:6px">
+          <p style="font-size:0.78rem;color:#64b4ff;margin:0">Token: <strong>${this.tokenInfo?.name} (${this.tokenInfo?.symbol})</strong></p>
+        </div>
+
         <div class="filter-divider"></div>
-        <button class="terminal-button" id="al-submit">⚡ ADD LIQUIDITY</button>
-      ` : ''}`;
+
+        ${this.availablePools.length > 0 ? `
+          <h4 style="font-size:0.9rem;color:var(--terminal-text);margin:0 0 0.75rem">Existing Pools (${this.availablePools.length})</h4>
+          ${this.availablePools.map((pool, idx) => this.renderPoolCard(pool, idx)).join('')}
+          <div class="filter-divider"></div>
+        ` : `
+          <p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.7;margin:0 0 1rem">No existing pools found for this token.</p>
+        `}
+
+        <button class="terminal-button" id="al-create-new-pool" style="width:100%">+ CREATE NEW POOL</button>
+      </div>`;
+  }
+
+  private static renderPoolCard(pool: PoolInfo, idx: number): string {
+    const reserveA = parseFloat(pool.tokenReserveA) / Math.pow(10, pool.tokenA.decimals);
+    const reserveB = parseFloat(pool.tokenReserveB) / Math.pow(10, pool.tokenB.decimals);
+
+    const liquidityUsd = (pool.tokenA.priceUsd && pool.tokenB.priceUsd)
+      ? ((reserveA * pool.tokenA.priceUsd) + (reserveB * pool.tokenB.priceUsd)).toFixed(2)
+      : null;
+
+    return `
+      <div class="pool-card" data-pool-idx="${idx}" style="margin-bottom:0.75rem;padding:0.75rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:6px;cursor:pointer;transition:all 0.2s" onmouseover="this.style.borderColor='rgba(13,147,115,0.5)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.1)'">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+          <h5 style="font-size:0.9rem;color:#6bff9e;margin:0">${pool.tokenA.symbol} / ${pool.tokenB.symbol}</h5>
+          ${liquidityUsd ? `<span style="font-size:0.82rem;color:#64b4ff">$${liquidityUsd}</span>` : ''}
+        </div>
+        <div style="font-size:0.75rem;color:var(--terminal-text);opacity:0.7">
+          <div>Pool: ${pool.contractId}</div>
+          <div style="margin-top:0.25rem">${reserveA.toLocaleString()} ${pool.tokenA.symbol} + ${reserveB.toLocaleString()} ${pool.tokenB.symbol}</div>
+        </div>
+        <button class="terminal-button" id="al-select-pool-${idx}" style="margin-top:0.5rem;width:100%;font-size:0.8rem">SELECT POOL</button>
+      </div>`;
+  }
+
+  // --- NEW POOL INPUT STEP ---
+  private static renderNewPoolInput(): string {
+    const tokenBValid = this.tokenBValidated && this.tokenBInfo;
+    return `
+      <div class="art-gen-section">
+        <h3 class="section-title">◆ Create New Pool</h3>
+        <div class="back-link" id="al-back-to-pools"><span class="back-arrow">←</span><span>Back to Pools</span></div>
+
+        <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(100,180,255,0.08);border:1px solid rgba(100,180,255,0.25);border-radius:6px">
+          <p style="font-size:0.78rem;color:#64b4ff;margin:0 0 0.35rem">Token A: <strong>${this.tokenInfo?.name} (${this.tokenInfo?.symbol})</strong></p>
+          <p style="font-size:0.78rem;color:#f0a040;margin:0">⚠ Pool creation fee: ~$50 in HBAR (one-time fee paid to SaucerSwap)</p>
+        </div>
+
+        <div class="filter-divider"></div>
+
+        <div class="input-group">
+          <label for="al-token-b-id">Token B ID *</label>
+          <div class="input-row" style="gap:0.5rem">
+            <input type="text" id="al-token-b-id" class="token-input" placeholder="0.0.xxxxx" value="${this.escapeHtml(this.tokenBIdInput)}" style="flex:1" />
+            <button class="terminal-button" id="al-validate-b" style="white-space:nowrap">${this.loading ? '...' : 'VALIDATE'}</button>
+          </div>
+          ${this.tokenBError ? `<p style="font-size:0.78rem;color:#ff6b6b;margin:0.35rem 0 0">${this.tokenBError}</p>` : ''}
+          ${tokenBValid ? `<p style="font-size:0.78rem;color:#6bff9e;margin:0.35rem 0 0">✓ ${this.tokenBInfo!.name} (${this.tokenBInfo!.symbol}) — ${this.tokenBInfo!.decimals} decimals</p>` : ''}
+        </div>
+      </div>`;
+  }
+
+  // --- LIQUIDITY FORM STEP ---
+  private static renderLiquidityForm(): string {
+    const tokenA = this.selectedPool ? (this.selectedPool.tokenA.id === this.tokenInfo?.tokenId ? this.selectedPool.tokenA : this.selectedPool.tokenB) : this.tokenInfo;
+    const tokenB = this.selectedPool ? (this.selectedPool.tokenA.id === this.tokenInfo?.tokenId ? this.selectedPool.tokenB : this.selectedPool.tokenA) : this.tokenBInfo;
+
+    if (!tokenA || !tokenB) return '';
+
+    const canSubmit = this.tokenAmount && this.hbarAmount && parseFloat(this.tokenAmount) > 0 && parseFloat(this.hbarAmount) > 0;
+
+    return `
+      <div class="art-gen-section">
+        <h3 class="section-title">◆ Add Liquidity</h3>
+        <div class="back-link" id="al-back-to-pools"><span class="back-arrow">←</span><span>Back to Pools</span></div>
+
+        <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(100,180,255,0.08);border:1px solid rgba(100,180,255,0.25);border-radius:6px">
+          <p style="font-size:0.78rem;color:#64b4ff;margin:0">Pool: <strong>${tokenA.symbol} / ${tokenB.symbol}</strong></p>
+          ${this.selectedPool ? `<p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.7;margin:0.25rem 0 0">${this.selectedPool.contractId}</p>` : ''}
+        </div>
+
+        <div class="filter-divider"></div>
+
+        <div class="input-group">
+          <label for="al-token-amount">${tokenA.symbol} Amount *</label>
+          <input type="number" id="al-token-amount" class="token-input" placeholder="Amount of tokens" value="${this.escapeHtml(this.tokenAmount)}" step="any" min="0" />
+        </div>
+        <div class="input-group">
+          <label for="al-hbar-amount">${tokenB.symbol} Amount *</label>
+          <input type="number" id="al-hbar-amount" class="token-input" placeholder="Amount of tokens" value="${this.escapeHtml(this.hbarAmount)}" step="any" min="0" />
+        </div>
+        <div class="input-group">
+          <label for="al-slippage">Slippage Tolerance (%)</label>
+          <input type="number" id="al-slippage" class="token-input" placeholder="1.5" value="${this.slippage}" step="0.5" min="0.5" max="50" style="width:80px" />
+        </div>
+        ${canSubmit ? `
+          <div class="filter-divider"></div>
+          <button class="terminal-button" id="al-submit">⚡ ADD LIQUIDITY</button>
+        ` : ''}
+      </div>`;
   }
 
 
-  // --- PREVIEW (right panel) ---
-  private static renderPreview(): string {
+  // --- PREVIEW PANELS (right panel) ---
+  private static renderTokenPreview(): string {
     if (!this.tokenValidated || !this.tokenInfo) {
-      return `<div class="cc-right-content"><h4 class="section-title" style="font-size:0.95rem">Pool Preview</h4><p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.5">Enter a Token ID and click VALIDATE to see pool details.</p></div>`;
+      return `<div class="cc-right-content"><h4 class="section-title" style="font-size:0.95rem">Token Info</h4><p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.5">Enter a Token ID and click VALIDATE to see available pools.</p></div>`;
     }
-    const tokenAmt = parseFloat(this.tokenAmount) || 0;
-    const hbarAmt = parseFloat(this.hbarAmount) || 0;
-    const ratio = tokenAmt > 0 && hbarAmt > 0 ? (hbarAmt / tokenAmt).toFixed(6) : '—';
-
-    // Calculate USD values
-    const tokenValueUsd = this.tokenInfo.priceUsd && tokenAmt > 0 ? (tokenAmt * this.tokenInfo.priceUsd).toFixed(2) : null;
-    const hbarValueUsd = this.hbarPriceUsd && hbarAmt > 0 ? (hbarAmt * this.hbarPriceUsd).toFixed(2) : null;
-    const totalValueUsd = tokenValueUsd && hbarValueUsd ? (parseFloat(tokenValueUsd) + parseFloat(hbarValueUsd)).toFixed(2) : null;
-
-    // Calculate transaction cost estimate
-    const gasCost = !this.poolExists ? 3200000 : 240000; // gas units
-    const gasCostHbar = (gasCost * 0.00000001).toFixed(4); // ~0.01 tinybar per gas
-    const gasCostUsd = this.hbarPriceUsd ? (parseFloat(gasCostHbar) * this.hbarPriceUsd).toFixed(2) : null;
-
-    // Pool creation fee in USD
-    const poolCreationFeeHbar = this.poolCreationFeeTinybar > 0 ? (this.poolCreationFeeTinybar / 100000000).toFixed(2) : null;
-    const poolCreationFeeUsd = poolCreationFeeHbar && this.hbarPriceUsd ? (parseFloat(poolCreationFeeHbar) * this.hbarPriceUsd).toFixed(2) : null;
 
     return `
       <div class="cc-right-content">
-        <h4 class="section-title" style="font-size:0.95rem">Pool Preview</h4>
+        <h4 class="section-title" style="font-size:0.95rem">Token Info</h4>
         <div class="preview-info">
           <div class="info-row"><span>Token</span><span class="status-value">${this.tokenInfo.name} (${this.tokenInfo.symbol})</span></div>
           <div class="info-row"><span>Token ID</span><span class="status-value">${this.tokenInfo.tokenId}</span></div>
           <div class="info-row"><span>Decimals</span><span class="status-value">${this.tokenInfo.decimals}</span></div>
-          <div class="info-row"><span>Pool Status</span><span class="status-value" style="color:${this.poolExists ? '#6bff9e' : '#f0a040'}">${this.poolExists ? 'Exists' : 'New Pool'}</span></div>
+          ${this.tokenInfo.priceUsd ? `<div class="info-row"><span>Price</span><span class="status-value">$${this.tokenInfo.priceUsd.toFixed(6)}</span></div>` : ''}
           ${this.tokenInfo.hasCustomFees ? `<div class="info-row"><span>Custom Fees</span><span class="status-value" style="color:#ff6b6b">⚠ Yes</span></div>` : ''}
         </div>
-        ${this.tokenInfo.priceUsd || this.hbarPriceUsd ? `
+        <div class="filter-divider"></div>
+        <p style="font-size:0.82rem;color:#64b4ff;margin:0">Found ${this.availablePools.length} existing pool${this.availablePools.length === 1 ? '' : 's'} for this token.</p>
+      </div>`;
+  }
+
+  private static renderPoolSelectionPreview(): string {
+    return `
+      <div class="cc-right-content">
+        <h4 class="section-title" style="font-size:0.95rem">Pool Selection</h4>
+        <p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.7">Select an existing pool to add liquidity, or create a new pool.</p>
+        <div class="filter-divider"></div>
+        <div class="preview-info">
+          <div class="info-row"><span>Existing Pools</span><span class="status-value">${this.availablePools.length}</span></div>
+          <div class="info-row"><span>Gas Cost (Existing)</span><span class="status-value">~0.0024 HBAR</span></div>
+          <div class="info-row"><span>Gas Cost (New Pool)</span><span class="status-value">~0.032 HBAR</span></div>
+          <div class="info-row"><span>Pool Creation Fee</span><span class="status-value" style="color:#f0a040">~$50 HBAR</span></div>
+        </div>
+      </div>`;
+  }
+
+  private static renderNewPoolPreview(): string {
+    if (!this.tokenBValidated || !this.tokenBInfo) {
+      return `<div class="cc-right-content"><h4 class="section-title" style="font-size:0.95rem">New Pool</h4><p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.5">Enter Token B ID to create a new pool.</p></div>`;
+    }
+
+    return `
+      <div class="cc-right-content">
+        <h4 class="section-title" style="font-size:0.95rem">New Pool Preview</h4>
+        <div class="preview-info">
+          <div class="info-row"><span>Token A</span><span class="status-value">${this.tokenInfo?.symbol}</span></div>
+          <div class="info-row"><span>Token B</span><span class="status-value">${this.tokenBInfo.symbol}</span></div>
+          ${this.tokenInfo?.priceUsd ? `<div class="info-row"><span>${this.tokenInfo.symbol} Price</span><span class="status-value">$${this.tokenInfo.priceUsd.toFixed(6)}</span></div>` : ''}
+          ${this.tokenBInfo.priceUsd ? `<div class="info-row"><span>${this.tokenBInfo.symbol} Price</span><span class="status-value">$${this.tokenBInfo.priceUsd.toFixed(6)}</span></div>` : ''}
+        </div>
+        <div class="filter-divider"></div>
+        <div class="preview-info">
+          <div class="info-row"><span>Pool Status</span><span class="status-value" style="color:#f0a040">New Pool</span></div>
+          <div class="info-row"><span>Gas Cost</span><span class="status-value">~0.032 HBAR</span></div>
+          <div class="info-row"><span>Creation Fee</span><span class="status-value" style="color:#f0a040">~$50 HBAR</span></div>
+        </div>
+      </div>`;
+  }
+
+  private static renderLiquidityPreview(): string {
+    const tokenA = this.selectedPool ? (this.selectedPool.tokenA.id === this.tokenInfo?.tokenId ? this.selectedPool.tokenA : this.selectedPool.tokenB) : this.tokenInfo;
+    const tokenB = this.selectedPool ? (this.selectedPool.tokenA.id === this.tokenInfo?.tokenId ? this.selectedPool.tokenB : this.selectedPool.tokenA) : this.tokenBInfo;
+
+    if (!tokenA || !tokenB) {
+      return `<div class="cc-right-content"><h4 class="section-title" style="font-size:0.95rem">Liquidity Preview</h4><p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.5">Enter amounts to see preview.</p></div>`;
+    }
+    const tokenAmt = parseFloat(this.tokenAmount) || 0;
+    const tokenBAmt = parseFloat(this.hbarAmount) || 0;
+    const ratio = tokenAmt > 0 && tokenBAmt > 0 ? (tokenBAmt / tokenAmt).toFixed(6) : '—';
+
+    // Calculate USD values
+    const tokenValueUsd = tokenA.priceUsd && tokenAmt > 0 ? (tokenAmt * tokenA.priceUsd).toFixed(2) : null;
+    const tokenBValueUsd = tokenB.priceUsd && tokenBAmt > 0 ? (tokenBAmt * tokenB.priceUsd).toFixed(2) : null;
+    const totalValueUsd = tokenValueUsd && tokenBValueUsd ? (parseFloat(tokenValueUsd) + parseFloat(tokenBValueUsd)).toFixed(2) : null;
+
+    // Calculate transaction cost estimate
+    const isNewPool = !this.selectedPool;
+    const gasCost = isNewPool ? 3200000 : 240000; // gas units
+    const gasCostHbar = (gasCost * 0.00000001).toFixed(4); // ~0.01 tinybar per gas
+    const gasCostUsd = this.hbarPriceUsd ? (parseFloat(gasCostHbar) * this.hbarPriceUsd).toFixed(2) : null;
+
+    return `
+      <div class="cc-right-content">
+        <h4 class="section-title" style="font-size:0.95rem">Liquidity Preview</h4>
+        <div class="preview-info">
+          <div class="info-row"><span>Pool</span><span class="status-value">${tokenA.symbol} / ${tokenB.symbol}</span></div>
+          ${this.selectedPool ? `<div class="info-row"><span>Pool ID</span><span class="status-value">${this.selectedPool.contractId}</span></div>` : ''}
+          <div class="info-row"><span>Status</span><span class="status-value" style="color:${isNewPool ? '#f0a040' : '#6bff9e'}">${isNewPool ? 'New Pool' : 'Existing Pool'}</span></div>
+        </div>
+        ${tokenA.priceUsd || tokenB.priceUsd ? `
           <div class="filter-divider"></div>
           <div class="preview-info">
-            ${this.tokenInfo.priceUsd ? `<div class="info-row"><span>${this.tokenInfo.symbol} Price</span><span class="status-value">$${this.tokenInfo.priceUsd.toFixed(6)}</span></div>` : ''}
-            ${this.hbarPriceUsd ? `<div class="info-row"><span>HBAR Price</span><span class="status-value">$${this.hbarPriceUsd.toFixed(4)}</span></div>` : ''}
+            ${tokenA.priceUsd ? `<div class="info-row"><span>${tokenA.symbol} Price</span><span class="status-value">$${tokenA.priceUsd.toFixed(6)}</span></div>` : ''}
+            ${tokenB.priceUsd ? `<div class="info-row"><span>${tokenB.symbol} Price</span><span class="status-value">$${tokenB.priceUsd.toFixed(6)}</span></div>` : ''}
           </div>
         ` : ''}
-        ${tokenAmt > 0 || hbarAmt > 0 ? `
+        ${tokenAmt > 0 || tokenBAmt > 0 ? `
           <div class="filter-divider"></div>
           <div class="preview-info">
-            <div class="info-row"><span>${this.tokenInfo.symbol}</span><span class="status-value">${tokenAmt > 0 ? tokenAmt.toLocaleString() : '—'}${tokenValueUsd ? ` ($${tokenValueUsd})` : ''}</span></div>
-            <div class="info-row"><span>HBAR</span><span class="status-value">${hbarAmt > 0 ? hbarAmt.toLocaleString() : '—'}${hbarValueUsd ? ` ($${hbarValueUsd})` : ''}</span></div>
+            <div class="info-row"><span>${tokenA.symbol}</span><span class="status-value">${tokenAmt > 0 ? tokenAmt.toLocaleString() : '—'}${tokenValueUsd ? ` ($${tokenValueUsd})` : ''}</span></div>
+            <div class="info-row"><span>${tokenB.symbol}</span><span class="status-value">${tokenBAmt > 0 ? tokenBAmt.toLocaleString() : '—'}${tokenBValueUsd ? ` ($${tokenBValueUsd})` : ''}</span></div>
             ${totalValueUsd ? `<div class="info-row"><span>Total Value</span><span class="status-value" style="color:#6bff9e">$${totalValueUsd}</span></div>` : ''}
-            <div class="info-row"><span>Rate</span><span class="status-value">1 ${this.tokenInfo.symbol} = ${ratio} HBAR</span></div>
+            <div class="info-row"><span>Rate</span><span class="status-value">1 ${tokenA.symbol} = ${ratio} ${tokenB.symbol}</span></div>
             <div class="info-row"><span>Slippage</span><span class="status-value">${this.slippage}%</span></div>
           </div>
         ` : ''}
         <div class="filter-divider"></div>
         <div class="preview-info">
           <div class="info-row"><span>Gas Cost</span><span class="status-value">${gasCostHbar} HBAR${gasCostUsd ? ` ($${gasCostUsd})` : ''}</span></div>
-          ${!this.poolExists && poolCreationFeeHbar ? `<div class="info-row"><span>Pool Creation Fee</span><span class="status-value" style="color:#f0a040">${poolCreationFeeHbar} HBAR${poolCreationFeeUsd ? ` (~$${poolCreationFeeUsd})` : ''}</span></div>` : ''}
+          ${isNewPool ? `<div class="info-row"><span>Pool Creation Fee</span><span class="status-value" style="color:#f0a040">~$50 HBAR</span></div>` : ''}
         </div>
       </div>`;
   }
@@ -255,16 +429,27 @@ export class AddLiquidity {
     this.tokenValidated = false;
     this.tokenInfo = null;
     this.tokenError = null;
+    this.availablePools = [];
+    this.selectedPool = null;
+    this.tokenBIdInput = '';
+    this.tokenBValidated = false;
+    this.tokenBInfo = null;
+    this.tokenBError = null;
     this.poolExists = null;
     this.poolCreationFeeTinybar = 0;
+    this.hbarPriceUsd = 0;
     this.tokenAmount = '';
     this.hbarAmount = '';
     this.slippage = 1.5;
-    this.step = 'form';
+    this.step = 'token-input';
     this.loading = false;
     this.error = null;
     this.statusMessage = '';
     this.txId = null;
+  }
+
+  public static resetState(): void {
+    this.resetForm();
   }
 
   // --- Convert Hedera ID (0.0.xxxxx) to EVM address ---
@@ -276,9 +461,25 @@ export class AddLiquidity {
 
   // --- INIT: wire up event listeners ---
   static init(): void {
-    // Back button
+    // Back buttons
     document.getElementById('al-back')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }));
+    });
+
+    document.getElementById('al-back-to-token')?.addEventListener('click', () => {
+      this.step = 'token-input';
+      this.selectedPool = null;
+      this.refresh();
+    });
+
+    document.getElementById('al-back-to-pools')?.addEventListener('click', () => {
+      this.step = 'pool-selection';
+      this.selectedPool = null;
+      this.tokenBIdInput = '';
+      this.tokenBValidated = false;
+      this.tokenBInfo = null;
+      this.tokenBError = null;
+      this.refresh();
     });
 
     // Token ID input
@@ -288,6 +489,28 @@ export class AddLiquidity {
 
     // Validate button
     document.getElementById('al-validate')?.addEventListener('click', () => this.validateToken());
+
+    // Pool selection
+    document.getElementById('al-create-new-pool')?.addEventListener('click', () => {
+      this.step = 'new-pool-input';
+      this.refresh();
+    });
+
+    // Pool selection buttons
+    this.availablePools.forEach((_, idx) => {
+      document.getElementById(`al-select-pool-${idx}`)?.addEventListener('click', () => {
+        this.selectedPool = this.availablePools[idx];
+        this.step = 'liquidity-form';
+        this.refresh();
+      });
+    });
+
+    // Token B input (for new pool)
+    const tokenBInput = document.getElementById('al-token-b-id') as HTMLInputElement;
+    tokenBInput?.addEventListener('input', () => { this.tokenBIdInput = tokenBInput.value; });
+    tokenBInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.validateTokenB(); });
+
+    document.getElementById('al-validate-b')?.addEventListener('click', () => this.validateTokenB());
 
     // Amount inputs — store on input, refresh on change (blur) to avoid killing the cursor
     const tokenAmtInput = document.getElementById('al-token-amount') as HTMLInputElement;
@@ -372,20 +595,42 @@ export class AddLiquidity {
         // Non-fatal: prices are nice-to-have
       }
 
-      // Check if pool exists via SaucerSwap REST API
+      // Fetch all pools containing this token from SaucerSwap REST API
       try {
         const poolsRes = await fetch(`${SAUCERSWAP_API_URL}/pools`, {
           headers: { 'x-api-key': SAUCERSWAP_API_KEY },
         });
 
         if (poolsRes.ok) {
-          const pools = await poolsRes.json();
-          // Find pool with WHBAR and this token
-          const pool = pools.find((p: any) =>
-            (p.tokenA?.id === WHBAR_TOKEN_ID && p.tokenB?.id === tokenId) ||
-            (p.tokenA?.id === tokenId && p.tokenB?.id === WHBAR_TOKEN_ID)
-          );
-          this.poolExists = !!pool;
+          const allPools = await poolsRes.json();
+          // Filter pools containing this token
+          this.availablePools = allPools.filter((p: any) =>
+            p.tokenA?.id === tokenId || p.tokenB?.id === tokenId
+          ).map((p: any) => ({
+            id: p.id,
+            contractId: p.contractId,
+            tokenA: {
+              id: p.tokenA.id,
+              symbol: p.tokenA.symbol,
+              decimals: p.tokenA.decimals,
+              priceUsd: p.tokenA.priceUsd,
+            },
+            tokenB: {
+              id: p.tokenB.id,
+              symbol: p.tokenB.symbol,
+              decimals: p.tokenB.decimals,
+              priceUsd: p.tokenB.priceUsd,
+            },
+            tokenReserveA: p.tokenReserveA,
+            tokenReserveB: p.tokenReserveB,
+            lpToken: {
+              id: p.lpToken.id,
+              symbol: p.lpToken.symbol,
+            },
+          }));
+
+          // Legacy: set poolExists for backward compatibility
+          this.poolExists = this.availablePools.length > 0;
         } else {
           // Fallback to mirror node contract call if API fails
           const whbarEvm = this.toEvmAddress(WHBAR_TOKEN_ID).slice(2).padStart(64, '0');
@@ -462,10 +707,85 @@ export class AddLiquidity {
 
       this.tokenValidated = true;
       this.tokenError = null;
+
+      // Transition to pool selection step
+      this.step = 'pool-selection';
     } catch (err: any) {
       this.tokenError = err.message || 'Failed to validate token';
       this.tokenValidated = false;
       this.tokenInfo = null;
+      this.availablePools = [];
+    }
+
+    this.loading = false;
+    this.refresh();
+  }
+
+  // --- TOKEN B VALIDATION (for new pool creation) ---
+  private static async validateTokenB(): Promise<void> {
+    const tokenId = this.tokenBIdInput.trim();
+    if (!tokenId) {
+      this.tokenBError = 'Please enter a Token ID';
+      this.refresh();
+      return;
+    }
+
+    // Check if same as token A
+    if (tokenId === this.tokenInfo?.tokenId) {
+      this.tokenBError = 'Token B must be different from Token A';
+      this.refresh();
+      return;
+    }
+
+    this.loading = true;
+    this.tokenBError = null;
+    this.tokenBValidated = false;
+    this.tokenBInfo = null;
+    this.refresh();
+
+    try {
+      // Fetch token info from mirror node
+      const res = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${tokenId}`);
+      if (!res.ok) throw new Error(`Token ${tokenId} not found`);
+      const data = await res.json();
+
+      if (data.type !== 'FUNGIBLE_COMMON') {
+        throw new Error('Only fungible tokens can be added to liquidity pools.');
+      }
+
+      const hasCustomFees = (data.custom_fees?.fixed_fees?.length > 0) || (data.custom_fees?.fractional_fees?.length > 0);
+
+      this.tokenBInfo = {
+        tokenId: data.token_id,
+        name: data.name || 'Unnamed',
+        symbol: data.symbol || '',
+        decimals: parseInt(data.decimals) || 0,
+        hasCustomFees,
+      };
+
+      // Fetch token price from SaucerSwap API
+      try {
+        const tokenPriceRes = await fetch(`${SAUCERSWAP_API_URL}/tokens/${tokenId}`, {
+          headers: { 'x-api-key': SAUCERSWAP_API_KEY },
+        });
+
+        if (tokenPriceRes.ok) {
+          const tokenData = await tokenPriceRes.json();
+          this.tokenBInfo.priceUsd = tokenData.priceUsd || 0;
+        }
+      } catch {
+        // Non-fatal: prices are nice-to-have
+      }
+
+      this.tokenBValidated = true;
+      this.tokenBError = null;
+
+      // Transition to liquidity form
+      this.step = 'liquidity-form';
+    } catch (err: any) {
+      this.tokenBError = err.message || 'Failed to validate token';
+      this.tokenBValidated = false;
+      this.tokenBInfo = null;
     }
 
     this.loading = false;
