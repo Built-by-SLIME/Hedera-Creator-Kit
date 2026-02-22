@@ -153,13 +153,11 @@ export class AddLiquidity {
 
         <div class="filter-divider"></div>
 
-        ${this.availablePools.length > 0 ? `
-          <h4 style="font-size:0.9rem;color:var(--terminal-text);margin:0 0 0.75rem">Existing Pools (${this.availablePools.length})</h4>
-          ${this.availablePools.map((pool, idx) => this.renderPoolCard(pool, idx)).join('')}
-          <div class="filter-divider"></div>
-        ` : `
-          <p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.7;margin:0 0 1rem">No existing pools found for this token.</p>
-        `}
+        <p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.7;margin:0 0 1rem">
+          ${this.availablePools.length > 0
+            ? `Found ${this.availablePools.length} existing pool${this.availablePools.length === 1 ? '' : 's'}. Select a pool from the right panel to add liquidity, or create a new pool below.`
+            : 'No existing pools found for this token. Create a new pool below.'}
+        </p>
 
         <button class="terminal-button" id="al-create-new-pool" style="width:100%">+ CREATE NEW POOL</button>
       </div>`;
@@ -279,11 +277,16 @@ export class AddLiquidity {
   private static renderPoolSelectionPreview(): string {
     return `
       <div class="cc-right-content">
-        <h4 class="section-title" style="font-size:0.95rem">Pool Selection</h4>
-        <p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.7">Select an existing pool to add liquidity, or create a new pool.</p>
+        <h4 class="section-title" style="font-size:0.95rem">Available Pools (${this.availablePools.length})</h4>
+        ${this.availablePools.length > 0 ? `
+          <div style="max-height:calc(100vh - 250px);overflow-y:auto;padding-right:0.5rem">
+            ${this.availablePools.map((pool, idx) => this.renderPoolCard(pool, idx)).join('')}
+          </div>
+        ` : `
+          <p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.7;margin:1rem 0">No existing pools found for this token.</p>
+        `}
         <div class="filter-divider"></div>
         <div class="preview-info">
-          <div class="info-row"><span>Existing Pools</span><span class="status-value">${this.availablePools.length}</span></div>
           <div class="info-row"><span>Gas Cost (Existing)</span><span class="status-value">~0.0024 HBAR</span></div>
           <div class="info-row"><span>Gas Cost (New Pool)</span><span class="status-value">~0.032 HBAR</span></div>
           <div class="info-row"><span>Pool Creation Fee</span><span class="status-value" style="color:#f0a040">~$50 HBAR</span></div>
