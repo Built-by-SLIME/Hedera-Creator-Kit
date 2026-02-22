@@ -14,9 +14,10 @@ import {
   AccountId,
   PublicKey,
   TransactionId,
+  TokenMintTransaction,
 } from '@hashgraph/sdk'
 
-type CreateTokenStep = 'form' | 'creating' | 'success';
+type CreateTokenStep = 'mode-select' | 'form' | 'creating' | 'success' | 'mint-form' | 'minting' | 'mint-success';
 
 export class CreateToken {
   // Form state — required
@@ -52,13 +53,27 @@ export class CreateToken {
   private static keyFeeSchedule = false;
 
   // UI state
-  private static step: CreateTokenStep = 'form';
+  private static step: CreateTokenStep = 'mode-select';
   private static loading = false;
   private static error: string | null = null;
   private static statusMessage = '';
 
   // Result
   private static tokenId: string | null = null;
+
+  // Mint additional supply state
+  private static mintTokenId = '';
+  private static mintAmount = 0;
+  private static mintTokenInfo: {
+    name: string;
+    symbol: string;
+    decimals: number;
+    totalSupply: string;
+    maxSupply: string;
+    supplyKey: string | null;
+    treasuryAccountId: string;
+  } | null = null;
+  private static mintTxId: string | null = null;
 
   static render(): string {
     return `<div class="terminal-window">${this.renderChrome()}${this.renderContent()}${this.renderStatusBar()}</div>`;
@@ -80,11 +95,15 @@ export class CreateToken {
 
   private static renderLeftPanel(): string {
     if (this.loading) {
-      return `<div class="art-gen-section"><h3 class="section-title">◆ Creating Token</h3><div class="loading-state"><div class="spinner"></div><p>${this.statusMessage || 'Processing...'}</p></div></div>`;
+      const message = this.step === 'minting' ? 'Minting Tokens' : 'Creating Token';
+      return `<div class="art-gen-section"><h3 class="section-title">◆ ${message}</h3><div class="loading-state"><div class="spinner"></div><p>${this.statusMessage || 'Processing...'}</p></div></div>`;
     }
     switch (this.step) {
+      case 'mode-select': return this.renderModeSelect();
       case 'form': return this.renderForm();
       case 'success': return this.renderSuccessPanel();
+      case 'mint-form': return this.renderMintForm();
+      case 'mint-success': return this.renderMintSuccessPanel();
       default: return '';
     }
   }
@@ -97,7 +116,9 @@ export class CreateToken {
       return `<div class="cc-right-content"><div class="error-state"><p class="error-message">⚠ ${this.error}</p><button class="terminal-button" id="ct-dismiss-error" style="margin-top:1rem">DISMISS</button></div></div>`;
     }
     switch (this.step) {
+      case 'mode-select': return this.renderModeSelectInfo();
       case 'form': return this.renderPreview();
+      case 'mint-form': return this.renderMintPreview();
       case 'success': return this.renderSuccessDetails();
       default: return '';
     }
@@ -306,6 +327,203 @@ export class CreateToken {
       </div>`;
   }
 
+  // --- MODE SELECT ---
+  private static renderModeSelect(): string {
+    return `
+      <div class="art-gen-section">
+        <h3 class="section-title">◆ Create Token</h3>
+        <div class="back-link" id="ct-back"><span class="back-arrow">←</span><span>Back to Home</span></div>
+
+        <p style="font-size:0.9rem;color:var(--terminal-text);margin:1rem 0">Choose an option:</p>
+
+        <button class="terminal-button" id="ct-mode-create" style="margin-bottom:1rem;width:100%">
+          ⚡ CREATE NEW TOKEN
+        </button>
+
+        <button class="terminal-button secondary" id="ct-mode-mint" style="width:100%">
+          ◆ MINT ADDITIONAL SUPPLY
+        </button>
+      </div>`;
+  }
+
+  private static renderModeSelectInfo(): string {
+    return `
+      <div class="cc-right-content">
+        <h4 class="section-title" style="font-size:0.95rem">Options</h4>
+
+        <div class="result-block">
+          <label>Create New Token</label>
+          <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">
+            Create a brand new fungible token on Hedera with custom supply, decimals, fees, and keys.
+          </p>
+        </div>
+
+        <div class="result-block" style="margin-top:1rem">
+          <label>Mint Additional Supply</label>
+          <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">
+            Mint more tokens to an existing token you control. Requires you to have the supply key (treasury account).
+          </p>
+        </div>
+
+        <div class="result-block" style="margin-top:1rem">
+          <label style="font-size:0.75rem;opacity:0.6">Hedera Token Service — Fungible Tokens</label>
+        </div>
+      </div>`;
+  }
+
+  // --- MINT FORM ---
+  private static renderMintForm(): string {
+    const ws = WalletConnectService.getState();
+    const canValidate = this.mintTokenId.trim().length > 0;
+    const canMint = this.mintTokenInfo && this.mintAmount > 0;
+
+    return `
+      <div class="art-gen-section">
+        <h3 class="section-title">◆ Mint Additional Supply</h3>
+        <div class="back-link" id="ct-mint-back"><span class="back-arrow">←</span><span>Back</span></div>
+
+        <div class="input-group">
+          <label for="ct-mint-token-id">Token ID *</label>
+          <input
+            type="text"
+            id="ct-mint-token-id"
+            class="token-input"
+            placeholder="0.0.xxxxx"
+            value="${this.escapeHtml(this.mintTokenId)}"
+            ${this.mintTokenInfo ? 'disabled' : ''}
+          />
+        </div>
+
+        ${!this.mintTokenInfo ? `
+          <button
+            class="terminal-button"
+            id="ct-validate-token"
+            ${!canValidate || !ws.connected ? 'disabled' : ''}
+            style="margin-top:0.5rem"
+          >
+            VALIDATE TOKEN
+          </button>
+        ` : ''}
+
+        ${this.mintTokenInfo ? `
+          <div class="filter-divider"></div>
+
+          <div class="preview-info" style="margin-bottom:1rem">
+            <div class="info-row"><span>Name</span><span class="status-value">${this.escapeHtml(this.mintTokenInfo.name)}</span></div>
+            <div class="info-row"><span>Symbol</span><span class="status-value">${this.escapeHtml(this.mintTokenInfo.symbol)}</span></div>
+            <div class="info-row"><span>Decimals</span><span class="status-value">${this.mintTokenInfo.decimals}</span></div>
+            <div class="info-row"><span>Current Supply</span><span class="status-value">${(parseInt(this.mintTokenInfo.totalSupply) / Math.pow(10, this.mintTokenInfo.decimals)).toLocaleString()}</span></div>
+            <div class="info-row"><span>Max Supply</span><span class="status-value">${this.mintTokenInfo.maxSupply === '0' ? 'Infinite' : (parseInt(this.mintTokenInfo.maxSupply) / Math.pow(10, this.mintTokenInfo.decimals)).toLocaleString()}</span></div>
+          </div>
+
+          <div class="input-group">
+            <label for="ct-mint-amount">Amount to Mint *</label>
+            <input
+              type="number"
+              id="ct-mint-amount"
+              class="token-input"
+              min="1"
+              placeholder="Enter amount"
+              value="${this.mintAmount || ''}"
+            />
+          </div>
+
+          <button
+            class="terminal-button"
+            id="ct-execute-mint"
+            ${!canMint ? 'disabled' : ''}
+            style="margin-top:1rem"
+          >
+            ⚡ MINT TOKENS
+          </button>
+        ` : ''}
+      </div>`;
+  }
+
+  private static renderMintPreview(): string {
+    if (!this.mintTokenInfo) {
+      return `
+        <div class="cc-right-content">
+          <h4 class="section-title" style="font-size:0.95rem">Mint Additional Supply</h4>
+          <div class="result-block">
+            <label>Instructions</label>
+            <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">
+              1. Enter the Token ID of the token you want to mint more supply for
+            </p>
+            <p style="font-size:0.82rem;color:var(--terminal-text);margin:0.5rem 0 0">
+              2. Click "Validate Token" to fetch token information
+            </p>
+            <p style="font-size:0.82rem;color:var(--terminal-text);margin:0.5rem 0 0">
+              3. Enter the amount to mint and confirm
+            </p>
+          </div>
+          <div class="result-block" style="margin-top:1rem">
+            <label>Requirements</label>
+            <p style="font-size:0.82rem;color:var(--terminal-text);margin:0">
+              • Your wallet must be the treasury account (has supply key)
+            </p>
+            <p style="font-size:0.82rem;color:var(--terminal-text);margin:0.5rem 0 0">
+              • Token must have supply key enabled
+            </p>
+            <p style="font-size:0.82rem;color:var(--terminal-text);margin:0.5rem 0 0">
+              • If finite supply, new total cannot exceed max supply
+            </p>
+          </div>
+        </div>`;
+    }
+
+    const currentSupply = parseInt(this.mintTokenInfo.totalSupply) / Math.pow(10, this.mintTokenInfo.decimals);
+    const newSupply = currentSupply + this.mintAmount;
+    const maxSupply = this.mintTokenInfo.maxSupply === '0' ? 0 : parseInt(this.mintTokenInfo.maxSupply) / Math.pow(10, this.mintTokenInfo.decimals);
+    const exceedsMax = maxSupply > 0 && newSupply > maxSupply;
+
+    return `
+      <div class="cc-right-content">
+        <h4 class="section-title" style="font-size:0.95rem">Mint Preview</h4>
+
+        <div class="preview-info">
+          <div class="info-row"><span>Current Supply</span><span class="status-value">${currentSupply.toLocaleString()}</span></div>
+          <div class="info-row"><span>Amount to Mint</span><span class="status-value">+${this.mintAmount.toLocaleString()}</span></div>
+          <div class="info-row"><span>New Total Supply</span><span class="status-value ${exceedsMax ? 'error' : ''}">${newSupply.toLocaleString()}</span></div>
+          ${maxSupply > 0 ? `<div class="info-row"><span>Max Supply</span><span class="status-value">${maxSupply.toLocaleString()}</span></div>` : ''}
+        </div>
+
+        ${exceedsMax ? `
+          <div class="result-block" style="margin-top:1rem;border-left:3px solid var(--terminal-red)">
+            <p style="font-size:0.82rem;color:var(--terminal-red);margin:0">
+              ⚠ Error: New supply (${newSupply.toLocaleString()}) would exceed max supply (${maxSupply.toLocaleString()})
+            </p>
+          </div>
+        ` : ''}
+
+        <div class="result-block" style="margin-top:1rem">
+          <label style="font-size:0.75rem;opacity:0.6">Hedera Token Service — Token Mint</label>
+        </div>
+      </div>`;
+  }
+
+  private static renderMintSuccessPanel(): string {
+    const newSupply = this.mintTokenInfo
+      ? (parseInt(this.mintTokenInfo.totalSupply) / Math.pow(10, this.mintTokenInfo.decimals)) + this.mintAmount
+      : 0;
+
+    return `
+      <div class="art-gen-section">
+        <h3 class="section-title">◆ Tokens Minted ✓</h3>
+        <div class="back-link" id="ct-back"><span class="back-arrow">←</span><span>Back to Home</span></div>
+
+        <div class="preview-info">
+          <div class="info-row"><span>Token ID</span><span class="status-value">${this.mintTokenId}</span></div>
+          <div class="info-row"><span>Amount Minted</span><span class="status-value">+${this.mintAmount.toLocaleString()}</span></div>
+          <div class="info-row"><span>New Total Supply</span><span class="status-value">${newSupply.toLocaleString()}</span></div>
+          <div class="info-row"><span>Transaction ID</span><span class="status-value" style="font-size:0.75rem">${this.mintTxId}</span></div>
+        </div>
+
+        <button class="terminal-button" id="ct-mint-more" style="margin-top:1rem">MINT MORE</button>
+        <button class="terminal-button secondary" id="ct-new" style="margin-top:0.5rem">CREATE NEW TOKEN</button>
+      </div>`;
+  }
+
   // --- VALIDATION ---
   private static canCreate(): boolean {
     if (!this.tokenName.trim()) return false;
@@ -341,6 +559,22 @@ export class CreateToken {
     if (btn) btn.disabled = !this.canCreate();
   }
 
+  private static refreshMintPreview(): void {
+    const rightPanel = document.querySelector('.art-gen-right');
+    if (rightPanel && this.step === 'mint-form') {
+      rightPanel.innerHTML = this.renderMintPreview();
+    }
+    const btn = document.getElementById('ct-execute-mint') as HTMLButtonElement;
+    if (btn) {
+      const canMint = this.mintTokenInfo && this.mintAmount > 0;
+      const maxSupply = this.mintTokenInfo?.maxSupply === '0' ? 0 : parseInt(this.mintTokenInfo?.maxSupply || '0') / Math.pow(10, this.mintTokenInfo?.decimals || 0);
+      const currentSupply = parseInt(this.mintTokenInfo?.totalSupply || '0') / Math.pow(10, this.mintTokenInfo?.decimals || 0);
+      const newSupply = currentSupply + this.mintAmount;
+      const exceedsMax = maxSupply > 0 && newSupply > maxSupply;
+      btn.disabled = !canMint || exceedsMax;
+    }
+  }
+
   static resetForm(): void {
     this.tokenName = '';
     this.symbol = '';
@@ -357,6 +591,10 @@ export class CreateToken {
     this.fractionalMax = 0;
     this.fixedAmount = 1;
     this.feeCollector = '';
+    this.mintTokenId = '';
+    this.mintAmount = 0;
+    this.mintTokenInfo = null;
+    this.mintTxId = null;
     this.keyAdmin = true;
     this.keySupply = true;
     this.keyMetadata = true;
@@ -364,7 +602,7 @@ export class CreateToken {
     this.keyWipe = false;
     this.keyPause = false;
     this.keyFeeSchedule = false;
-    this.step = 'form';
+    this.step = 'mode-select';
     this.loading = false;
     this.error = null;
     this.statusMessage = '';
@@ -376,6 +614,59 @@ export class CreateToken {
     // Back button
     document.getElementById('ct-back')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }));
+    });
+
+    // Mode selection buttons
+    document.getElementById('ct-mode-create')?.addEventListener('click', () => {
+      this.step = 'form';
+      this.refresh();
+    });
+
+    document.getElementById('ct-mode-mint')?.addEventListener('click', () => {
+      this.step = 'mint-form';
+      this.refresh();
+    });
+
+    // Mint form back button
+    document.getElementById('ct-mint-back')?.addEventListener('click', () => {
+      this.mintTokenId = '';
+      this.mintAmount = 0;
+      this.mintTokenInfo = null;
+      this.step = 'mode-select';
+      this.refresh();
+    });
+
+    // Mint token ID input
+    const mintTokenIdInput = document.getElementById('ct-mint-token-id') as HTMLInputElement;
+    mintTokenIdInput?.addEventListener('input', () => {
+      this.mintTokenId = mintTokenIdInput.value;
+    });
+
+    // Validate token button
+    document.getElementById('ct-validate-token')?.addEventListener('click', () => {
+      this.validateMintToken();
+    });
+
+    // Mint amount input
+    const mintAmountInput = document.getElementById('ct-mint-amount') as HTMLInputElement;
+    mintAmountInput?.addEventListener('input', () => {
+      this.mintAmount = parseInt(mintAmountInput.value) || 0;
+      this.refreshMintPreview();
+    });
+
+    // Execute mint button
+    document.getElementById('ct-execute-mint')?.addEventListener('click', () => {
+      this.executeMint();
+    });
+
+    // Mint more button (from success screen)
+    document.getElementById('ct-mint-more')?.addEventListener('click', () => {
+      this.mintTokenId = '';
+      this.mintAmount = 0;
+      this.mintTokenInfo = null;
+      this.mintTxId = null;
+      this.step = 'mint-form';
+      this.refresh();
     });
 
     // Text inputs
@@ -638,6 +929,128 @@ export class CreateToken {
       } catch { /* retry */ }
     }
     return null;
+  }
+
+  // --- MINT ADDITIONAL SUPPLY LOGIC ---
+  private static async validateMintToken(): Promise<void> {
+    this.loading = true;
+    this.error = null;
+    this.statusMessage = 'Validating token...';
+    this.refresh();
+
+    try {
+      const ws = WalletConnectService.getState();
+      if (!ws.connected || !ws.accountId) throw new Error('Wallet not connected');
+
+      // Fetch token info from mirror node
+      const res = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${this.mintTokenId}`);
+      if (!res.ok) throw new Error(`Token ${this.mintTokenId} not found`);
+
+      const data = await res.json();
+
+      // Validate it's a fungible token
+      if (data.type !== 'FUNGIBLE_COMMON') {
+        throw new Error('Only fungible tokens can be minted using this tool. Use the Mint NFTs tool for NFT collections.');
+      }
+
+      // Check if token has supply key
+      if (!data.supply_key) {
+        throw new Error('This token does not have a supply key enabled. Cannot mint additional supply.');
+      }
+
+      // Check if connected wallet is the treasury account
+      if (data.treasury_account_id !== ws.accountId) {
+        throw new Error(`Your wallet (${ws.accountId}) is not the treasury account for this token. Only the treasury account can mint additional supply.`);
+      }
+
+      // Store token info
+      this.mintTokenInfo = {
+        name: data.name || 'Unnamed',
+        symbol: data.symbol || '',
+        decimals: parseInt(data.decimals) || 0,
+        totalSupply: data.total_supply || '0',
+        maxSupply: data.max_supply || '0',
+        supplyKey: data.supply_key?.key || null,
+        treasuryAccountId: data.treasury_account_id,
+      };
+
+      this.loading = false;
+      this.statusMessage = '';
+      this.refresh();
+    } catch (err: any) {
+      console.error('Validate token error:', err);
+      this.loading = false;
+      this.error = err.message || 'Failed to validate token';
+      this.statusMessage = '';
+      this.refresh();
+    }
+  }
+
+  private static async executeMint(): Promise<void> {
+    if (!this.mintTokenInfo || this.mintAmount <= 0) return;
+
+    // Validate against max supply
+    const maxSupply = this.mintTokenInfo.maxSupply === '0' ? 0 : parseInt(this.mintTokenInfo.maxSupply);
+    const currentSupply = parseInt(this.mintTokenInfo.totalSupply);
+    const amountInSmallestUnit = this.mintAmount * Math.pow(10, this.mintTokenInfo.decimals);
+    const newSupply = currentSupply + amountInSmallestUnit;
+
+    if (maxSupply > 0 && newSupply > maxSupply) {
+      this.error = `Cannot mint ${this.mintAmount.toLocaleString()} tokens. New supply would exceed max supply.`;
+      this.refresh();
+      return;
+    }
+
+    this.loading = true;
+    this.error = null;
+    this.step = 'minting';
+    this.statusMessage = 'Preparing mint transaction...';
+    this.refresh();
+
+    try {
+      const ws = WalletConnectService.getState();
+      if (!ws.connected || !ws.accountId) throw new Error('Wallet not connected');
+      const accountId = ws.accountId;
+
+      // Build TokenMintTransaction
+      this.statusMessage = 'Building transaction...';
+      this.refresh();
+
+      const tx = new TokenMintTransaction()
+        .setTokenId(this.mintTokenId)
+        .setAmount(amountInSmallestUnit)
+        .setTransactionId(TransactionId.generate(AccountId.fromString(accountId)));
+
+      // Freeze & execute via WalletConnect
+      this.statusMessage = 'Waiting for wallet approval...';
+      this.refresh();
+
+      const signer = WalletConnectService.getSigner(accountId);
+      const frozenTx = tx.freezeWith(getHederaClient());
+      const txResponse = await frozenTx.executeWithSigner(signer);
+
+      this.statusMessage = 'Getting receipt...';
+      this.refresh();
+
+      // Get transaction ID
+      const txId = txResponse?.transactionId?.toString() || 'Unknown';
+      this.mintTxId = txId;
+
+      // Update total supply for display
+      this.mintTokenInfo.totalSupply = newSupply.toString();
+
+      this.step = 'mint-success';
+      this.loading = false;
+      this.statusMessage = `Minted ${this.mintAmount.toLocaleString()} tokens`;
+      this.refresh();
+    } catch (err: any) {
+      console.error('Mint token error:', err);
+      this.loading = false;
+      this.step = 'mint-form';
+      this.error = err.message || 'Failed to mint tokens';
+      this.statusMessage = '';
+      this.refresh();
+    }
   }
 }
 
