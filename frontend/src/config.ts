@@ -5,7 +5,7 @@
  *   VITE_API_BASE_URL             — Backend API server URL (default: http://localhost:3001)
  *   VITE_MIRROR_NODE_URL          — Hedera Mirror Node URL (default: https://mainnet-public.mirrornode.hedera.com)
  *   VITE_WALLETCONNECT_PROJECT_ID — WalletConnect Cloud project ID
- *   VITE_SAUCERSWAP_API_KEY       — SaucerSwap REST API key
+ *   VITE_SAUCERSWAP_API_KEY       — SaucerSwap REST API key (required for Add Liquidity tool)
  */
 
 import { Client } from '@hashgraph/sdk'
