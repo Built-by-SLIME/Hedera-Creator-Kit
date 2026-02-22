@@ -382,8 +382,8 @@ export class AddLiquidity {
           const pools = await poolsRes.json();
           // Find pool with WHBAR and this token
           const pool = pools.find((p: any) =>
-            (p.tokenA === WHBAR_TOKEN_ID && p.tokenB === tokenId) ||
-            (p.tokenA === tokenId && p.tokenB === WHBAR_TOKEN_ID)
+            (p.tokenA?.id === WHBAR_TOKEN_ID && p.tokenB?.id === tokenId) ||
+            (p.tokenA?.id === tokenId && p.tokenB?.id === WHBAR_TOKEN_ID)
           );
           this.poolExists = !!pool;
         } else {
