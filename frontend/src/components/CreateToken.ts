@@ -640,10 +640,17 @@ export class CreateToken {
     const mintTokenIdInput = document.getElementById('ct-mint-token-id') as HTMLInputElement;
     mintTokenIdInput?.addEventListener('input', () => {
       this.mintTokenId = mintTokenIdInput.value;
+      // Update button state
+      const validateBtn = document.getElementById('ct-validate-token') as HTMLButtonElement;
+      if (validateBtn) {
+        const ws = WalletConnectService.getState();
+        validateBtn.disabled = !this.mintTokenId.trim() || !ws.connected;
+      }
     });
 
     // Validate token button
     document.getElementById('ct-validate-token')?.addEventListener('click', () => {
+      console.log('Validate token button clicked, token ID:', this.mintTokenId);
       this.validateMintToken();
     });
 
@@ -933,6 +940,7 @@ export class CreateToken {
 
   // --- MINT ADDITIONAL SUPPLY LOGIC ---
   private static async validateMintToken(): Promise<void> {
+    console.log('validateMintToken called, token ID:', this.mintTokenId);
     this.loading = true;
     this.error = null;
     this.statusMessage = 'Validating token...';
