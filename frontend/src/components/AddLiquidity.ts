@@ -3,7 +3,7 @@
  * Adds liquidity to SaucerSwap V1 HBAR/Token pools via ContractExecuteTransaction + WalletConnect
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { MIRROR_NODE_URL, SAUCER_V1_ROUTER, WHBAR_TOKEN_ID, getHederaClient } from '../config'
+import { MIRROR_NODE_URL, SAUCER_V1_ROUTER, WHBAR_TOKEN_ID, SAUCERSWAP_API_KEY, SAUCERSWAP_API_URL, getHederaClient } from '../config'
 import {
   ContractExecuteTransaction,
   ContractFunctionParameters,
@@ -320,60 +320,83 @@ export class AddLiquidity {
         hasCustomFees,
       };
 
-      // Check if pool exists via Factory.getPair() on mirror node (no API key needed)
+      // Check if pool exists via SaucerSwap REST API
       try {
-        const whbarEvm = this.toEvmAddress(WHBAR_TOKEN_ID).slice(2).padStart(64, '0');
-        const tokenEvm = this.toEvmAddress(tokenId).slice(2).padStart(64, '0');
-
-        // Get factory address from router via factory() selector 0xc45a0155
-        const routerEvm = this.toEvmAddress(SAUCER_V1_ROUTER);
-        const factoryRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: '0xc45a0155', to: routerEvm, estimate: false }),
+        const poolsRes = await fetch(`${SAUCERSWAP_API_URL}/pools`, {
+          headers: { 'x-api-key': SAUCERSWAP_API_KEY },
         });
-        if (!factoryRes.ok) throw new Error('Factory lookup failed');
-        const factoryData = await factoryRes.json();
-        const factoryAddr = '0x' + (factoryData.result || '').slice(-40);
 
-        // Call getPair(address,address) selector 0xe6a43905 on factory
-        const getPairData = '0xe6a43905' + whbarEvm + tokenEvm;
-        const pairRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: getPairData, to: factoryAddr, estimate: false }),
-        });
-        if (pairRes.ok) {
-          const pairData = await pairRes.json();
-          const result = (pairData.result || '').replace(/^0x/, '');
-          // Zero address means no pool exists
-          this.poolExists = result.replace(/0/g, '').length > 0;
+        if (poolsRes.ok) {
+          const pools = await poolsRes.json();
+          // Find pool with WHBAR and this token
+          const pool = pools.find((p: any) =>
+            (p.tokenA === WHBAR_TOKEN_ID && p.tokenB === tokenId) ||
+            (p.tokenA === tokenId && p.tokenB === WHBAR_TOKEN_ID)
+          );
+          this.poolExists = !!pool;
         } else {
-          this.poolExists = null;
+          // Fallback to mirror node contract call if API fails
+          const whbarEvm = this.toEvmAddress(WHBAR_TOKEN_ID).slice(2).padStart(64, '0');
+          const tokenEvm = this.toEvmAddress(tokenId).slice(2).padStart(64, '0');
+          const routerEvm = this.toEvmAddress(SAUCER_V1_ROUTER);
+
+          const factoryRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: '0xc45a0155', to: routerEvm, estimate: false }),
+          });
+
+          if (factoryRes.ok) {
+            const factoryData = await factoryRes.json();
+            const factoryAddr = '0x' + (factoryData.result || '').slice(-40);
+            const getPairData = '0xe6a43905' + whbarEvm + tokenEvm;
+
+            const pairRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: getPairData, to: factoryAddr, estimate: false }),
+            });
+
+            if (pairRes.ok) {
+              const pairData = await pairRes.json();
+              const result = (pairData.result || '').replace(/^0x/, '');
+              this.poolExists = result.replace(/0/g, '').length > 0;
+            }
+          }
         }
 
         // If pool doesn't exist, fetch pool creation fee from Factory
         if (this.poolExists === false) {
           try {
-            // Call pairCreateFee() selector 0x881a075a on factory
-            const feeRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
+            const routerEvm = this.toEvmAddress(SAUCER_V1_ROUTER);
+            const factoryRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: '0x881a075a', to: factoryAddr, estimate: false }),
+              body: JSON.stringify({ data: '0xc45a0155', to: routerEvm, estimate: false }),
             });
-            if (feeRes.ok) {
-              const feeData = await feeRes.json();
-              const tinycent = parseInt((feeData.result || '0x0').replace(/^0x/, ''), 16);
 
-              // Get exchange rate from mirror node
-              const rateRes = await fetch(`${MIRROR_NODE_URL}/api/v1/network/exchangerate`);
-              if (rateRes.ok) {
-                const rateData = await rateRes.json();
-                const centEquivalent = Number(rateData.current_rate.cent_equivalent);
-                const hbarEquivalent = Number(rateData.current_rate.hbar_equivalent);
-                const centToHbarRatio = centEquivalent / hbarEquivalent;
-                // Convert tinycent to tinybar (round up to be safe)
-                this.poolCreationFeeTinybar = Math.ceil(tinycent / centToHbarRatio);
+            if (factoryRes.ok) {
+              const factoryData = await factoryRes.json();
+              const factoryAddr = '0x' + (factoryData.result || '').slice(-40);
+
+              const feeRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: '0x881a075a', to: factoryAddr, estimate: false }),
+              });
+
+              if (feeRes.ok) {
+                const feeData = await feeRes.json();
+                const tinycent = parseInt((feeData.result || '0x0').replace(/^0x/, ''), 16);
+
+                const rateRes = await fetch(`${MIRROR_NODE_URL}/api/v1/network/exchangerate`);
+                if (rateRes.ok) {
+                  const rateData = await rateRes.json();
+                  const centEquivalent = Number(rateData.current_rate.cent_equivalent);
+                  const hbarEquivalent = Number(rateData.current_rate.hbar_equivalent);
+                  const centToHbarRatio = centEquivalent / hbarEquivalent;
+                  this.poolCreationFeeTinybar = Math.ceil(tinycent / centToHbarRatio);
+                }
               }
             }
           } catch {

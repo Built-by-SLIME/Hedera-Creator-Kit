@@ -5,6 +5,7 @@
  *   VITE_API_BASE_URL             — Backend API server URL (default: http://localhost:3001)
  *   VITE_MIRROR_NODE_URL          — Hedera Mirror Node URL (default: https://mainnet-public.mirrornode.hedera.com)
  *   VITE_WALLETCONNECT_PROJECT_ID — WalletConnect Cloud project ID
+ *   VITE_SAUCERSWAP_API_KEY       — SaucerSwap REST API key
  */
 
 import { Client } from '@hashgraph/sdk'
@@ -24,6 +25,13 @@ export const MIRROR_NODE_URL: string =
 /** WalletConnect Cloud project ID */
 export const WALLETCONNECT_PROJECT_ID: string =
   (import.meta as any).env?.VITE_WALLETCONNECT_PROJECT_ID || 'demo-project-id'
+
+/** SaucerSwap REST API key */
+export const SAUCERSWAP_API_KEY: string =
+  (import.meta as any).env?.VITE_SAUCERSWAP_API_KEY || ''
+
+/** SaucerSwap REST API base URL */
+export const SAUCERSWAP_API_URL = 'https://api.saucerswap.finance'
 
 // ---------------------------------------------------------------------------
 // Hedera network constants (mainnet)
