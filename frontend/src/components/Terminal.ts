@@ -51,7 +51,7 @@ export class Terminal {
     { id: 'mint-nfts', number: 3, title: 'Mint NFTs', description: 'Batch mint NFTs (up to 10)', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
     { id: 'create-token', number: 4, title: 'Create Token', description: 'Create a new fungible token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'update-token-icon', number: 5, title: 'Update Token Icon', description: 'Update token metadata/icon', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'add-liquidity', number: 6, title: 'Add Liquidity', description: 'Add liquidity to DEX', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'add-liquidity', number: 6, title: 'Add Liquidity', description: 'Add liquidity to fungible token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'token-viewer', number: 7, title: 'Token Viewer', description: 'View token information', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'snapshot', number: 8, title: 'Snapshot Tool', description: 'Capture holder accounts', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
     { id: 'airdrop', number: 9, title: 'Airdrop Tool', description: 'Distribute tokens to wallets', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
