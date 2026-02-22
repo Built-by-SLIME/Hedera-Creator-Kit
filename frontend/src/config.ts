@@ -26,7 +26,7 @@ export const MIRROR_NODE_URL: string =
 export const WALLETCONNECT_PROJECT_ID: string =
   (import.meta as any).env?.VITE_WALLETCONNECT_PROJECT_ID || 'demo-project-id'
 
-/** SaucerSwap REST API key */
+/** SaucerSwap REST API key (used for pool validation and price fetching) */
 export const SAUCERSWAP_API_KEY: string =
   (import.meta as any).env?.VITE_SAUCERSWAP_API_KEY || ''
 
