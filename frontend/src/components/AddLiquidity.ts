@@ -276,21 +276,24 @@ export class AddLiquidity {
 
   private static renderPoolSelectionPreview(): string {
     return `
-      <div class="cc-right-content">
-        <h4 class="section-title" style="font-size:0.95rem">Available Pools (${this.availablePools.length})</h4>
-        ${this.availablePools.length > 0 ? `
-          <div style="max-height:calc(100vh - 250px);overflow-y:auto;padding-right:0.5rem">
-            ${this.availablePools.map((pool, idx) => this.renderPoolCard(pool, idx)).join('')}
-          </div>
-        ` : `
-          <p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.7;margin:1rem 0">No existing pools found for this token.</p>
-        `}
-        <div class="filter-divider"></div>
-        <div class="preview-info">
+      <div class="cc-right-content" style="display:flex;flex-direction:column;height:100%">
+        <h4 class="section-title" style="font-size:0.95rem;margin-bottom:0.75rem">Available Pools (${this.availablePools.length})</h4>
+
+        <div class="preview-info" style="margin-bottom:0.75rem">
           <div class="info-row"><span>Gas Cost (Existing)</span><span class="status-value">~0.0024 HBAR</span></div>
           <div class="info-row"><span>Gas Cost (New Pool)</span><span class="status-value">~0.032 HBAR</span></div>
           <div class="info-row"><span>Pool Creation Fee</span><span class="status-value" style="color:#f0a040">~$50 HBAR</span></div>
         </div>
+
+        <div class="filter-divider" style="margin-bottom:0.75rem"></div>
+
+        ${this.availablePools.length > 0 ? `
+          <div style="flex:1;overflow-y:auto;min-height:0">
+            ${this.availablePools.map((pool, idx) => this.renderPoolCard(pool, idx)).join('')}
+          </div>
+        ` : `
+          <p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.7;margin:0">No existing pools found for this token.</p>
+        `}
       </div>`;
   }
 
