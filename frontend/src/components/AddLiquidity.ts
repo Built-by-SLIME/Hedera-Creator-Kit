@@ -689,10 +689,11 @@ export class AddLiquidity {
       }
 
       // Fetch pool creation fee from SaucerSwap factory contract
+      // According to SaucerSwap docs: fee is returned in tinycent USD, must convert to tinybar using exchange rate
       try {
         const routerEvm = this.toEvmAddress(SAUCER_V1_ROUTER);
 
-        // Get factory address from router
+        // Get factory address from router (factory() function selector: 0xc45a0155)
         const factoryRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -703,7 +704,8 @@ export class AddLiquidity {
           const factoryData = await factoryRes.json();
           const factoryAddr = '0x' + (factoryData.result || '').slice(-40);
 
-          // Get pool creation fee from factory (feeInTinybars function selector: 0x0e8e3e84)
+          // Get pool creation fee from factory (pairCreateFee() function selector: 0x0e8e3e84)
+          // This returns the fee in tinycent (US)
           const feeRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -713,10 +715,26 @@ export class AddLiquidity {
           if (feeRes.ok) {
             const feeData = await feeRes.json();
             const feeHex = (feeData.result || '').replace(/^0x/, '');
-            this.poolCreationFeeTinybar = parseInt(feeHex, 16) || 0;
+            const tinycent = parseInt(feeHex, 16) || 0;
+
+            // Get current HBAR/USD exchange rate from Hedera mirror node
+            const exchangeRateRes = await fetch(`${MIRROR_NODE_URL}/api/v1/network/exchangerate`);
+            if (exchangeRateRes.ok) {
+              const exchangeRateData = await exchangeRateRes.json();
+              const currentRate = exchangeRateData.current_rate;
+              const centEquivalent = Number(currentRate.cent_equivalent);
+              const hbarEquivalent = Number(currentRate.hbar_equivalent);
+              const centToHbarRatio = centEquivalent / hbarEquivalent;
+
+              // Convert tinycent to tinybar
+              // tinybar = (tinycent / centToHbarRatio)
+              // Note: 1 HBAR = 100,000,000 tinybar
+              this.poolCreationFeeTinybar = Math.round((tinycent / centToHbarRatio));
+            }
           }
         }
-      } catch {
+      } catch (err) {
+        console.error('Failed to fetch pool creation fee:', err);
         // Non-fatal: default to 0 if we can't fetch the fee
         this.poolCreationFeeTinybar = 0;
       }
