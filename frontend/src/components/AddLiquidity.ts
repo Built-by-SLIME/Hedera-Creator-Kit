@@ -689,25 +689,28 @@ export class AddLiquidity {
       }
 
       // Calculate pool creation fee in tinybar
-      // According to SaucerSwap docs: V1 pool creation fee is $50 USD (5000 tinycent)
+      // According to SaucerSwap docs: V1 pool creation fee is $50 USD
       // We fetch the current HBAR/USD exchange rate and convert to tinybar
       try {
-        const POOL_FEE_TINYCENT = 5000; // $50 USD = 5000 tinycent
+        const POOL_FEE_USD = 50; // $50 USD
 
         // Get current HBAR/USD exchange rate from Hedera mirror node
         const exchangeRateRes = await fetch(`${MIRROR_NODE_URL}/api/v1/network/exchangerate`);
         if (exchangeRateRes.ok) {
           const exchangeRateData = await exchangeRateRes.json();
           const currentRate = exchangeRateData.current_rate;
-          const centEquivalent = Number(currentRate.cent_equivalent);
-          const hbarEquivalent = Number(currentRate.hbar_equivalent);
-          const centToHbarRatio = centEquivalent / hbarEquivalent;
+          const centEquivalent = Number(currentRate.cent_equivalent); // cents USD
+          const hbarEquivalent = Number(currentRate.hbar_equivalent); // HBAR
 
-          // Convert tinycent to tinybar
-          // tinybar = (tinycent / centToHbarRatio)
-          // Note: 1 HBAR = 100,000,000 tinybar
-          this.poolCreationFeeTinybar = Math.round((POOL_FEE_TINYCENT / centToHbarRatio));
-          console.log(`Pool creation fee: ${POOL_FEE_TINYCENT} tinycent = ${this.poolCreationFeeTinybar} tinybar`);
+          // Exchange rate: hbarEquivalent HBAR = centEquivalent cents USD
+          // We need: $50 USD = 5000 cents
+          // HBAR needed = (5000 / centEquivalent) * hbarEquivalent
+          // Tinybar = HBAR * 100,000,000
+          const poolFeeCents = POOL_FEE_USD * 100;
+          const hbarNeeded = (poolFeeCents / centEquivalent) * hbarEquivalent;
+          this.poolCreationFeeTinybar = Math.round(hbarNeeded * 100_000_000);
+
+          console.log(`Pool creation fee: $${POOL_FEE_USD} USD = ${hbarNeeded.toFixed(2)} HBAR = ${this.poolCreationFeeTinybar} tinybar`);
         } else {
           console.error('Failed to fetch exchange rate');
           this.poolCreationFeeTinybar = 0;
