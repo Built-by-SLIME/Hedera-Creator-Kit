@@ -709,7 +709,7 @@ export class AddLiquidity {
           // centToHbarRatio = centEquivalent / hbarEquivalent (cents per HBAR)
           // tinybar = tinycent / centToHbarRatio
           const centToHbarRatio = centEquivalent / hbarEquivalent;
-          this.poolCreationFeeTinybar = Math.round(POOL_FEE_TINYCENT / centToHbarRatio);
+          this.poolCreationFeeTinybar = Math.round((POOL_FEE_TINYCENT / centToHbarRatio) * 100_000_000);
 
           const hbarNeeded = this.poolCreationFeeTinybar / 100_000_000;
           console.log(`Pool creation fee: $50 USD = ${hbarNeeded.toFixed(2)} HBAR = ${this.poolCreationFeeTinybar} tinybar`);
