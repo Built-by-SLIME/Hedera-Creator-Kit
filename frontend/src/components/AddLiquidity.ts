@@ -989,7 +989,7 @@ export class AddLiquidity {
       if (isHbarPair) {
         // HBAR/Token pair - use addLiquidityETH or addLiquidityETHNewPool
         functionName = isNewPool ? 'addLiquidityETHNewPool' : 'addLiquidityETH';
-        gasLimit = isNewPool ? 3_200_000 : 240_000;
+        gasLimit = isNewPool ? 5_000_000 : 400_000;
 
         // CRITICAL: For HBAR pairs, the HBAR amount is sent as msg.value (payable amount)
         // For NEW pools: payable amount = HBAR liquidity + pool creation fee
@@ -1017,7 +1017,7 @@ export class AddLiquidity {
       } else {
         // HTS/HTS pair - use addLiquidity or addLiquidityNewPool
         functionName = isNewPool ? 'addLiquidityNewPool' : 'addLiquidity';
-        gasLimit = isNewPool ? 3_200_000 : 240_000;
+        gasLimit = isNewPool ? 5_000_000 : 400_000;
 
         // For new pools: pool creation fee only
         // For existing pools: no HBAR needed
