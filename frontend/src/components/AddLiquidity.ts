@@ -934,11 +934,10 @@ export class AddLiquidity {
         functionName = isNewPool ? 'addLiquidityETHNewPool' : 'addLiquidityETH';
         gasLimit = isNewPool ? 3_200_000 : 240_000;
 
-        // For new pools: HBAR amount + pool creation fee
-        // For existing pools: HBAR amount only
-        payableTinybar = isNewPool
-          ? tokenBSmallestUnit + this.poolCreationFeeTinybar
-          : tokenBSmallestUnit;
+        // CRITICAL FIX per SaucerSwap docs:
+        // For NEW pools: payable amount is ONLY the pool creation fee
+        // For EXISTING pools: payable amount is the HBAR liquidity amount
+        payableTinybar = isNewPool ? this.poolCreationFeeTinybar : tokenBSmallestUnit;
 
         params = new ContractFunctionParameters()
           .addAddress(tokenAEvmAddress)
