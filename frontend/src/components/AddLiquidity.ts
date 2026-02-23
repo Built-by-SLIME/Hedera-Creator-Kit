@@ -689,10 +689,11 @@ export class AddLiquidity {
       }
 
       // Calculate pool creation fee in tinybar
-      // According to SaucerSwap docs: V1 pool creation fee is $50 USD
-      // We fetch the current HBAR/USD exchange rate and convert to tinybar
+      // SaucerSwap V1 pool creation fee is $50 USD (5000 tinycent)
+      // Factory contract stores this as 5000 tinycent
+      // We need to convert tinycent to tinybar using current exchange rate
       try {
-        const POOL_FEE_USD = 50; // $50 USD
+        const POOL_FEE_TINYCENT = 5000; // $50 USD = 5000 tinycent (from factory contract)
 
         // Get current HBAR/USD exchange rate from Hedera mirror node
         const exchangeRateRes = await fetch(`${MIRROR_NODE_URL}/api/v1/network/exchangerate`);
@@ -703,14 +704,13 @@ export class AddLiquidity {
           const hbarEquivalent = Number(currentRate.hbar_equivalent); // HBAR
 
           // Exchange rate: hbarEquivalent HBAR = centEquivalent cents USD
-          // We need: $50 USD = 5000 cents
-          // HBAR needed = (5000 / centEquivalent) * hbarEquivalent
-          // Tinybar = HBAR * 100,000,000
-          const poolFeeCents = POOL_FEE_USD * 100;
+          // Pool fee: 5000 tinycent = 50 cents USD
+          // Convert tinycent to tinybar: tinybar = (tinycent / (centEquivalent * 100)) * (hbarEquivalent * 100_000_000)
+          const poolFeeCents = POOL_FEE_TINYCENT / 100; // Convert tinycent to cents
           const hbarNeeded = (poolFeeCents / centEquivalent) * hbarEquivalent;
           this.poolCreationFeeTinybar = Math.round(hbarNeeded * 100_000_000);
 
-          console.log(`Pool creation fee: $${POOL_FEE_USD} USD = ${hbarNeeded.toFixed(2)} HBAR = ${this.poolCreationFeeTinybar} tinybar`);
+          console.log(`Pool creation fee: $${poolFeeCents / 100} USD = ${hbarNeeded.toFixed(2)} HBAR = ${this.poolCreationFeeTinybar} tinybar`);
         } else {
           console.error('Failed to fetch exchange rate');
           this.poolCreationFeeTinybar = 0;
