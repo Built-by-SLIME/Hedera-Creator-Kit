@@ -976,6 +976,11 @@ export class AddLiquidity {
         await new Promise(r => setTimeout(r, 2000));
       }
 
+      // Guard: for new pools the creation fee is required — if we couldn't fetch it, abort
+      if (isNewPool && this.poolCreationFeeTinybar === 0) {
+        throw new Error('Could not calculate pool creation fee. Please refresh and try again.');
+      }
+
       // Step 3: Add liquidity
       const stepLabel = isHbarPair ? '2/2' : '3/3';
       this.statusMessage = `Step ${stepLabel} — ${isNewPool ? 'Creating pool & adding' : 'Adding'} liquidity...`;
@@ -989,7 +994,8 @@ export class AddLiquidity {
       if (isHbarPair) {
         // HBAR/Token pair - use addLiquidityETH or addLiquidityETHNewPool
         functionName = isNewPool ? 'addLiquidityETHNewPool' : 'addLiquidityETH';
-        gasLimit = isNewPool ? 5_000_000 : 400_000;
+        // SaucerSwap docs recommend 3,200,000 gas. Existing pools: was 400K (too low, caused reverts).
+        gasLimit = isNewPool ? 5_000_000 : 3_200_000;
 
         // CRITICAL: For HBAR pairs, the HBAR amount is sent as msg.value (payable amount)
         // For NEW pools: payable amount = HBAR liquidity + pool creation fee
@@ -1017,7 +1023,8 @@ export class AddLiquidity {
       } else {
         // HTS/HTS pair - use addLiquidity or addLiquidityNewPool
         functionName = isNewPool ? 'addLiquidityNewPool' : 'addLiquidity';
-        gasLimit = isNewPool ? 5_000_000 : 400_000;
+        // SaucerSwap docs recommend 3,200,000 gas. Existing pools: was 400K (too low, caused reverts).
+        gasLimit = isNewPool ? 5_000_000 : 3_200_000;
 
         // For new pools: pool creation fee only
         // For existing pools: no HBAR needed
@@ -1069,7 +1076,9 @@ export class AddLiquidity {
       // Verify transaction result via mirror node
       let txVerified = false;
       if (this.txId) {
-        const mirrorTxId = this.txId.replace('@', '-').replace(/\./g, '-');
+        // Convert 0.0.XXXXXX@seconds.nanos → 0.0.XXXXXX-seconds-nanos
+        // Only replace the @ and the final dot (before nanos). The 0.0. dots must stay.
+        const mirrorTxId = this.txId.replace('@', '-').replace(/\.(\d+)$/, '-$1');
         for (let attempt = 0; attempt < 8; attempt++) {
           await new Promise(r => setTimeout(r, 3000));
           try {
