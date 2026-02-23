@@ -39,6 +39,7 @@ export class AddLiquidity {
   private static selectedPool: PoolInfo | null = null;
 
   // Second token (for new pool creation)
+  private static tokenBType: 'hbar' | 'hts' = 'hbar'; // Default to HBAR
   private static tokenBIdInput = '';
   private static tokenBValidated = false;
   private static tokenBInfo: { tokenId: string; name: string; symbol: string; decimals: number; hasCustomFees: boolean; priceUsd?: number } | null = null;
@@ -188,6 +189,8 @@ export class AddLiquidity {
   // --- NEW POOL INPUT STEP ---
   private static renderNewPoolInput(): string {
     const tokenBValid = this.tokenBValidated && this.tokenBInfo;
+    const showHtsInput = this.tokenBType === 'hts';
+
     return `
       <div class="art-gen-section">
         <h3 class="section-title">◆ Create New Pool</h3>
@@ -201,14 +204,30 @@ export class AddLiquidity {
         <div class="filter-divider"></div>
 
         <div class="input-group">
-          <label for="al-token-b-id">Token B ID *</label>
-          <div class="input-row" style="gap:0.5rem">
-            <input type="text" id="al-token-b-id" class="token-input" placeholder="0.0.xxxxx" value="${this.escapeHtml(this.tokenBIdInput)}" style="flex:1" />
-            <button class="terminal-button" id="al-validate-b" style="white-space:nowrap">${this.loading ? '...' : 'VALIDATE'}</button>
+          <label>Token B Type *</label>
+          <div style="display:flex;gap:0.5rem">
+            <button class="terminal-button" id="al-select-hbar" style="flex:1;background:${this.tokenBType === 'hbar' ? 'rgba(13,147,115,0.3)' : 'transparent'};border-color:${this.tokenBType === 'hbar' ? '#0d9373' : 'rgba(255,255,255,0.2)'}">HBAR</button>
+            <button class="terminal-button" id="al-select-hts" style="flex:1;background:${this.tokenBType === 'hts' ? 'rgba(13,147,115,0.3)' : 'transparent'};border-color:${this.tokenBType === 'hts' ? '#0d9373' : 'rgba(255,255,255,0.2)'}">HTS Token</button>
           </div>
-          ${this.tokenBError ? `<p style="font-size:0.78rem;color:#ff6b6b;margin:0.35rem 0 0">${this.tokenBError}</p>` : ''}
-          ${tokenBValid ? `<p style="font-size:0.78rem;color:#6bff9e;margin:0.35rem 0 0">✓ ${this.tokenBInfo!.name} (${this.tokenBInfo!.symbol}) — ${this.tokenBInfo!.decimals} decimals</p>` : ''}
         </div>
+
+        ${showHtsInput ? `
+          <div class="input-group">
+            <label for="al-token-b-id">Token B ID *</label>
+            <div class="input-row" style="gap:0.5rem">
+              <input type="text" id="al-token-b-id" class="token-input" placeholder="0.0.xxxxx" value="${this.escapeHtml(this.tokenBIdInput)}" style="flex:1" />
+              <button class="terminal-button" id="al-validate-b" style="white-space:nowrap">${this.loading ? '...' : 'VALIDATE'}</button>
+            </div>
+            ${this.tokenBError ? `<p style="font-size:0.78rem;color:#ff6b6b;margin:0.35rem 0 0">${this.tokenBError}</p>` : ''}
+            ${tokenBValid ? `<p style="font-size:0.78rem;color:#6bff9e;margin:0.35rem 0 0">✓ ${this.tokenBInfo!.name} (${this.tokenBInfo!.symbol}) — ${this.tokenBInfo!.decimals} decimals</p>` : ''}
+          </div>
+        ` : `
+          <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(107,255,158,0.08);border:1px solid rgba(107,255,158,0.25);border-radius:6px">
+            <p style="font-size:0.78rem;color:#6bff9e;margin:0">✓ Token B: <strong>HBAR (Native Token)</strong></p>
+          </div>
+          <div class="filter-divider"></div>
+          <button class="terminal-button" id="al-confirm-hbar" style="width:100%">CONTINUE WITH HBAR</button>
+        `}
       </div>`;
   }
 
@@ -298,18 +317,23 @@ export class AddLiquidity {
   }
 
   private static renderNewPoolPreview(): string {
-    if (!this.tokenBValidated || !this.tokenBInfo) {
-      return `<div class="cc-right-content"><h4 class="section-title" style="font-size:0.95rem">New Pool</h4><p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.5">Enter Token B ID to create a new pool.</p></div>`;
+    const showPreview = this.tokenBType === 'hbar' || (this.tokenBValidated && this.tokenBInfo);
+
+    if (!showPreview) {
+      return `<div class="cc-right-content"><h4 class="section-title" style="font-size:0.95rem">New Pool</h4><p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.5">Select HBAR or enter an HTS Token ID to create a new pool.</p></div>`;
     }
+
+    const tokenBSymbol = this.tokenBType === 'hbar' ? 'HBAR' : this.tokenBInfo?.symbol;
+    const tokenBPrice = this.tokenBType === 'hbar' ? this.hbarPriceUsd : this.tokenBInfo?.priceUsd;
 
     return `
       <div class="cc-right-content">
         <h4 class="section-title" style="font-size:0.95rem">New Pool Preview</h4>
         <div class="preview-info">
           <div class="info-row"><span>Token A</span><span class="status-value">${this.tokenInfo?.symbol}</span></div>
-          <div class="info-row"><span>Token B</span><span class="status-value">${this.tokenBInfo.symbol}</span></div>
+          <div class="info-row"><span>Token B</span><span class="status-value">${tokenBSymbol}</span></div>
           ${this.tokenInfo?.priceUsd ? `<div class="info-row"><span>${this.tokenInfo.symbol} Price</span><span class="status-value">$${this.tokenInfo.priceUsd.toFixed(6)}</span></div>` : ''}
-          ${this.tokenBInfo.priceUsd ? `<div class="info-row"><span>${this.tokenBInfo.symbol} Price</span><span class="status-value">$${this.tokenBInfo.priceUsd.toFixed(6)}</span></div>` : ''}
+          ${tokenBPrice ? `<div class="info-row"><span>${tokenBSymbol} Price</span><span class="status-value">$${tokenBPrice.toFixed(6)}</span></div>` : ''}
         </div>
         <div class="filter-divider"></div>
         <div class="preview-info">
@@ -437,6 +461,7 @@ export class AddLiquidity {
     this.tokenError = null;
     this.availablePools = [];
     this.selectedPool = null;
+    this.tokenBType = 'hbar';
     this.tokenBIdInput = '';
     this.tokenBValidated = false;
     this.tokenBInfo = null;
@@ -481,6 +506,7 @@ export class AddLiquidity {
     document.getElementById('al-back-to-pools')?.addEventListener('click', () => {
       this.step = 'pool-selection';
       this.selectedPool = null;
+      this.tokenBType = 'hbar';
       this.tokenBIdInput = '';
       this.tokenBValidated = false;
       this.tokenBInfo = null;
@@ -511,7 +537,31 @@ export class AddLiquidity {
       });
     });
 
-    // Token B input (for new pool)
+    // Token B type selection (HBAR vs HTS)
+    document.getElementById('al-select-hbar')?.addEventListener('click', () => {
+      this.tokenBType = 'hbar';
+      this.tokenBIdInput = '';
+      this.tokenBValidated = false;
+      this.tokenBInfo = null;
+      this.tokenBError = null;
+      this.refresh();
+    });
+
+    document.getElementById('al-select-hts')?.addEventListener('click', () => {
+      this.tokenBType = 'hts';
+      this.tokenBIdInput = '';
+      this.tokenBValidated = false;
+      this.tokenBInfo = null;
+      this.tokenBError = null;
+      this.refresh();
+    });
+
+    // Confirm HBAR selection
+    document.getElementById('al-confirm-hbar')?.addEventListener('click', () => {
+      this.confirmHbarSelection();
+    });
+
+    // Token B input (for new pool - HTS only)
     const tokenBInput = document.getElementById('al-token-b-id') as HTMLInputElement;
     tokenBInput?.addEventListener('input', () => { this.tokenBIdInput = tokenBInput.value; });
     tokenBInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.validateTokenB(); });
@@ -727,7 +777,38 @@ export class AddLiquidity {
     this.refresh();
   }
 
-  // --- TOKEN B VALIDATION (for new pool creation) ---
+  // --- CONFIRM HBAR SELECTION ---
+  private static async confirmHbarSelection(): Promise<void> {
+    this.loading = true;
+    this.refresh();
+
+    try {
+      // Set up HBAR as Token B using WHBAR token ID
+      this.tokenBInfo = {
+        tokenId: WHBAR_TOKEN_ID,
+        name: 'Wrapped HBAR',
+        symbol: 'HBAR',
+        decimals: 8,
+        hasCustomFees: false,
+        priceUsd: this.hbarPriceUsd || 0,
+      };
+
+      this.tokenBValidated = true;
+      this.tokenBError = null;
+
+      // Transition to liquidity form
+      this.step = 'liquidity-form';
+    } catch (err: any) {
+      this.tokenBError = err.message || 'Failed to set up HBAR';
+      this.tokenBValidated = false;
+      this.tokenBInfo = null;
+    }
+
+    this.loading = false;
+    this.refresh();
+  }
+
+  // --- TOKEN B VALIDATION (for new pool creation - HTS only) ---
   private static async validateTokenB(): Promise<void> {
     const tokenId = this.tokenBIdInput.trim();
     if (!tokenId) {
