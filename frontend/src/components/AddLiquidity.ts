@@ -688,54 +688,33 @@ export class AddLiquidity {
         // Non-fatal: pool list is optional
       }
 
-      // Fetch pool creation fee from SaucerSwap factory contract
-      // According to SaucerSwap docs: fee is returned in tinycent USD, must convert to tinybar using exchange rate
+      // Calculate pool creation fee in tinybar
+      // According to SaucerSwap docs: V1 pool creation fee is $50 USD (5000 tinycent)
+      // We fetch the current HBAR/USD exchange rate and convert to tinybar
       try {
-        const routerEvm = this.toEvmAddress(SAUCER_V1_ROUTER);
+        const POOL_FEE_TINYCENT = 5000; // $50 USD = 5000 tinycent
 
-        // Get factory address from router (factory() function selector: 0xc45a0155)
-        const factoryRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: '0xc45a0155', to: routerEvm, estimate: false }),
-        });
+        // Get current HBAR/USD exchange rate from Hedera mirror node
+        const exchangeRateRes = await fetch(`${MIRROR_NODE_URL}/api/v1/network/exchangerate`);
+        if (exchangeRateRes.ok) {
+          const exchangeRateData = await exchangeRateRes.json();
+          const currentRate = exchangeRateData.current_rate;
+          const centEquivalent = Number(currentRate.cent_equivalent);
+          const hbarEquivalent = Number(currentRate.hbar_equivalent);
+          const centToHbarRatio = centEquivalent / hbarEquivalent;
 
-        if (factoryRes.ok) {
-          const factoryData = await factoryRes.json();
-          const factoryAddr = '0x' + (factoryData.result || '').slice(-40);
-
-          // Get pool creation fee from factory (pairCreateFee() function selector: 0x0e8e3e84)
-          // This returns the fee in tinycent (US)
-          const feeRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: '0x0e8e3e84', to: factoryAddr, estimate: false }),
-          });
-
-          if (feeRes.ok) {
-            const feeData = await feeRes.json();
-            const feeHex = (feeData.result || '').replace(/^0x/, '');
-            const tinycent = parseInt(feeHex, 16) || 0;
-
-            // Get current HBAR/USD exchange rate from Hedera mirror node
-            const exchangeRateRes = await fetch(`${MIRROR_NODE_URL}/api/v1/network/exchangerate`);
-            if (exchangeRateRes.ok) {
-              const exchangeRateData = await exchangeRateRes.json();
-              const currentRate = exchangeRateData.current_rate;
-              const centEquivalent = Number(currentRate.cent_equivalent);
-              const hbarEquivalent = Number(currentRate.hbar_equivalent);
-              const centToHbarRatio = centEquivalent / hbarEquivalent;
-
-              // Convert tinycent to tinybar
-              // tinybar = (tinycent / centToHbarRatio)
-              // Note: 1 HBAR = 100,000,000 tinybar
-              this.poolCreationFeeTinybar = Math.round((tinycent / centToHbarRatio));
-            }
-          }
+          // Convert tinycent to tinybar
+          // tinybar = (tinycent / centToHbarRatio)
+          // Note: 1 HBAR = 100,000,000 tinybar
+          this.poolCreationFeeTinybar = Math.round((POOL_FEE_TINYCENT / centToHbarRatio));
+          console.log(`Pool creation fee: ${POOL_FEE_TINYCENT} tinycent = ${this.poolCreationFeeTinybar} tinybar`);
+        } else {
+          console.error('Failed to fetch exchange rate');
+          this.poolCreationFeeTinybar = 0;
         }
       } catch (err) {
-        console.error('Failed to fetch pool creation fee:', err);
-        // Non-fatal: default to 0 if we can't fetch the fee
+        console.error('Failed to calculate pool creation fee:', err);
+        // Non-fatal: default to 0 if we can't fetch the exchange rate
         this.poolCreationFeeTinybar = 0;
       }
 
