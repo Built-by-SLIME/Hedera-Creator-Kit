@@ -994,8 +994,10 @@ export class AddLiquidity {
       if (isHbarPair) {
         // HBAR/Token pair - use addLiquidityETH or addLiquidityETHNewPool
         functionName = isNewPool ? 'addLiquidityETHNewPool' : 'addLiquidityETH';
-        // SaucerSwap docs recommend 3,200,000 gas. Existing pools: was 400K (too low, caused reverts).
-        gasLimit = isNewPool ? 5_000_000 : 3_200_000;
+        // New pool: 15M gas (Hedera mainnet max). Child tx (TOKENASSOCIATE via HTS precompile)
+        // was hitting INSUFFICIENT_GAS at 5M — pair deployment + multiple HTS precompile calls
+        // exhaust gas before LP token association step. Existing pool: 3.2M per SaucerSwap docs.
+        gasLimit = isNewPool ? 15_000_000 : 3_200_000;
 
         // CRITICAL: For HBAR pairs, the HBAR amount is sent as msg.value (payable amount)
         // For NEW pools: payable amount = HBAR liquidity + pool creation fee
@@ -1023,8 +1025,9 @@ export class AddLiquidity {
       } else {
         // HTS/HTS pair - use addLiquidity or addLiquidityNewPool
         functionName = isNewPool ? 'addLiquidityNewPool' : 'addLiquidity';
-        // SaucerSwap docs recommend 3,200,000 gas. Existing pools: was 400K (too low, caused reverts).
-        gasLimit = isNewPool ? 5_000_000 : 3_200_000;
+        // New pool: 15M gas (Hedera mainnet max). Same INSUFFICIENT_GAS risk as HBAR pair.
+        // Existing pool: 3.2M per SaucerSwap docs.
+        gasLimit = isNewPool ? 15_000_000 : 3_200_000;
 
         // For new pools: pool creation fee only
         // For existing pools: no HBAR needed

@@ -69,4 +69,26 @@ if (isNewPool && this.poolCreationFeeTinybar === 0) {
 
 **Root cause confirmed:** Mirror Node transaction ID format bug (Bug #1 above). All 404 errors trace back to this single regex mistake.
 
-**Status after fixes:** Pending re-test.
+**Status after fixes:** Partially resolved — Mirror Node fix confirmed working. Contract now reached but reverted. See next session.
+
+---
+
+### Session 2: CONTRACT_REVERT_EXECUTED / Safe Multiple Associations
+**Date:** 2026-02-23
+**Symptoms reported:**
+- Wallet (HashPack) shows: "Safe multiple associations failed!"
+- App shows: "Transaction failed on-chain: CONTRACT_REVERT_EXECUTED"
+- Mirror Node now returning results correctly (previous fix confirmed working)
+- Still seeing 3× 404s before result (normal — Mirror Node indexing delay ~9s)
+
+**Mirror Node transaction record fetched:**
+```
+Parent: CONTRACT_REVERT_EXECUTED — CONTRACTCALL to 0.0.3045981
+Child:  INSUFFICIENT_GAS — TOKENASSOCIATE (nonce=1)
+```
+
+**Root cause confirmed:** Gas exhaustion. The child TOKENASSOCIATE transaction (LP token association via HTS precompile) is failing with `INSUFFICIENT_GAS`. The `addLiquidityETHNewPool` path deploys a new pair contract AND makes multiple HTS precompile calls (token associations, transfers, LP mint), consuming more than 5,000,000 gas before reaching the LP token association step.
+
+**Fix applied:** Increased new pool gas limit from 5,000,000 → 15,000,000 (Hedera mainnet maximum).
+
+**Status:** Deployed to Railway. Pending re-test.
