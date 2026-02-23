@@ -968,17 +968,26 @@ export class AddLiquidity {
           .addUint256(deadline);
       }
 
-      const liquidityTx = new ContractExecuteTransaction()
-        .setContractId(ContractId.fromString(SAUCER_V1_ROUTER))
-        .setGas(gasLimit);
+      // Build transaction in the EXACT order shown in SaucerSwap documentation:
+      // 1. setPayableAmount FIRST (if needed)
+      // 2. setContractId
+      // 3. setGas
+      // 4. setFunction
+      // 5. setTransactionId
+      // 6. freezeWith
+      const liquidityTx = new ContractExecuteTransaction();
 
+      // CRITICAL: setPayableAmount MUST be called FIRST for WalletConnect to recognize it
       if (payableTinybar > 0) {
         liquidityTx.setPayableAmount(Hbar.fromTinybars(payableTinybar));
       }
 
-      liquidityTx.setFunction(functionName, params);
-      liquidityTx.setTransactionId(TransactionId.generate(acctId));
-      liquidityTx.freezeWith(client);
+      liquidityTx
+        .setContractId(ContractId.fromString(SAUCER_V1_ROUTER))
+        .setGas(gasLimit)
+        .setFunction(functionName, params)
+        .setTransactionId(TransactionId.generate(acctId))
+        .freezeWith(client);
 
       this.statusMessage = 'Waiting for wallet approval...';
       this.refresh();
