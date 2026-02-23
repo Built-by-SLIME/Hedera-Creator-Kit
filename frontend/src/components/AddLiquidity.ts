@@ -690,7 +690,7 @@ export class AddLiquidity {
 
       // Calculate pool creation fee in tinybar
       // SaucerSwap V1 pool creation fee is $50 USD (5000 tinycent)
-      // Factory contract stores this as 5000 tinycent
+      // Factory contract returns this as 5000 tinycent (1 tinycent = $0.01 USD)
       // We need to convert tinycent to tinybar using current exchange rate
       try {
         const POOL_FEE_TINYCENT = 5000; // $50 USD = 5000 tinycent (from factory contract)
@@ -703,14 +703,14 @@ export class AddLiquidity {
           const centEquivalent = Number(currentRate.cent_equivalent); // cents USD
           const hbarEquivalent = Number(currentRate.hbar_equivalent); // HBAR
 
-          // Exchange rate: hbarEquivalent HBAR = centEquivalent cents USD
-          // Pool fee: 5000 tinycent = 50 cents USD
-          // Convert tinycent to tinybar: tinybar = (tinycent / (centEquivalent * 100)) * (hbarEquivalent * 100_000_000)
-          const poolFeeCents = POOL_FEE_TINYCENT / 100; // Convert tinycent to cents
-          const hbarNeeded = (poolFeeCents / centEquivalent) * hbarEquivalent;
-          this.poolCreationFeeTinybar = Math.round(hbarNeeded * 100_000_000);
+          // Use the formula from SaucerSwap documentation:
+          // centToHbarRatio = centEquivalent / hbarEquivalent (cents per HBAR)
+          // tinybar = tinycent / centToHbarRatio
+          const centToHbarRatio = centEquivalent / hbarEquivalent;
+          this.poolCreationFeeTinybar = Math.round(POOL_FEE_TINYCENT / centToHbarRatio);
 
-          console.log(`Pool creation fee: $${poolFeeCents / 100} USD = ${hbarNeeded.toFixed(2)} HBAR = ${this.poolCreationFeeTinybar} tinybar`);
+          const hbarNeeded = this.poolCreationFeeTinybar / 100_000_000;
+          console.log(`Pool creation fee: $50 USD = ${hbarNeeded.toFixed(2)} HBAR = ${this.poolCreationFeeTinybar} tinybar`);
         } else {
           console.error('Failed to fetch exchange rate');
           this.poolCreationFeeTinybar = 0;
@@ -940,6 +940,15 @@ export class AddLiquidity {
         payableTinybar = isNewPool
           ? tokenBSmallestUnit + this.poolCreationFeeTinybar
           : tokenBSmallestUnit;
+
+        console.log('=== HBAR PAIR PARAMETERS ===');
+        console.log('Token A (HTS):', this.tokenInfo.tokenId, '→ EVM:', tokenAEvmAddress);
+        console.log('Token A amount:', tokenASmallestUnit);
+        console.log('Token A min:', amountAMin);
+        console.log('HBAR min:', amountBMin);
+        console.log('To address:', accountId, '→ EVM:', toEvmAddress);
+        console.log('Deadline:', deadline);
+        console.log('Payable amount:', payableTinybar, 'tinybar =', payableTinybar / 100_000_000, 'HBAR');
 
         params = new ContractFunctionParameters()
           .addAddress(tokenAEvmAddress)
