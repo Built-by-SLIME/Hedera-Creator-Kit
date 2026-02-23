@@ -8,6 +8,8 @@ import {
   ContractExecuteTransaction,
   ContractFunctionParameters,
   AccountAllowanceApproveTransaction,
+  AccountUpdateTransaction,
+  TokenAssociateTransaction,
   ContractId,
   TokenId,
   AccountId,
@@ -883,8 +885,63 @@ export class AddLiquidity {
       // Deadline: 10 minutes from now
       const deadline = Math.floor(Date.now() / 1000) + 600;
 
+      // --- LP Token Association (pre-step) ---
+      // Ensures the wallet can receive LP tokens before executing the liquidity transaction.
+      if (isNewPool) {
+        // For new pools: the LP token is created by the contract during pool creation.
+        // We need at least 1 free auto-association slot so the wallet auto-receives it.
+        this.statusMessage = 'Checking auto-association slots for LP token...';
+        this.refresh();
+
+        const acctInfoRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${accountId}`);
+        if (acctInfoRes.ok) {
+          const acctInfo = await acctInfoRes.json();
+          const maxAutoAssoc: number = acctInfo.max_automatic_token_associations ?? 0;
+
+          if (maxAutoAssoc !== -1) {
+            // Bump by 1 to guarantee a free slot for the new LP token
+            this.statusMessage = 'Reserving auto-association slot for LP token — approve in wallet...';
+            this.refresh();
+
+            const updateTx = new AccountUpdateTransaction()
+              .setAccountId(acctId)
+              .setMaxAutomaticTokenAssociations(maxAutoAssoc + 1);
+            updateTx.setTransactionId(TransactionId.generate(acctId));
+            updateTx.freezeWith(client);
+            await updateTx.executeWithSigner(signer);
+
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+      } else if (this.selectedPool?.lpToken?.id) {
+        // For existing pools: check if LP token is already associated; associate if not.
+        this.statusMessage = 'Checking LP token association...';
+        this.refresh();
+
+        const lpTokenId = this.selectedPool.lpToken.id;
+        const assocRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/tokens?token.id=${lpTokenId}`);
+        const assocData = await assocRes.json();
+        const isLpAssociated = assocData.tokens && assocData.tokens.length > 0;
+
+        if (!isLpAssociated) {
+          this.statusMessage = 'Associating LP token — approve in wallet...';
+          this.refresh();
+
+          const assocTx = new TokenAssociateTransaction()
+            .setAccountId(acctId)
+            .setTokenIds([TokenId.fromString(lpTokenId)]);
+          assocTx.setTransactionId(TransactionId.generate(acctId));
+          assocTx.freezeWith(client);
+          await assocTx.executeWithSigner(signer);
+
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+
       // Step 1: Approve token A allowance for the router
-      this.statusMessage = 'Step 1/3 — Approving Token A allowance...';
+      this.statusMessage = isHbarPair
+        ? 'Step 1/2 — Approving Token A allowance...'
+        : 'Step 1/3 — Approving Token A allowance...';
       this.refresh();
 
       const approveTxA = new AccountAllowanceApproveTransaction()
