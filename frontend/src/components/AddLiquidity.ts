@@ -45,10 +45,11 @@ export class AddLiquidity {
   private static tokenBInfo: { tokenId: string; name: string; symbol: string; decimals: number; hasCustomFees: boolean; priceUsd?: number } | null = null;
   private static tokenBError: string | null = null;
 
-  // Legacy (will be removed)
-  private static poolExists: boolean | null = null;
-  private static poolCreationFeeTinybar: number = 0;
+  // Pricing
   private static hbarPriceUsd: number = 0;
+
+  // Pool creation fee
+  private static poolCreationFeeTinybar: number = 0;
 
   // Amounts
   private static tokenAmount = '';
@@ -466,9 +467,8 @@ export class AddLiquidity {
     this.tokenBValidated = false;
     this.tokenBInfo = null;
     this.tokenBError = null;
-    this.poolExists = null;
-    this.poolCreationFeeTinybar = 0;
     this.hbarPriceUsd = 0;
+    this.poolCreationFeeTinybar = 0;
     this.tokenAmount = '';
     this.hbarAmount = '';
     this.slippage = 1.5;
@@ -604,7 +604,6 @@ export class AddLiquidity {
     this.tokenError = null;
     this.tokenValidated = false;
     this.tokenInfo = null;
-    this.poolExists = null;
     this.refresh();
 
     try {
@@ -684,81 +683,42 @@ export class AddLiquidity {
               symbol: p.lpToken.symbol,
             },
           }));
+        }
+      } catch {
+        // Non-fatal: pool list is optional
+      }
 
-          // Legacy: set poolExists for backward compatibility
-          this.poolExists = this.availablePools.length > 0;
-        } else {
-          // Fallback to mirror node contract call if API fails
-          const whbarEvm = this.toEvmAddress(WHBAR_TOKEN_ID).slice(2).padStart(64, '0');
-          const tokenEvm = this.toEvmAddress(tokenId).slice(2).padStart(64, '0');
-          const routerEvm = this.toEvmAddress(SAUCER_V1_ROUTER);
+      // Fetch pool creation fee from SaucerSwap factory contract
+      try {
+        const routerEvm = this.toEvmAddress(SAUCER_V1_ROUTER);
 
-          const factoryRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
+        // Get factory address from router
+        const factoryRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: '0xc45a0155', to: routerEvm, estimate: false }),
+        });
+
+        if (factoryRes.ok) {
+          const factoryData = await factoryRes.json();
+          const factoryAddr = '0x' + (factoryData.result || '').slice(-40);
+
+          // Get pool creation fee from factory (feeInTinybars function selector: 0x0e8e3e84)
+          const feeRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: '0xc45a0155', to: routerEvm, estimate: false }),
+            body: JSON.stringify({ data: '0x0e8e3e84', to: factoryAddr, estimate: false }),
           });
 
-          if (factoryRes.ok) {
-            const factoryData = await factoryRes.json();
-            const factoryAddr = '0x' + (factoryData.result || '').slice(-40);
-            const getPairData = '0xe6a43905' + whbarEvm + tokenEvm;
-
-            const pairRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: getPairData, to: factoryAddr, estimate: false }),
-            });
-
-            if (pairRes.ok) {
-              const pairData = await pairRes.json();
-              const result = (pairData.result || '').replace(/^0x/, '');
-              this.poolExists = result.replace(/0/g, '').length > 0;
-            }
-          }
-        }
-
-        // If pool doesn't exist, fetch pool creation fee from Factory
-        if (this.poolExists === false) {
-          try {
-            const routerEvm = this.toEvmAddress(SAUCER_V1_ROUTER);
-            const factoryRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ data: '0xc45a0155', to: routerEvm, estimate: false }),
-            });
-
-            if (factoryRes.ok) {
-              const factoryData = await factoryRes.json();
-              const factoryAddr = '0x' + (factoryData.result || '').slice(-40);
-
-              const feeRes = await fetch(`${MIRROR_NODE_URL}/api/v1/contracts/call`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: '0x881a075a', to: factoryAddr, estimate: false }),
-              });
-
-              if (feeRes.ok) {
-                const feeData = await feeRes.json();
-                const tinycent = parseInt((feeData.result || '0x0').replace(/^0x/, ''), 16);
-
-                const rateRes = await fetch(`${MIRROR_NODE_URL}/api/v1/network/exchangerate`);
-                if (rateRes.ok) {
-                  const rateData = await rateRes.json();
-                  const centEquivalent = Number(rateData.current_rate.cent_equivalent);
-                  const hbarEquivalent = Number(rateData.current_rate.hbar_equivalent);
-                  const centToHbarRatio = centEquivalent / hbarEquivalent;
-                  this.poolCreationFeeTinybar = Math.ceil(tinycent / centToHbarRatio);
-                }
-              }
-            }
-          } catch {
-            // Non-fatal: we'll still show a warning if fee couldn't be fetched
-            this.poolCreationFeeTinybar = 0;
+          if (feeRes.ok) {
+            const feeData = await feeRes.json();
+            const feeHex = (feeData.result || '').replace(/^0x/, '');
+            this.poolCreationFeeTinybar = parseInt(feeHex, 16) || 0;
           }
         }
       } catch {
-        this.poolExists = null;
+        // Non-fatal: default to 0 if we can't fetch the fee
+        this.poolCreationFeeTinybar = 0;
       }
 
       this.tokenValidated = true;
@@ -881,11 +841,11 @@ export class AddLiquidity {
 
   // --- EXECUTE LIQUIDITY ---
   private static async executeLiquidity(): Promise<void> {
-    if (!this.tokenValidated || !this.tokenInfo) return;
+    if (!this.tokenValidated || !this.tokenInfo || !this.tokenBInfo) return;
 
     const tokenAmt = parseFloat(this.tokenAmount);
-    const hbarAmt = parseFloat(this.hbarAmount);
-    if (!tokenAmt || tokenAmt <= 0 || !hbarAmt || hbarAmt <= 0) return;
+    const tokenBAmt = parseFloat(this.hbarAmount);
+    if (!tokenAmt || tokenAmt <= 0 || !tokenBAmt || tokenBAmt <= 0) return;
 
     this.loading = true;
     this.error = null;
@@ -900,74 +860,122 @@ export class AddLiquidity {
       const acctId = AccountId.fromString(accountId);
       const client = getHederaClient();
 
+      // Determine if this is a new pool or existing pool
+      const isNewPool = !this.selectedPool;
+
+      // Determine if this is an HBAR pair or HTS/HTS pair
+      const isHbarPair = this.tokenBInfo.tokenId === WHBAR_TOKEN_ID;
+
       // Convert amounts to smallest units
-      const tokenSmallestUnit = Math.round(tokenAmt * Math.pow(10, this.tokenInfo.decimals));
-      const hbarTinybar = Math.round(hbarAmt * 1e8); // HBAR has 8 decimals (tinybar)
+      const tokenASmallestUnit = Math.round(tokenAmt * Math.pow(10, this.tokenInfo.decimals));
+      const tokenBSmallestUnit = Math.round(tokenBAmt * Math.pow(10, this.tokenBInfo.decimals));
 
       // Calculate min amounts with slippage
       const slippageFactor = (100 - this.slippage) / 100;
-      const amountTokenMin = Math.round(tokenSmallestUnit * slippageFactor);
-      const amountETHMin = Math.round(hbarTinybar * slippageFactor);
+      const amountAMin = Math.round(tokenASmallestUnit * slippageFactor);
+      const amountBMin = Math.round(tokenBSmallestUnit * slippageFactor);
 
       // EVM addresses
-      const tokenEvmAddress = this.toEvmAddress(this.tokenInfo.tokenId);
+      const tokenAEvmAddress = this.toEvmAddress(this.tokenInfo.tokenId);
+      const tokenBEvmAddress = this.toEvmAddress(this.tokenBInfo.tokenId);
       const toEvmAddress = this.toEvmAddress(accountId);
 
       // Deadline: 10 minutes from now
       const deadline = Math.floor(Date.now() / 1000) + 600;
 
-      // Step 1: Approve token allowance for the router
-      this.statusMessage = 'Step 1/2 — Approving token allowance...';
+      // Step 1: Approve token A allowance for the router
+      this.statusMessage = 'Step 1/3 — Approving Token A allowance...';
       this.refresh();
 
-      const approveTx = new AccountAllowanceApproveTransaction()
+      const approveTxA = new AccountAllowanceApproveTransaction()
         .approveTokenAllowance(
           TokenId.fromString(this.tokenInfo.tokenId),
           acctId,
           AccountId.fromString(SAUCER_V1_ROUTER),
-          Number(tokenSmallestUnit)
+          Number(tokenASmallestUnit)
         );
-      approveTx.setTransactionId(TransactionId.generate(acctId));
-      approveTx.freezeWith(client);
-      await approveTx.executeWithSigner(signer);
+      approveTxA.setTransactionId(TransactionId.generate(acctId));
+      approveTxA.freezeWith(client);
+      await approveTxA.executeWithSigner(signer);
 
-      // Brief pause between transactions
       await new Promise(r => setTimeout(r, 2000));
 
-      // Step 2: Add liquidity
-      // Determine if this is a new pool (only treat explicit false as new pool)
-      const isNewPool = this.poolExists === false;
-      if (this.poolExists === null) {
-        throw new Error('Pool status could not be determined. Please re-validate the token and try again.');
+      // Step 2: Approve token B allowance (only for HTS/HTS pairs, not HBAR)
+      if (!isHbarPair) {
+        this.statusMessage = 'Step 2/3 — Approving Token B allowance...';
+        this.refresh();
+
+        const approveTxB = new AccountAllowanceApproveTransaction()
+          .approveTokenAllowance(
+            TokenId.fromString(this.tokenBInfo.tokenId),
+            acctId,
+            AccountId.fromString(SAUCER_V1_ROUTER),
+            Number(tokenBSmallestUnit)
+          );
+        approveTxB.setTransactionId(TransactionId.generate(acctId));
+        approveTxB.freezeWith(client);
+        await approveTxB.executeWithSigner(signer);
+
+        await new Promise(r => setTimeout(r, 2000));
       }
 
-      this.statusMessage = `Step 2/2 — ${isNewPool ? 'Creating pool & adding' : 'Adding'} liquidity...`;
+      // Step 3: Add liquidity
+      const stepLabel = isHbarPair ? '2/2' : '3/3';
+      this.statusMessage = `Step ${stepLabel} — ${isNewPool ? 'Creating pool & adding' : 'Adding'} liquidity...`;
       this.refresh();
 
-      const functionName = isNewPool ? 'addLiquidityETHNewPool' : 'addLiquidityETH';
-      const gasLimit = isNewPool ? 3_200_000 : 240_000;
+      let functionName: string;
+      let params: ContractFunctionParameters;
+      let payableTinybar = 0;
+      let gasLimit: number;
 
-      // For new pools, msg.value must include pool creation fee + HBAR liquidity
-      const payableTinybar = isNewPool ? hbarTinybar + this.poolCreationFeeTinybar : hbarTinybar;
+      if (isHbarPair) {
+        // HBAR/Token pair - use addLiquidityETH or addLiquidityETHNewPool
+        functionName = isNewPool ? 'addLiquidityETHNewPool' : 'addLiquidityETH';
+        gasLimit = isNewPool ? 3_200_000 : 240_000;
 
-      if (isNewPool && this.poolCreationFeeTinybar <= 0) {
-        throw new Error('Pool creation fee could not be fetched. Please re-validate the token.');
+        // For new pools: HBAR amount + pool creation fee
+        // For existing pools: HBAR amount only
+        payableTinybar = isNewPool
+          ? tokenBSmallestUnit + this.poolCreationFeeTinybar
+          : tokenBSmallestUnit;
+
+        params = new ContractFunctionParameters()
+          .addAddress(tokenAEvmAddress)
+          .addUint256(tokenASmallestUnit)
+          .addUint256(amountAMin)
+          .addUint256(amountBMin)
+          .addAddress(toEvmAddress)
+          .addUint256(deadline);
+      } else {
+        // HTS/HTS pair - use addLiquidity or addLiquidityNewPool
+        functionName = isNewPool ? 'addLiquidityNewPool' : 'addLiquidity';
+        gasLimit = isNewPool ? 3_200_000 : 240_000;
+
+        // For new pools: pool creation fee only
+        // For existing pools: no HBAR needed
+        payableTinybar = isNewPool ? this.poolCreationFeeTinybar : 0;
+
+        params = new ContractFunctionParameters()
+          .addAddress(tokenAEvmAddress)
+          .addAddress(tokenBEvmAddress)
+          .addUint256(tokenASmallestUnit)
+          .addUint256(tokenBSmallestUnit)
+          .addUint256(amountAMin)
+          .addUint256(amountBMin)
+          .addAddress(toEvmAddress)
+          .addUint256(deadline);
       }
-
-      const params = new ContractFunctionParameters()
-        .addAddress(tokenEvmAddress)
-        .addUint256(tokenSmallestUnit)
-        .addUint256(amountTokenMin)
-        .addUint256(amountETHMin)
-        .addAddress(toEvmAddress)
-        .addUint256(deadline);
 
       const liquidityTx = new ContractExecuteTransaction()
         .setContractId(ContractId.fromString(SAUCER_V1_ROUTER))
-        .setGas(gasLimit)
-        .setPayableAmount(Hbar.fromTinybars(payableTinybar))
-        .setFunction(functionName, params);
+        .setGas(gasLimit);
 
+      if (payableTinybar > 0) {
+        liquidityTx.setPayableAmount(Hbar.fromTinybars(payableTinybar));
+      }
+
+      liquidityTx.setFunction(functionName, params);
       liquidityTx.setTransactionId(TransactionId.generate(acctId));
       liquidityTx.freezeWith(client);
 
