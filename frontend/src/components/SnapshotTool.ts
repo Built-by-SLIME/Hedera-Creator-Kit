@@ -328,37 +328,51 @@ export class SnapshotTool {
   }
 
   private static async fetchNFTHolders(tokenId: string): Promise<void> {
+    // When a date filter is set, mirror node providers don't reliably support the timestamp
+    // parameter on the /nfts endpoint. Use /balances?timestamp=X instead — it supports
+    // historical queries consistently but returns counts only (no serial numbers).
+    if (this.filters.snapshotDate) {
+      const ts = Math.floor(new Date(this.filters.snapshotDate).getTime() / 1000)
+      let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/balances?limit=100&timestamp=${ts}`
+      const holders: SnapshotHolder[] = []
+
+      while (nextLink) {
+        const response = await fetch(nextLink)
+        if (!response.ok) throw new Error('Failed to fetch historical NFT balances')
+        const data = await response.json()
+
+        for (const entry of data.balances) {
+          if (entry.balance === 0) continue
+          if (this.filters.excludeTreasury && entry.account === this.treasuryAccount) continue
+          if (this.filters.minBalance && entry.balance < parseInt(this.filters.minBalance)) continue
+          holders.push({ accountId: entry.account, balance: entry.balance.toString() })
+        }
+
+        nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null as any
+      }
+
+      this.holders = holders.sort((a, b) => parseInt(b.balance) - parseInt(a.balance))
+      return
+    }
+
+    // No date filter — use /nfts for full data including serial numbers
     const holders = new Map<string, { balance: number; serials: number[] }>()
-    // The /nfts endpoint requires timestamp in seconds.nanoseconds format (e.g. 1767225600.000000000)
-    // whereas /balances accepts bare seconds. Use lte: operator to get NFTs as-of the chosen date.
-    const tsParam = this.filters.snapshotDate
-      ? `&timestamp=lte:${Math.floor(new Date(this.filters.snapshotDate).getTime() / 1000)}.000000000`
-      : ''
-    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100${tsParam}`
+    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100`
 
     while (nextLink) {
       const response = await fetch(nextLink)
-      if (!response.ok) {
-        throw new Error('Failed to fetch NFT data')
-      }
-
+      if (!response.ok) throw new Error('Failed to fetch NFT data')
       const data = await response.json()
 
       for (const nft of data.nfts) {
         const accountId = nft.account_id
         const serial = parseInt(nft.serial_number)
 
-        // Exclude treasury if filter is enabled
         if (this.filters.excludeTreasury && accountId === this.treasuryAccount) continue
-
-        // Apply serial number filters
         if (this.filters.serialFrom && serial < parseInt(this.filters.serialFrom)) continue
         if (this.filters.serialTo && serial > parseInt(this.filters.serialTo)) continue
 
-        if (!holders.has(accountId)) {
-          holders.set(accountId, { balance: 0, serials: [] })
-        }
-
+        if (!holders.has(accountId)) holders.set(accountId, { balance: 0, serials: [] })
         const holder = holders.get(accountId)!
         holder.balance++
         holder.serials.push(serial)
@@ -367,7 +381,6 @@ export class SnapshotTool {
       nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null as any
     }
 
-    // Convert to array and apply balance filters
     this.holders = Array.from(holders.entries())
       .map(([accountId, data]) => ({
         accountId,
@@ -375,8 +388,7 @@ export class SnapshotTool {
         serialNumbers: data.serials.sort((a, b) => a - b).map(s => s.toString())
       }))
       .filter(holder => {
-        const balance = parseInt(holder.balance)
-        if (this.filters.minBalance && balance < parseInt(this.filters.minBalance)) return false
+        if (this.filters.minBalance && parseInt(holder.balance) < parseInt(this.filters.minBalance)) return false
         return true
       })
       .sort((a, b) => parseInt(b.balance) - parseInt(a.balance))
