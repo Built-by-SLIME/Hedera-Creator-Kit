@@ -49,7 +49,7 @@ export class HelpPage {
   private static lines(): { type: string; content: string }[] {
     return [
       { type: 'success', content: '╔════════════════════════════════════════════════════════════╗' },
-      { type: 'success', content: '║   HEDERA CREATOR KIT — Help & Documentation                ║' },
+      { type: 'success', content: '║   HEDERA CREATOR KIT  -  Help & Documentation              ║' },
       { type: 'success', content: '╚════════════════════════════════════════════════════════════╝' },
       { type: 'output', content: '' },
 
@@ -63,8 +63,6 @@ export class HelpPage {
       { type: 'output', content: '                   (typically fractions of a cent per tx)' },
       { type: 'output', content: '  • SaucerSwap     New pool creation carries a one-time fee' },
       { type: 'output', content: '                   charged by SaucerSwap (currently ~$20 in HBAR)' },
-      { type: 'output', content: '  • IPFS / Storage Some tools pin metadata to IPFS; pinning' },
-      { type: 'output', content: '                   services may have their own costs' },
       { type: 'output', content: '' },
 
       // --- TOOLS ---
