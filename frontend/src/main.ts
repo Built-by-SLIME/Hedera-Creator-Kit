@@ -11,6 +11,7 @@ import { UpdateTokenIcon } from './components/UpdateTokenIcon'
 import { AddLiquidity } from './components/AddLiquidity'
 import { BurnTool } from './components/BurnTool'
 import { DomainTool } from './components/DomainTool'
+import { HelpPage } from './components/HelpPage'
 
 // Initialize the application
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -90,6 +91,10 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       app.innerHTML = DomainTool.render()
       DomainTool.init()
       console.log('DomainTool initialized')
+      break
+    case 'help':
+      app.innerHTML = HelpPage.render()
+      HelpPage.init()
       break
     case 'home':
     case 'menu':

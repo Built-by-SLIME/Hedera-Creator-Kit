@@ -366,6 +366,8 @@ export class Terminal {
         this.clearScreen()
         return
       case 'help':
+        this.navigateToTool('help')
+        return
       case 'tools':
       case 'list':
       case 'wallet':
