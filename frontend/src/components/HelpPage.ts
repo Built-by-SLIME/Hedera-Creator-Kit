@@ -57,13 +57,19 @@ export class HelpPage {
       // --- FEES ---
       { type: 'warning', content: '  ── FEES ──────────────────────────────────────────────────' },
       { type: 'output', content: '' },
-      { type: 'output', content: '  Hedera Creator Kit does NOT charge any platform fees.' },
-      { type: 'output', content: '  The following costs may apply depending on the operation:' },
+      { type: 'output', content: '  Most tools are free to use. The costs below may apply' },
+      { type: 'output', content: '  depending on the operation:' },
       { type: 'output', content: '' },
       { type: 'output', content: '  • Network fees   Hedera transaction fees paid in HBAR' },
       { type: 'output', content: '                   (typically fractions of a cent per tx)' },
       { type: 'output', content: '  • SaucerSwap     New pool creation carries a one-time fee' },
-      { type: 'output', content: '                   charged by SaucerSwap (currently ~$20 in HBAR)' },
+      { type: 'output', content: '                   charged by SaucerSwap (currently ~$50 in HBAR)' },
+      { type: 'output', content: '  • Domain names   Fees charged by Hedera Creator Kit per year:' },
+      { type: 'output', content: '' },
+      { type: 'output', content: '    Standard (no emoji)        Premium (with emoji)' },
+      { type: 'output', content: '    1 letter  — $100/yr        1 letter  — $250/yr' },
+      { type: 'output', content: '    2 letters — $50/yr         2 letters — $150/yr' },
+      { type: 'output', content: '    3+ letters — $10/yr        3 letters — $25/yr' },
       { type: 'output', content: '' },
 
       // --- TOOLS ---
