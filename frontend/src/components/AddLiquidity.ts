@@ -533,7 +533,19 @@ export class AddLiquidity {
     // Pool selection buttons
     this.availablePools.forEach((_, idx) => {
       document.getElementById(`al-select-pool-${idx}`)?.addEventListener('click', () => {
-        this.selectedPool = this.availablePools[idx];
+        const pool = this.availablePools[idx];
+        this.selectedPool = pool;
+        // Populate tokenBInfo from the pool so executeLiquidity (which guards on !tokenBInfo) works.
+        // Determine which pool token is "B" — the one that isn't token A.
+        const tokenBPool = pool.tokenA.id === this.tokenInfo?.tokenId ? pool.tokenB : pool.tokenA;
+        this.tokenBInfo = {
+          tokenId: tokenBPool.id,
+          name: tokenBPool.symbol,
+          symbol: tokenBPool.symbol,
+          decimals: tokenBPool.decimals,
+          hasCustomFees: false,
+        };
+        this.tokenBValidated = true;
         this.step = 'liquidity-form';
         this.refresh();
       });

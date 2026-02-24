@@ -121,3 +121,35 @@ Child:  INSUFFICIENT_GAS — TOKENASSOCIATE (nonce=1)
    - Falls back to original message if JSON parsing fails (safe no-op)
 
 **Status:** Deployed to Railway. Pending re-test with sufficient HBAR balance.
+
+---
+
+### Session 4: ADD LIQUIDITY button does nothing on existing HTS/HTS pools
+**Date:** 2026-02-23
+**Symptom:** Button renders correctly but clicking it does nothing — no wallet prompt, no error, no spinner. Reproduced on PACK/SAUCE pool (existing).
+
+**Root cause:** `executeLiquidity()` has a guard at the top:
+```typescript
+if (!this.tokenValidated || !this.tokenInfo || !this.tokenBInfo) return;
+```
+`this.tokenBInfo` is only ever populated by:
+- `confirmHbarSelection()` — when user picks HBAR as token B for a new pool
+- `validateTokenB()` — when user enters a token B ID for a new HTS/HTS pool
+
+When the user picks an **existing pool** from the pool list, the click handler only set `this.selectedPool` and transitioned to `liquidity-form`. `this.tokenBInfo` stayed `null`, so the guard silently returned on every click.
+
+**Fix applied (`init()` pool selection click handler):**
+```typescript
+const tokenBPool = pool.tokenA.id === this.tokenInfo?.tokenId ? pool.tokenB : pool.tokenA;
+this.tokenBInfo = {
+  tokenId: tokenBPool.id,
+  name: tokenBPool.symbol,
+  symbol: tokenBPool.symbol,
+  decimals: tokenBPool.decimals,
+  hasCustomFees: false,
+};
+this.tokenBValidated = true;
+```
+Also handles HBAR pairs correctly: when `tokenBPool.id === WHBAR_TOKEN_ID`, the `isHbarPair` check in `executeLiquidity` still evaluates to `true`.
+
+**Status:** Deployed to Railway. Pending re-test.
