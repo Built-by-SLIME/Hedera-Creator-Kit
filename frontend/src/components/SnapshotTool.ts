@@ -328,14 +328,34 @@ export class SnapshotTool {
   }
 
   private static async fetchNFTHolders(tokenId: string): Promise<void> {
-    // HIP-980 added timestamp support to the /nfts endpoint.
-    // Format: lte:seconds.nanoseconds — captures ownership state at end of the selected date.
-    const tsParam = this.filters.snapshotDate
-      ? `&timestamp=lte:${Math.floor(new Date(this.filters.snapshotDate + 'T23:59:59Z').getTime() / 1000)}.999999999`
-      : ''
+    // Date filter: use /balances?timestamp=X — universally supported, returns account IDs + counts.
+    if (this.filters.snapshotDate) {
+      const endOfDay = Math.floor(new Date(this.filters.snapshotDate + 'T23:59:59Z').getTime() / 1000)
+      const holders: SnapshotHolder[] = []
+      let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/balances?limit=100&timestamp=${endOfDay}`
 
+      while (nextLink) {
+        const response = await fetch(nextLink)
+        if (!response.ok) throw new Error('Failed to fetch historical NFT balances')
+        const data = await response.json()
+
+        for (const entry of data.balances) {
+          if (entry.balance === 0) continue
+          if (this.filters.excludeTreasury && entry.account === this.treasuryAccount) continue
+          if (this.filters.minBalance && entry.balance < parseInt(this.filters.minBalance)) continue
+          holders.push({ accountId: entry.account, balance: entry.balance.toString() })
+        }
+
+        nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null as any
+      }
+
+      this.holders = holders.sort((a, b) => parseInt(b.balance) - parseInt(a.balance))
+      return
+    }
+
+    // No date filter — use /nfts for full data including serial numbers
     const holders = new Map<string, { balance: number; serials: number[] }>()
-    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100${tsParam}`
+    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100`
 
     while (nextLink) {
       const response = await fetch(nextLink)
