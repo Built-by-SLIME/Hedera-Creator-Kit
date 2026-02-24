@@ -48,6 +48,7 @@ export class HelpPage {
 
   private static lines(): { type: string; content: string }[] {
     return [
+      { type: 'output', content: '' },
       { type: 'success', content: '╔════════════════════════════════════════════════════════════╗' },
       { type: 'success', content: '║   HEDERA CREATOR KIT  -  Help & Documentation              ║' },
       { type: 'success', content: '╚════════════════════════════════════════════════════════════╝' },
