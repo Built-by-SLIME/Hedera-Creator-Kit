@@ -243,6 +243,20 @@ export class AddLiquidity {
 
     const canSubmit = this.tokenAmount && this.hbarAmount && parseFloat(this.tokenAmount) > 0 && parseFloat(this.hbarAmount) > 0;
 
+    // For existing pools: compute the current ratio for display and enforce read-only Token B.
+    // Reserves from SaucerSwap API are in each token's smallest units.
+    let ratioHtml = '';
+    const isExistingPool = !!this.selectedPool;
+    if (isExistingPool && this.selectedPool) {
+      const isTokenAinPoolA = this.selectedPool.tokenA.id === this.tokenInfo?.tokenId;
+      const rawReserveA = parseFloat(isTokenAinPoolA ? this.selectedPool.tokenReserveA : this.selectedPool.tokenReserveB);
+      const rawReserveB = parseFloat(isTokenAinPoolA ? this.selectedPool.tokenReserveB : this.selectedPool.tokenReserveA);
+      const reserveAHuman = rawReserveA / Math.pow(10, tokenA.decimals);
+      const reserveBHuman = rawReserveB / Math.pow(10, tokenB.decimals);
+      const ratio = reserveAHuman > 0 ? (reserveBHuman / reserveAHuman) : 0;
+      ratioHtml = `<p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin:0.2rem 0 0">Rate: 1 ${tokenA.symbol} = ${ratio.toFixed(6)} ${tokenB.symbol}</p>`;
+    }
+
     return `
       <div class="art-gen-section">
         <h3 class="section-title">◆ Add Liquidity</h3>
@@ -251,6 +265,7 @@ export class AddLiquidity {
         <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(100,180,255,0.08);border:1px solid rgba(100,180,255,0.25);border-radius:6px">
           <p style="font-size:0.78rem;color:#64b4ff;margin:0">Pool: <strong>${tokenA.symbol} / ${tokenB.symbol}</strong></p>
           ${this.selectedPool ? `<p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.7;margin:0.25rem 0 0">${this.selectedPool.contractId}</p>` : ''}
+          ${ratioHtml}
         </div>
 
         <div class="filter-divider"></div>
@@ -260,8 +275,8 @@ export class AddLiquidity {
           <input type="number" id="al-token-amount" class="token-input" placeholder="Amount of tokens" value="${this.escapeHtml(this.tokenAmount)}" step="any" min="0" />
         </div>
         <div class="input-group">
-          <label for="al-hbar-amount">${tokenB.symbol} Amount *</label>
-          <input type="number" id="al-hbar-amount" class="token-input" placeholder="Amount of tokens" value="${this.escapeHtml(this.hbarAmount)}" step="any" min="0" />
+          <label for="al-hbar-amount">${tokenB.symbol} Amount${isExistingPool ? ' (auto-calculated from pool ratio)' : ' *'}</label>
+          <input type="number" id="al-hbar-amount" class="token-input" placeholder="${isExistingPool ? 'Calculated from pool ratio' : 'Amount of tokens'}" value="${this.escapeHtml(this.hbarAmount)}" step="any" min="0" ${isExistingPool ? 'readonly style="opacity:0.6;cursor:not-allowed"' : ''} />
         </div>
         <div class="input-group">
           <label for="al-slippage">Slippage Tolerance (%)</label>
@@ -584,12 +599,32 @@ export class AddLiquidity {
 
     // Amount inputs — store on input, refresh on change (blur) to avoid killing the cursor
     const tokenAmtInput = document.getElementById('al-token-amount') as HTMLInputElement;
-    tokenAmtInput?.addEventListener('input', () => { this.tokenAmount = tokenAmtInput.value; });
+    const hbarAmtInput = document.getElementById('al-hbar-amount') as HTMLInputElement;
+
+    tokenAmtInput?.addEventListener('input', () => {
+      this.tokenAmount = tokenAmtInput.value;
+      // For existing pools: Token B is not user-editable — derive it from the pool ratio.
+      // Reserves are in each token's smallest units; converting both to human scale gives
+      // the ratio needed to ensure the amounts match what the contract enforces.
+      if (this.selectedPool && this.tokenInfo) {
+        const isTokenAinPoolA = this.selectedPool.tokenA.id === this.tokenInfo.tokenId;
+        const rawReserveA = parseFloat(isTokenAinPoolA ? this.selectedPool.tokenReserveA : this.selectedPool.tokenReserveB);
+        const rawReserveB = parseFloat(isTokenAinPoolA ? this.selectedPool.tokenReserveB : this.selectedPool.tokenReserveA);
+        const decimalsA = isTokenAinPoolA ? this.selectedPool.tokenA.decimals : this.selectedPool.tokenB.decimals;
+        const decimalsB = isTokenAinPoolA ? this.selectedPool.tokenB.decimals : this.selectedPool.tokenA.decimals;
+        const reserveAHuman = rawReserveA / Math.pow(10, decimalsA);
+        const reserveBHuman = rawReserveB / Math.pow(10, decimalsB);
+        const tokenAAmount = parseFloat(this.tokenAmount) || 0;
+        const tokenBAmount = reserveAHuman > 0 ? tokenAAmount * (reserveBHuman / reserveAHuman) : 0;
+        this.hbarAmount = tokenBAmount > 0 ? tokenBAmount.toFixed(Math.min(decimalsB, 8)) : '';
+        if (hbarAmtInput) hbarAmtInput.value = this.hbarAmount;
+      }
+    });
     tokenAmtInput?.addEventListener('change', () => { this.refresh(); });
 
-    const hbarAmtInput = document.getElementById('al-hbar-amount') as HTMLInputElement;
-    hbarAmtInput?.addEventListener('input', () => { this.hbarAmount = hbarAmtInput.value; });
-    hbarAmtInput?.addEventListener('change', () => { this.refresh(); });
+    // Token B: read-only for existing pools (ratio-derived), free entry for new pools only
+    hbarAmtInput?.addEventListener('input', () => { if (!this.selectedPool) this.hbarAmount = hbarAmtInput.value; });
+    hbarAmtInput?.addEventListener('change', () => { if (!this.selectedPool) this.refresh(); });
 
     const slippageInput = document.getElementById('al-slippage') as HTMLInputElement;
     slippageInput?.addEventListener('input', () => { this.slippage = parseFloat(slippageInput.value) || 1.5; });
@@ -723,8 +758,7 @@ export class AddLiquidity {
           const centToHbarRatio = centEquivalent / hbarEquivalent;
           this.poolCreationFeeTinybar = Math.round((POOL_FEE_TINYCENT / centToHbarRatio) * 100_000_000);
 
-          const hbarNeeded = this.poolCreationFeeTinybar / 100_000_000;
-          console.log(`Pool creation fee: $50 USD = ${hbarNeeded.toFixed(2)} HBAR = ${this.poolCreationFeeTinybar} tinybar`);
+          // Debug log removed — fee is always calculated but only spent on new pool creation
         } else {
           console.error('Failed to fetch exchange rate');
           this.poolCreationFeeTinybar = 0;
@@ -883,6 +917,32 @@ export class AddLiquidity {
       // Convert amounts to smallest units
       const tokenASmallestUnit = Math.round(tokenAmt * Math.pow(10, this.tokenInfo.decimals));
       const tokenBSmallestUnit = Math.round(tokenBAmt * Math.pow(10, this.tokenBInfo.decimals));
+
+      // Pre-flight: verify wallet holds enough Token A
+      const tokABalRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/tokens?token.id=${this.tokenInfo.tokenId}`);
+      if (tokABalRes.ok) {
+        const tokABalData = await tokABalRes.json();
+        const tokABal: number = tokABalData.tokens?.[0]?.balance ?? 0;
+        if (tokABal < tokenASmallestUnit) {
+          const have = (tokABal / Math.pow(10, this.tokenInfo.decimals)).toFixed(this.tokenInfo.decimals);
+          const need = (tokenASmallestUnit / Math.pow(10, this.tokenInfo.decimals)).toFixed(this.tokenInfo.decimals);
+          throw new Error(`Insufficient ${this.tokenInfo.symbol} balance. Need ${need}, have ${have}.`);
+        }
+      }
+
+      // Pre-flight: verify wallet holds enough Token B (HTS only — HBAR is covered by the HBAR balance check below)
+      if (!isHbarPair) {
+        const tokBBalRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/tokens?token.id=${this.tokenBInfo.tokenId}`);
+        if (tokBBalRes.ok) {
+          const tokBBalData = await tokBBalRes.json();
+          const tokBBal: number = tokBBalData.tokens?.[0]?.balance ?? 0;
+          if (tokBBal < tokenBSmallestUnit) {
+            const have = (tokBBal / Math.pow(10, this.tokenBInfo.decimals)).toFixed(this.tokenBInfo.decimals);
+            const need = (tokenBSmallestUnit / Math.pow(10, this.tokenBInfo.decimals)).toFixed(this.tokenBInfo.decimals);
+            throw new Error(`Insufficient ${this.tokenBInfo.symbol} balance. Need ${need}, have ${have}.`);
+          }
+        }
+      }
 
       // Calculate min amounts with slippage
       const slippageFactor = (100 - this.slippage) / 100;
