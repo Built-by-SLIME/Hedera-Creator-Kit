@@ -92,3 +92,32 @@ Child:  INSUFFICIENT_GAS — TOKENASSOCIATE (nonce=1)
 **Fix applied:** Increased new pool gas limit from 5,000,000 → 15,000,000 (Hedera mainnet maximum).
 
 **Status:** Deployed to Railway. Pending re-test.
+
+---
+
+### Session 3: HTS/HTS new pool — INSUFFICIENT_PAYER_BALANCE + DAppSigner crash
+**Date:** 2026-02-23
+**Symptoms reported:**
+- App error: `"Error executing transaction or query: {"txError":{"message":{"_code":10}},"queryError":{"name":"Error","message":"(BUG) Query.fromBytes() not implemented for type getByKey"}}`
+- HashPack wallet also surfaced a payer balance warning
+- Stack trace: `DAppSigner._tryExecuteQueryRequest → DAppSigner.call → AddLiquidity.executeLiquidity`
+
+**Root cause confirmed:**
+- `_code: 10` = `INSUFFICIENT_PAYER_BALANCE` (Hedera proto ResponseCode enum)
+- HTS/HTS new pool creation sends `poolCreationFeeTinybar` (~526 HBAR) as the payable amount
+- The test wallet did not have 526+ HBAR available
+- When the Hedera network rejects the transaction for insufficient balance, the WalletConnect `DAppSigner` attempts to fall back to a query to determine the result, hitting an unimplemented code path (`Query.fromBytes()` for `getByKey`), producing the confusing BUG message that completely obscured the real cause
+
+**Fixes applied (`frontend/src/components/AddLiquidity.ts`):**
+
+1. **Pre-flight HBAR balance check** (before contract call)
+   - Fetches account balance from Mirror Node after calculating `payableTinybar`
+   - If `balance < payableTinybar + 5 HBAR buffer`, throws a clear error immediately before any wallet prompt
+   - Error message includes actual vs required HBAR and the specific pool creation fee amount
+
+2. **DAppSigner error decoder** (in catch block)
+   - Detects `"Error executing transaction or query:"` pattern in error message
+   - Parses JSON payload and maps `_code: 10` → human-readable "Insufficient HBAR balance" message with the fee amount
+   - Falls back to original message if JSON parsing fails (safe no-op)
+
+**Status:** Deployed to Railway. Pending re-test with sufficient HBAR balance.

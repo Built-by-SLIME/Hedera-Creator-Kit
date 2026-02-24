@@ -1044,6 +1044,27 @@ export class AddLiquidity {
           .addUint256(deadline);
       }
 
+      // Pre-flight: verify wallet has enough HBAR to cover the payable amount + tx fees.
+      // For HTS/HTS new pools the creation fee alone is ~526 HBAR — insufficient balance
+      // produces an opaque WalletConnect DAppSigner error (_code: 10 = INSUFFICIENT_PAYER_BALANCE)
+      // that completely obscures the actual cause. Catching it here gives a clear message.
+      if (payableTinybar > 0) {
+        const balRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${accountId}`);
+        if (balRes.ok) {
+          const balData = await balRes.json();
+          const hbarBalTinybar: number = balData.balance?.balance ?? 0;
+          const feeBuffer = 5 * 100_000_000; // 5 HBAR buffer for gas & tx fees
+          if (hbarBalTinybar < payableTinybar + feeBuffer) {
+            const availableHbar = (hbarBalTinybar / 100_000_000).toFixed(2);
+            const requiredHbar = ((payableTinybar + feeBuffer) / 100_000_000).toFixed(2);
+            const feeHbar = (this.poolCreationFeeTinybar / 100_000_000).toFixed(2);
+            throw new Error(
+              `Insufficient HBAR balance. Need ~${requiredHbar} HBAR (includes ~${feeHbar} HBAR pool creation fee + liquidity + fees), have ${availableHbar} HBAR.`
+            );
+          }
+        }
+      }
+
       // Build transaction in the EXACT order shown in SaucerSwap documentation:
       // 1. setPayableAmount FIRST (if needed)
       // 2. setContractId
@@ -1116,7 +1137,25 @@ export class AddLiquidity {
     } catch (err: any) {
       console.error('Add liquidity error:', err);
       this.loading = false;
-      this.error = err.message || 'Failed to add liquidity';
+
+      // Decode opaque WalletConnect DAppSigner errors into human-readable messages.
+      // The signer throws: "Error executing transaction or query: {txError, queryError}"
+      // where txError.message._code maps to Hedera ResponseCode values.
+      let errorMessage = err.message || 'Failed to add liquidity';
+      if (errorMessage.includes('Error executing transaction or query:')) {
+        try {
+          const jsonStr = errorMessage.replace(/^.*?Error executing transaction or query:\s*/, '');
+          const parsed = JSON.parse(jsonStr);
+          if (parsed?.txError?.message?._code === 10) {
+            const feeHbar = (this.poolCreationFeeTinybar / 100_000_000).toFixed(2);
+            errorMessage = `Insufficient HBAR balance. Pool creation requires ~${feeHbar} HBAR fee. Add more HBAR to your wallet and try again.`;
+          }
+        } catch {
+          // Parsing failed — keep the original message
+        }
+      }
+
+      this.error = errorMessage;
       this.statusMessage = '';
       this.refresh();
     }
