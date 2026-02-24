@@ -13,7 +13,6 @@ interface SnapshotHolder {
 interface SnapshotFilters {
   tokenId: string
   minBalance?: string
-  maxBalance?: string
   serialFrom?: string
   serialTo?: string
   snapshotDate?: string
@@ -88,29 +87,17 @@ export class SnapshotTool {
         </div>
 
         <div class="filter-divider"></div>
-        <h4 class="filter-subtitle">Balance Range</h4>
+        <h4 class="filter-subtitle">Filter by Amount Held</h4>
 
-        <div class="input-row">
-          <div class="input-group">
-            <label for="min-balance">Min Balance</label>
-            <input
-              type="text"
-              id="min-balance"
-              class="token-input"
-              placeholder="1"
-              autocomplete="off"
-            />
-          </div>
-          <div class="input-group">
-            <label for="max-balance">Max Balance</label>
-            <input
-              type="text"
-              id="max-balance"
-              class="token-input"
-              placeholder="100"
-              autocomplete="off"
-            />
-          </div>
+        <div class="input-group">
+          <label for="min-balance">Balance (minimum)</label>
+          <input
+            type="text"
+            id="min-balance"
+            class="token-input"
+            placeholder="BALANCE"
+            autocomplete="off"
+          />
         </div>
 
         <div class="filter-divider"></div>
@@ -291,7 +278,6 @@ export class SnapshotTool {
 
     // Get filter values
     const minBalance = (document.getElementById('min-balance') as HTMLInputElement)?.value
-    const maxBalance = (document.getElementById('max-balance') as HTMLInputElement)?.value
     const serialFrom = (document.getElementById('serial-from') as HTMLInputElement)?.value
     const serialTo = (document.getElementById('serial-to') as HTMLInputElement)?.value
     const snapshotDate = (document.getElementById('snapshot-date') as HTMLInputElement)?.value
@@ -300,7 +286,6 @@ export class SnapshotTool {
     this.filters = {
       tokenId,
       minBalance: minBalance || undefined,
-      maxBalance: maxBalance || undefined,
       serialFrom: serialFrom || undefined,
       serialTo: serialTo || undefined,
       snapshotDate: snapshotDate || undefined,
@@ -344,7 +329,10 @@ export class SnapshotTool {
 
   private static async fetchNFTHolders(tokenId: string): Promise<void> {
     const holders = new Map<string, { balance: number; serials: number[] }>()
-    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100`
+    const tsParam = this.filters.snapshotDate
+      ? `&timestamp=${Math.floor(new Date(this.filters.snapshotDate).getTime() / 1000)}`
+      : ''
+    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100${tsParam}`
 
     while (nextLink) {
       const response = await fetch(nextLink)
@@ -387,7 +375,6 @@ export class SnapshotTool {
       .filter(holder => {
         const balance = parseInt(holder.balance)
         if (this.filters.minBalance && balance < parseInt(this.filters.minBalance)) return false
-        if (this.filters.maxBalance && balance > parseInt(this.filters.maxBalance)) return false
         return true
       })
       .sort((a, b) => parseInt(b.balance) - parseInt(a.balance))
@@ -395,13 +382,15 @@ export class SnapshotTool {
 
   private static async fetchFungibleHolders(tokenId: string, decimals: number): Promise<void> {
     const holders: SnapshotHolder[] = []
-    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/balances?limit=100`
+    const tsParam = this.filters.snapshotDate
+      ? `&timestamp=${Math.floor(new Date(this.filters.snapshotDate).getTime() / 1000)}`
+      : ''
+    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/balances?limit=100${tsParam}`
 
     // Mirror Node returns balances in smallest units (e.g. 8-decimal token: 100 tokens = 10000000000).
-    // Users enter human-readable amounts, so convert filter values to smallest units for comparison.
+    // Users enter human-readable amounts, so convert the filter value to smallest units for comparison.
     const divisor = Math.pow(10, decimals)
     const minSmallest = this.filters.minBalance ? parseFloat(this.filters.minBalance) * divisor : null
-    const maxSmallest = this.filters.maxBalance ? parseFloat(this.filters.maxBalance) * divisor : null
 
     while (nextLink) {
       const response = await fetch(nextLink)
@@ -418,9 +407,8 @@ export class SnapshotTool {
         // Exclude treasury if filter is enabled
         if (this.filters.excludeTreasury && accountId === this.treasuryAccount) continue
 
-        // Apply balance filters — compare raw smallest-unit amount against converted filter values
+        // Apply minimum balance filter
         if (minSmallest !== null && amount < minSmallest) continue
-        if (maxSmallest !== null && amount > maxSmallest) continue
 
         holders.push({
           accountId,
@@ -437,7 +425,6 @@ export class SnapshotTool {
   private static clearFilters(): void {
     (document.getElementById('snapshot-token-id') as HTMLInputElement).value = ''
     ;(document.getElementById('min-balance') as HTMLInputElement).value = ''
-    ;(document.getElementById('max-balance') as HTMLInputElement).value = ''
     ;(document.getElementById('serial-from') as HTMLInputElement).value = ''
     ;(document.getElementById('serial-to') as HTMLInputElement).value = ''
     ;(document.getElementById('snapshot-date') as HTMLInputElement).value = ''
