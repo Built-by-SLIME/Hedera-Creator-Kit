@@ -329,8 +329,10 @@ export class SnapshotTool {
 
   private static async fetchNFTHolders(tokenId: string): Promise<void> {
     const holders = new Map<string, { balance: number; serials: number[] }>()
+    // The /nfts endpoint requires timestamp in seconds.nanoseconds format (e.g. 1767225600.000000000)
+    // whereas /balances accepts bare seconds. Use lte: operator to get NFTs as-of the chosen date.
     const tsParam = this.filters.snapshotDate
-      ? `&timestamp=${Math.floor(new Date(this.filters.snapshotDate).getTime() / 1000)}`
+      ? `&timestamp=lte:${Math.floor(new Date(this.filters.snapshotDate).getTime() / 1000)}.000000000`
       : ''
     let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100${tsParam}`
 
