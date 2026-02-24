@@ -329,7 +329,8 @@ export class SnapshotTool {
       if (isNFT) {
         await this.fetchNFTHolders(tokenId)
       } else {
-        await this.fetchFungibleHolders(tokenId)
+        const decimals = parseInt(tokenInfo.decimals) || 0
+        await this.fetchFungibleHolders(tokenId, decimals)
       }
 
       this.loading = false
@@ -392,9 +393,15 @@ export class SnapshotTool {
       .sort((a, b) => parseInt(b.balance) - parseInt(a.balance))
   }
 
-  private static async fetchFungibleHolders(tokenId: string): Promise<void> {
+  private static async fetchFungibleHolders(tokenId: string, decimals: number): Promise<void> {
     const holders: SnapshotHolder[] = []
     let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/balances?limit=100`
+
+    // Mirror Node returns balances in smallest units (e.g. 8-decimal token: 100 tokens = 10000000000).
+    // Users enter human-readable amounts, so convert filter values to smallest units for comparison.
+    const divisor = Math.pow(10, decimals)
+    const minSmallest = this.filters.minBalance ? parseFloat(this.filters.minBalance) * divisor : null
+    const maxSmallest = this.filters.maxBalance ? parseFloat(this.filters.maxBalance) * divisor : null
 
     while (nextLink) {
       const response = await fetch(nextLink)
@@ -411,20 +418,20 @@ export class SnapshotTool {
         // Exclude treasury if filter is enabled
         if (this.filters.excludeTreasury && accountId === this.treasuryAccount) continue
 
-        // Apply balance filters
-        if (this.filters.minBalance && amount < parseInt(this.filters.minBalance)) continue
-        if (this.filters.maxBalance && amount > parseInt(this.filters.maxBalance)) continue
+        // Apply balance filters — compare raw smallest-unit amount against converted filter values
+        if (minSmallest !== null && amount < minSmallest) continue
+        if (maxSmallest !== null && amount > maxSmallest) continue
 
         holders.push({
           accountId,
-          balance: amount.toString()
+          balance: decimals > 0 ? (amount / divisor).toString() : amount.toString()
         })
       }
 
       nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null as any
     }
 
-    this.holders = holders.sort((a, b) => parseInt(b.balance) - parseInt(a.balance))
+    this.holders = holders.sort((a, b) => parseFloat(b.balance) - parseFloat(a.balance))
   }
 
   private static clearFilters(): void {
