@@ -328,36 +328,14 @@ export class SnapshotTool {
   }
 
   private static async fetchNFTHolders(tokenId: string): Promise<void> {
-    // When a date filter is set, mirror node providers don't reliably support the timestamp
-    // parameter on the /nfts endpoint. Use /balances?timestamp=X instead — it supports
-    // historical queries consistently but returns counts only (no serial numbers).
-    if (this.filters.snapshotDate) {
-      const ts = Math.floor(new Date(this.filters.snapshotDate).getTime() / 1000)
-      let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/balances?limit=100&timestamp=${ts}`
-      const holders: SnapshotHolder[] = []
+    // HIP-980 added timestamp support to the /nfts endpoint.
+    // Format: lte:seconds.nanoseconds — captures ownership state at end of the selected date.
+    const tsParam = this.filters.snapshotDate
+      ? `&timestamp=lte:${Math.floor(new Date(this.filters.snapshotDate + 'T23:59:59Z').getTime() / 1000)}.999999999`
+      : ''
 
-      while (nextLink) {
-        const response = await fetch(nextLink)
-        if (!response.ok) throw new Error('Failed to fetch historical NFT balances')
-        const data = await response.json()
-
-        for (const entry of data.balances) {
-          if (entry.balance === 0) continue
-          if (this.filters.excludeTreasury && entry.account === this.treasuryAccount) continue
-          if (this.filters.minBalance && entry.balance < parseInt(this.filters.minBalance)) continue
-          holders.push({ accountId: entry.account, balance: entry.balance.toString() })
-        }
-
-        nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null as any
-      }
-
-      this.holders = holders.sort((a, b) => parseInt(b.balance) - parseInt(a.balance))
-      return
-    }
-
-    // No date filter — use /nfts for full data including serial numbers
     const holders = new Map<string, { balance: number; serials: number[] }>()
-    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100`
+    let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/nfts?limit=100${tsParam}`
 
     while (nextLink) {
       const response = await fetch(nextLink)
@@ -397,7 +375,7 @@ export class SnapshotTool {
   private static async fetchFungibleHolders(tokenId: string, decimals: number): Promise<void> {
     const holders: SnapshotHolder[] = []
     const tsParam = this.filters.snapshotDate
-      ? `&timestamp=${Math.floor(new Date(this.filters.snapshotDate).getTime() / 1000)}`
+      ? `&timestamp=${Math.floor(new Date(this.filters.snapshotDate + 'T23:59:59Z').getTime() / 1000)}`
       : ''
     let nextLink = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/balances?limit=100${tsParam}`
 
