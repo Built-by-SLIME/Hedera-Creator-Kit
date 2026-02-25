@@ -193,7 +193,9 @@ export class Terminal {
     const lines: TerminalLine[] = []
 
     this.tools.forEach(tool => {
-      const line = `  [${tool.number}] ${tool.icon} ${tool.title.padEnd(25)} ${tool.description}`
+      const prefix = `  [${tool.number}]`.padEnd(6)
+      const desc = tool.status === 'coming-soon' ? `${tool.description}  (coming soon)` : tool.description
+      const line = `${prefix} ${tool.icon} ${tool.title.padEnd(25)} ${desc}`
       lines.push({ type: 'output', content: line })
     })
 
