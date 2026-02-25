@@ -9,7 +9,7 @@ import {
   TransactionId,
   TokenId,
   NftId,
-  TransferTransaction,
+  TokenAirdropTransaction,
 } from '@hashgraph/sdk'
 
 interface AirdropRecipient {
@@ -602,7 +602,7 @@ export class AirdropTool {
         this.refresh()
 
         try {
-          const tx = new TransferTransaction()
+          const tx = new TokenAirdropTransaction()
 
           for (const recipient of batch) {
             const recipAcct = AccountId.fromString(recipient.accountId)
