@@ -54,6 +54,13 @@ export class HelpPage {
       { type: 'success', content: '╚════════════════════════════════════════════════════════════╝' },
       { type: 'output', content: '' },
 
+      // --- NAVIGATION ---
+      { type: 'warning', content: '  ── COMMANDS ──────────────────────────────────────────────' },
+      { type: 'output', content: '' },
+      { type: 'output', content: '  back / home    Return to the main menu' },
+      { type: 'output', content: '  clear          Clear the terminal' },
+      { type: 'output', content: '' },
+
       // --- FEES ---
       { type: 'warning', content: '  ── FEES ──────────────────────────────────────────────────' },
       { type: 'output', content: '' },
@@ -151,13 +158,6 @@ export class HelpPage {
       { type: 'output', content: '  Check back here for embedded walkthroughs and tutorials.' },
       { type: 'output', content: '' },
 
-      // --- NAVIGATION ---
-      { type: 'warning', content: '  ── COMMANDS ──────────────────────────────────────────────' },
-      { type: 'output', content: '' },
-      { type: 'output', content: '  back / home    Return to the main menu' },
-      { type: 'output', content: '  clear          Clear the terminal' },
-      { type: 'output', content: '  <number>       Go directly to a tool (e.g. "8")' },
-      { type: 'output', content: '' },
     ]
   }
 
