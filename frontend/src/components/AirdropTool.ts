@@ -225,7 +225,11 @@ export class AirdropTool {
                 <tr class="${recipient.status || 'pending'}">
                   <td>${index + 1}</td>
                   <td class="account-id">${recipient.accountId}</td>
-                  <td>${this.formatAmount(recipient)}</td>
+                  <td>${
+                    this.config.tokenType === 'NFT' && !this.isProcessing && recipient.status !== 'success' && recipient.status !== 'failed'
+                      ? `<input type="text" class="serial-input" data-index="${index}" value="${(recipient.serialNumbers || []).join(', ')}" placeholder="e.g. 1, 2, 3" style="width:100%;min-width:80px;background:transparent;border:1px solid var(--terminal-border,#333);color:var(--terminal-text,#eee);padding:0.2rem 0.3rem;font-size:0.8rem;border-radius:3px;" />`
+                      : this.formatAmount(recipient)
+                  }</td>
                   <td class="status-cell">
                     ${this.renderStatus(recipient.status)}
                   </td>
@@ -420,6 +424,17 @@ export class AirdropTool {
     // Randomize serials button
     document.getElementById('randomize-serials-btn')?.addEventListener('click', () => this.randomizeSerials())
 
+    // Inline serial number editing
+    document.querySelectorAll('.serial-input').forEach(inp => {
+      inp.addEventListener('change', (e) => {
+        const idx = parseInt((e.target as HTMLInputElement).getAttribute('data-index') || '-1')
+        if (idx >= 0) {
+          const val = (e.target as HTMLInputElement).value
+          this.config.recipients[idx].serialNumbers = val.split(',').map(s => s.trim()).filter(s => s.length > 0)
+        }
+      })
+    })
+
     // Delete recipient buttons
     document.querySelectorAll('.delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -597,6 +612,17 @@ export class AirdropTool {
         return
       }
 
+      // Pre-flight association check — filter out accounts that can't receive
+      this.statusMessage = `Checking recipient associations (${this.config.recipients.length} accounts)...`
+      this.refresh()
+      const skipped = await this.filterUnassociatedRecipients(tokenId)
+      if (skipped > 0) {
+        this.failedCount = skipped
+        this.statusMessage = `${skipped} recipient(s) skipped — not associated & no auto-association slots. Proceeding with the rest...`
+        this.refresh()
+        await new Promise(resolve => setTimeout(resolve, 1500))
+      }
+
       const decimals = parseInt(tokenInfo.decimals || '0')
       const BATCH_SIZE = 10
       const pendingRecipients = this.config.recipients.filter(r => r.status === 'pending')
@@ -670,6 +696,41 @@ export class AirdropTool {
       alert(`Airdrop failed: ${this.error}`)
       this.refresh()
     }
+  }
+
+  private static async filterUnassociatedRecipients(tokenId: string): Promise<number> {
+    const CONCURRENCY = 10
+    let skipped = 0
+    const recipients = this.config.recipients
+
+    for (let i = 0; i < recipients.length; i += CONCURRENCY) {
+      const batch = recipients.slice(i, i + CONCURRENCY)
+      await Promise.all(batch.map(async (recipient) => {
+        if (recipient.status === 'success' || recipient.status === 'failed') return
+        try {
+          // Already associated?
+          const assocRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${recipient.accountId}/tokens?token.id=${tokenId}&limit=1`)
+          if (assocRes.ok) {
+            const assocData = await assocRes.json()
+            if (assocData.tokens && assocData.tokens.length > 0) return // fine
+          }
+          // Check auto-association slots
+          const acctRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${recipient.accountId}`)
+          if (acctRes.ok) {
+            const acctData = await acctRes.json()
+            const maxAuto = acctData.max_automatic_token_associations ?? 0
+            if (maxAuto === -1 || maxAuto > 0) return // has slots, fine
+          }
+          // No association, no auto slots — mark as skipped
+          recipient.status = 'failed'
+          recipient.error = 'Not associated / no auto-association slots'
+          skipped++
+        } catch {
+          // Can't determine — let it try
+        }
+      }))
+    }
+    return skipped
   }
 
   private static async fetchTokenInfo(tokenId: string): Promise<any> {
