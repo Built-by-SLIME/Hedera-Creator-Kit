@@ -1025,9 +1025,11 @@ export class AddLiquidity {
         );
       approveTxA.setTransactionId(TransactionId.generate(acctId));
       approveTxA.freezeWith(client);
-      await approveTxA.executeWithSigner(signer);
-
-      await new Promise(r => setTimeout(r, 2000));
+      const approveResponseA = await approveTxA.executeWithSigner(signer);
+      // Wait for consensus — executeWithSigner resolves at wallet approval, not on-chain confirmation.
+      // Without this, Token B allowance approval can fire before Token A is confirmed, and the
+      // subsequent contract call may proceed without a valid allowance.
+      await approveResponseA.getReceipt(client);
 
       // Step 2: Approve token B allowance (only for HTS/HTS pairs, not HBAR)
       if (!isHbarPair) {
@@ -1043,9 +1045,9 @@ export class AddLiquidity {
           );
         approveTxB.setTransactionId(TransactionId.generate(acctId));
         approveTxB.freezeWith(client);
-        await approveTxB.executeWithSigner(signer);
-
-        await new Promise(r => setTimeout(r, 2000));
+        const approveResponseB = await approveTxB.executeWithSigner(signer);
+        // Same consensus wait as Token A — ensures allowance is confirmed before the contract call.
+        await approveResponseB.getReceipt(client);
       }
 
       // Guard: for new pools the creation fee is required — if we couldn't fetch it, abort

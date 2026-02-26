@@ -66,6 +66,32 @@ for (const recipient of pendingRecipients) {
 
 ### Fixed — Add Liquidity (Tool #6)
 
+#### 🐛 BUG FIX: Token allowance not confirmed before contract call — "Safe token transfer failed!" (CRITICAL)
+**File:** `frontend/src/components/AddLiquidity.ts` ~line 1028 & ~line 1048
+**Symptom:** HTS/HTS pool liquidity addition failed with "Safe token transfer failed!" in HashPack. Mirror Node showed Token A allowance confirmed on-chain, but Token B allowance (`CRYPTOAPPROVEALLOWANCE`) never appeared — it was never submitted.
+**Root Cause:** `executeWithSigner()` resolves when the user approves in the wallet (WalletConnect layer), not when the transaction reaches consensus. The 2-second `setTimeout` was insufficient — Token B's allowance approval would fire before Token A was fully confirmed, and the contract call could proceed before either allowance was valid on-chain.
+**Confirmed via:** Mirror Node query of all transactions from tester account in a narrow time window showed only 1 `CRYPTOAPPROVEALLOWANCE` (Token A), with Token B's never appearing.
+**Fix:** Replaced both `setTimeout` sleeps with `getReceipt(client)` calls, which block until consensus and throw on non-SUCCESS status:
+```typescript
+// Before:
+await approveTxA.executeWithSigner(signer);
+await new Promise(r => setTimeout(r, 2000));
+// ...
+await approveTxB.executeWithSigner(signer);
+await new Promise(r => setTimeout(r, 2000));
+
+// After:
+const approveResponseA = await approveTxA.executeWithSigner(signer);
+await approveResponseA.getReceipt(client);
+// ...
+const approveResponseB = await approveTxB.executeWithSigner(signer);
+await approveResponseB.getReceipt(client);
+```
+
+---
+
+
+
 #### 🐛 BUG FIX: Mirror Node transaction ID format (CRITICAL)
 **File:** `frontend/src/components/AddLiquidity.ts` ~line 1072
 **Symptom:** All Mirror Node transaction verification calls returned 404, causing "Transaction could not be confirmed" error even when the transaction succeeded on-chain.
