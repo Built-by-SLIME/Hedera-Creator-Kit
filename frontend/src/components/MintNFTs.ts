@@ -1150,14 +1150,16 @@ export class MintNFTs {
 
       const feeData = await feeResponse.json();
       const feeWithBuffer = feeData.totalFeeWithBuffer;
+      // Round up to the nearest tinybar to avoid "Hbar in tinybars contains decimals" SDK error
+      const feeTinybars = Math.ceil(feeWithBuffer * 1e8);
 
       this.statusMessage = `Transferring ${feeWithBuffer.toFixed(4)} HBAR to cover minting fees for ${pendingEntries.length} NFTs (${feeData.totalBatches} batches)...`;
       this.refresh();
 
       // Step 2: Transfer HBAR to operator to cover fees (ONE wallet signature)
       const transferTx = new TransferTransaction()
-        .addHbarTransfer(AccountId.fromString(accountId), new Hbar(-feeWithBuffer))
-        .addHbarTransfer(AccountId.fromString(BACKEND_MINTER_ACCOUNT), new Hbar(feeWithBuffer));
+        .addHbarTransfer(AccountId.fromString(accountId), Hbar.fromTinybars(-feeTinybars))
+        .addHbarTransfer(AccountId.fromString(BACKEND_MINTER_ACCOUNT), Hbar.fromTinybars(feeTinybars));
 
       const signer = WalletConnectService.getSigner(accountId);
       const acctId = AccountId.fromString(accountId);
