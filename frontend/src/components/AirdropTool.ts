@@ -624,7 +624,9 @@ export class AirdropTool {
       }
 
       const decimals = parseInt(tokenInfo.decimals || '0')
-      const BATCH_SIZE = 10
+      // NFT: max 10 nftTransfers per tx. Fungible: max 10 token adjustments total;
+      // the SDK aggregates sender debits into 1 entry, so max 9 recipients (1+9=10).
+      const BATCH_SIZE = tokenType === 'NFT' ? 10 : 9
       const pendingRecipients = this.config.recipients.filter(r => r.status === 'pending')
       const batches: AirdropRecipient[][] = []
 
@@ -666,6 +668,13 @@ export class AirdropTool {
           tx.setTransactionId(TransactionId.generate(acctId))
           tx.freezeWith(getHederaClient())
           const txResponse = await tx.executeWithSigner(signer)
+
+          // Wait for consensus and verify on-chain status — executeWithSigner resolves
+          // when the user approves in wallet, NOT when the transaction is confirmed.
+          const receipt = await txResponse.getReceipt(getHederaClient())
+          if (receipt.status.toString() !== 'SUCCESS') {
+            throw new Error(`Transaction failed on-chain: ${receipt.status}`)
+          }
 
           batch.forEach(r => { r.status = 'success'; this.successCount++ })
 
