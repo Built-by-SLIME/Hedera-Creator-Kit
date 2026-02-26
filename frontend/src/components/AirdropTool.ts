@@ -9,7 +9,7 @@ import {
   TransactionId,
   TokenId,
   NftId,
-  TokenAirdropTransaction,
+  TransferTransaction,
 } from '@hashgraph/sdk'
 
 interface AirdropRecipient {
@@ -96,7 +96,7 @@ export class AirdropTool {
 
 
         <div class="terminal-line" style="color: #f4a261; font-size: 0.8rem; margin-bottom: 0.25rem;">ⓘ Tokens with royalty fallback fees can only be airdropped from the treasury account.</div>
-        <div class="terminal-line" style="color: #f4a261; font-size: 0.8rem; margin-bottom: 0.5rem;">ⓘ Unassociated recipients will receive tokens in their wallet envelope (pending claim).</div>
+        <div class="terminal-line" style="color: #f4a261; font-size: 0.8rem; margin-bottom: 0.5rem;">ⓘ Recipients must be associated with the token or have auto-association enabled to receive.</div>
         ${this.statusMessage ? `<div class="terminal-line" style="color: #4ecdc4; font-size: 0.85rem; margin-bottom: 0.5rem;">${this.statusMessage}</div>` : ''}
 
         <div class="input-group">
@@ -150,9 +150,9 @@ export class AirdropTool {
         <h4 class="filter-subtitle">Add Recipients</h4>
 
         <div class="upload-section">
-          <label for="csv-upload" class="upload-label">
+          <label for="csv-upload" class="upload-label" id="csv-drop-zone">
             <span class="upload-icon">📁</span>
-            <span>Upload CSV File</span>
+            <span>Upload or Drop CSV File</span>
             <input
               type="file"
               id="csv-upload"
@@ -369,6 +369,20 @@ export class AirdropTool {
     const tokenIdInput = document.getElementById('airdrop-token-id') as HTMLInputElement
 
     csvUpload?.addEventListener('change', (e) => this.handleCSVUpload(e))
+
+    const dropZone = document.getElementById('csv-drop-zone')
+    dropZone?.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over') })
+    dropZone?.addEventListener('dragleave', () => { dropZone.classList.remove('drag-over') })
+    dropZone?.addEventListener('drop', (e) => {
+      e.preventDefault()
+      dropZone.classList.remove('drag-over')
+      const file = (e as DragEvent).dataTransfer?.files?.[0]
+      if (file && file.name.endsWith('.csv')) {
+        const reader = new FileReader()
+        reader.onload = (ev) => this.parseCSV(ev.target?.result as string)
+        reader.readAsText(file)
+      }
+    })
     addManualBtn?.addEventListener('click', () => this.addManualRecipients())
     startAirdropBtn?.addEventListener('click', () => this.startAirdrop())
     clearBtn?.addEventListener('click', () => this.clearAll())
@@ -602,7 +616,7 @@ export class AirdropTool {
         this.refresh()
 
         try {
-          const tx = new TokenAirdropTransaction()
+          const tx = new TransferTransaction()
 
           for (const recipient of batch) {
             const recipAcct = AccountId.fromString(recipient.accountId)
