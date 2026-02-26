@@ -624,14 +624,36 @@ export class AirdropTool {
       }
 
       const decimals = parseInt(tokenInfo.decimals || '0')
-      // NFT: max 10 nftTransfers per tx. Fungible: max 10 token adjustments total;
-      // the SDK aggregates sender debits into 1 entry, so max 9 recipients (1+9=10).
-      const BATCH_SIZE = tokenType === 'NFT' ? 10 : 9
       const pendingRecipients = this.config.recipients.filter(r => r.status === 'pending')
       const batches: AirdropRecipient[][] = []
 
-      for (let i = 0; i < pendingRecipients.length; i += BATCH_SIZE) {
-        batches.push(pendingRecipients.slice(i, i + BATCH_SIZE))
+      if (tokenType === 'NFT') {
+        // Hedera limit: max 10 NFT ownership changes per CryptoTransfer.
+        // Batch by cumulative serial count, not recipient count.
+        for (const recipient of pendingRecipients) {
+          const serialCount = (recipient.serialNumbers || []).length
+          if (serialCount === 0) continue
+          if (serialCount > 10) {
+            alert(`Recipient ${recipient.accountId} has ${serialCount} serials assigned. Max 10 serials per transaction — please reduce NFTs per recipient.`)
+            this.isProcessing = false
+            this.statusMessage = ''
+            this.refresh()
+            return
+          }
+          const last = batches[batches.length - 1]
+          const lastCount = last ? last.reduce((n, r) => n + (r.serialNumbers?.length || 0), 0) : 0
+          if (!last || lastCount + serialCount > 10) {
+            batches.push([recipient])
+          } else {
+            last.push(recipient)
+          }
+        }
+      } else {
+        // Fungible: max 10 token adjustments per CryptoTransfer.
+        // SDK aggregates sender debits into 1 entry, so max 9 recipients (1+9=10).
+        for (let i = 0; i < pendingRecipients.length; i += 9) {
+          batches.push(pendingRecipients.slice(i, i + 9))
+        }
       }
 
       const signer = WalletConnectService.getSigner(accountId)

@@ -6,6 +6,64 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed — Airdrop Tool (Tool #9)
+
+#### 🐛 BUG FIX: Fungible token batch size too large — TOKEN_TRANSFER_LIST_SIZE_LIMIT_EXCEEDED (CRITICAL)
+**File:** `frontend/src/components/AirdropTool.ts` ~line 629
+**Symptom:** First batch of a multi-batch fungible airdrop silently failed on-chain with `TOKEN_TRANSFER_LIST_SIZE_LIMIT_EXCEEDED`. App incorrectly reported all recipients as sent.
+**Root Cause:** Hedera limits CryptoTransfer to max 10 fungible token balance adjustments. The SDK aggregates repeated `addTokenTransfer()` calls for the same (token, account) pair into a single entry — so 10 recipients produces 1 aggregated sender debit + 10 recipient credits = 11 adjustments, exceeding the limit.
+**Confirmed via:** Hedera docs ("max 10 token fungible balance adjustments across all tokenTransferList's") and SDK source (`AbstractTokenTransferTransaction._addTokenTransfer` linear scan + `amount.add(value)` merge).
+**Fix:** Reduced fungible `BATCH_SIZE` from `10` to `9` (1 sender + 9 recipients = 10 adjustments, exactly at the protocol limit). NFT batch remains at 10 (uses separate `nftTransfers` list with its own 10-transfer limit).
+```typescript
+// Before:
+const BATCH_SIZE = 10
+
+// After:
+const BATCH_SIZE = tokenType === 'NFT' ? 10 : 9
+```
+
+---
+
+#### 🐛 BUG FIX: Failed transactions reported as success — no on-chain receipt verification (CRITICAL)
+**File:** `frontend/src/components/AirdropTool.ts` ~line 672
+**Symptom:** A batch that failed on-chain (e.g. `TOKEN_TRANSFER_LIST_SIZE_LIMIT_EXCEEDED`) was still marked as "✓ Sent" for all recipients. The success screen showed "13 of 13 sent" when only 3 actually received tokens.
+**Root Cause:** `executeWithSigner()` resolves when HashPack returns a signed response — before consensus. On-chain failures are only known at consensus time. The code marked all recipients as success immediately after the wallet approved, without waiting for or checking the on-chain result.
+**Fix:** Added `txResponse.getReceipt(getHederaClient())` call after `executeWithSigner()`. `getReceipt()` waits for consensus and throws if status is not `SUCCESS`, which triggers the existing catch block to mark the batch as failed.
+```typescript
+// After executeWithSigner():
+const receipt = await txResponse.getReceipt(getHederaClient())
+if (receipt.status.toString() !== 'SUCCESS') {
+  throw new Error(`Transaction failed on-chain: ${receipt.status}`)
+}
+// Only reaches here if confirmed successful on-chain
+batch.forEach(r => { r.status = 'success'; this.successCount++ })
+```
+
+---
+
+#### 🐛 BUG FIX: NFT batch logic groups by recipient count instead of serial count
+**File:** `frontend/src/components/AirdropTool.ts` ~line 629
+**Symptom:** Multi-serial NFT airdrops (e.g. 5 recipients × 3 serials each) would silently exceed Hedera's 10-NFT-transfer limit per transaction, causing `TOKEN_TRANSFER_LIST_SIZE_LIMIT_EXCEEDED` failures.
+**Root Cause:** Batch loop used `BATCH_SIZE = 10` counted recipients, not serials. Each unique serial is 1 NFT ownership change (confirmed via SDK source — no aggregation for `_nftTransfers`). The limit is 10 total serials per transaction regardless of recipient count.
+**Confirmed via:** Hedera docs ("max 10 NFT ownership changes across all tokenTransferList's") and SDK source (`AbstractTokenTransferTransaction._addNftTransfer` — deduplicates only by serial number, each serial is its own entry).
+**Fix:** Replaced fixed-count loop with cumulative serial counter. Recipients are added to the current batch until adding the next would push total serials over 10, then a new batch starts. Added pre-flight guard that rejects any single recipient assigned more than 10 serials (which can never fit in one transaction).
+```typescript
+// NFT batch building — groups by serial count, not recipient count
+for (const recipient of pendingRecipients) {
+  const serialCount = (recipient.serialNumbers || []).length
+  if (serialCount > 10) { alert(...); return }
+  const last = batches[batches.length - 1]
+  const lastCount = last ? last.reduce((n, r) => n + (r.serialNumbers?.length || 0), 0) : 0
+  if (!last || lastCount + serialCount > 10) {
+    batches.push([recipient])
+  } else {
+    last.push(recipient)
+  }
+}
+```
+
+---
+
 ### Fixed — Add Liquidity (Tool #6)
 
 #### 🐛 BUG FIX: Mirror Node transaction ID format (CRITICAL)
