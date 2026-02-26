@@ -952,7 +952,15 @@ export class AddLiquidity {
       // EVM addresses
       const tokenAEvmAddress = this.toEvmAddress(this.tokenInfo.tokenId);
       const tokenBEvmAddress = this.toEvmAddress(this.tokenBInfo.tokenId);
-      const toEvmAddress = this.toEvmAddress(accountId);
+      // Use the account's canonical EVM address from Mirror Node. Accounts with ECDSA keys
+      // have a non-long-zero EVM address (0xdcd9...) — if we pass the long-zero address
+      // instead, SaucerSwap's HTS precompile LP token transfer fails with INVALID_ALIAS_KEY.
+      // Accounts with ED25519 keys return the long-zero address from Mirror Node, so both
+      // key types are handled correctly by this lookup.
+      const acctInfoRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${accountId}`);
+      if (!acctInfoRes.ok) throw new Error('Failed to fetch account EVM address from Mirror Node');
+      const acctInfo = await acctInfoRes.json();
+      const toEvmAddress: string = acctInfo.evm_address;
 
       // Deadline: 10 minutes from now
       const deadline = Math.floor(Date.now() / 1000) + 600;
