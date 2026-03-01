@@ -559,14 +559,6 @@ export class SwapTool {
           .approveTokenAllowance(TokenId.fromString(this.toTokenId), acctId, operatorId, amount)
         approveTx.setTransactionId(TransactionId.generate(acctId))
         approveTx.freezeWith(client)
-        console.log('[SwapTool] fungible allowance tx before wallet:', {
-          toTokenId: this.toTokenId,
-          owner: acctId.toString(),
-          spender: operatorId.toString(),
-          amount,
-          txId: approveTx.transactionId?.toString(),
-          nodeIds: approveTx.nodeAccountIds?.map((n: any) => n.toString()),
-        })
         await approveTx.executeWithSigner(signer)
       }
 
