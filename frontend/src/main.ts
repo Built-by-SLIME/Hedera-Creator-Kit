@@ -10,6 +10,7 @@ import { CreateToken } from './components/CreateToken'
 import { UpdateTokenIcon } from './components/UpdateTokenIcon'
 import { AddLiquidity } from './components/AddLiquidity'
 import { BurnTool } from './components/BurnTool'
+import { SwapTool } from './components/SwapTool'
 import { DomainTool } from './components/DomainTool'
 import { HelpPage } from './components/HelpPage'
 
@@ -86,6 +87,12 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       BurnTool.init()
       console.log('BurnTool initialized')
       break
+    case 'swap':
+      console.log('Rendering SwapTool')
+      app.innerHTML = SwapTool.render()
+      SwapTool.init()
+      console.log('SwapTool initialized')
+      break
     case 'domain-registration':
       console.log('Rendering DomainTool')
       app.innerHTML = DomainTool.render()
@@ -109,6 +116,7 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       UpdateTokenIcon.resetForm()
       AddLiquidity.resetForm()
       BurnTool.resetForm()
+      SwapTool.resetState()
       DomainTool.resetForm()
 
       console.log('App element:', app)

@@ -14,6 +14,15 @@ import { pinCollectionMetadata } from './routes/pin-collection-metadata';
 import { pinNftMetadata } from './routes/pin-nft-metadata';
 import { mintNfts } from './routes/mint-nfts';
 import { calculateMintFee } from './routes/calculate-mint-fee';
+import {
+  createSwapProgram,
+  listSwapPrograms,
+  listPublicSwapPrograms,
+  updateSwapStatus,
+  deleteSwapProgram,
+  executeSwap,
+} from './routes/swap';
+import { initDb } from './db';
 
 
 // Resolve the backend root directory regardless of ts-node vs compiled mode.
@@ -130,6 +139,14 @@ app.post('/api/mint-nfts', (req, res, next) => {
   mintNfts(req, res).catch(next);
 });
 
+// Swap program routes
+app.post('/api/swap-programs', (req, res, next) => createSwapProgram(req, res).catch(next));
+app.get('/api/swap-programs', (req, res, next) => listSwapPrograms(req, res).catch(next));
+app.get('/api/swap-programs/public', (req, res, next) => listPublicSwapPrograms(req, res).catch(next));
+app.put('/api/swap-programs/:id/status', (req, res, next) => updateSwapStatus(req, res).catch(next));
+app.delete('/api/swap-programs/:id', (req, res, next) => deleteSwapProgram(req, res).catch(next));
+app.post('/api/swap-programs/:id/execute', (req, res, next) => executeSwap(req, res).catch(next));
+
 // Health check
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -145,9 +162,16 @@ app.use((err: any, req: Request, res: Response, next: any) => {
 });
 
 // Start server — bind to 0.0.0.0 so Railway's proxy can reach the app
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`🚀 Art Generator API Server running on 0.0.0.0:${PORT}`);
-});
+initDb()
+  .then(() => {
+    app.listen(Number(PORT), '0.0.0.0', () => {
+      console.log(`Art Generator API Server running on 0.0.0.0:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
 
 export default app;
 

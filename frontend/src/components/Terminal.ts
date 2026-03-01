@@ -55,7 +55,7 @@ export class Terminal {
     { id: 'token-viewer', number: 7, title: 'Token Viewer', description: 'View token information', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'snapshot', number: 8, title: 'Snapshot Tool', description: 'Capture holder accounts', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
     { id: 'airdrop', number: 9, title: 'Airdrop Tool', description: 'Distribute tokens to wallets', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'swap', number: 10, title: 'Swap Tool', description: 'Migrate holders to new token', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
+    { id: 'swap', number: 10, title: 'Swap Tool', description: 'Migrate holders to new token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'burn', number: 11, title: 'Burn Tool', description: 'Permanently burn tokens/NFTs', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'staking', number: 12, title: 'Staking Tool', description: 'Rewards for holders', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
     { id: 'domain-registration', number: 13, title: 'Domain Registration', description: 'Register .hbar domains (KNS)', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' }
