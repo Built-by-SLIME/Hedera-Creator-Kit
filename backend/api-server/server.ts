@@ -147,7 +147,7 @@ app.put('/api/swap-programs/:id/status', (req, res, next) => updateSwapStatus(re
 app.delete('/api/swap-programs/:id', (req, res, next) => deleteSwapProgram(req, res).catch(next));
 app.post('/api/swap-programs/:id/execute', (req, res, next) => executeSwap(req, res).catch(next));
 
-// Health check
+// Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
