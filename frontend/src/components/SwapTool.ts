@@ -12,7 +12,7 @@
  *     GET /api/swap-programs/public for community-facing dApps.
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { API_BASE_URL, MIRROR_NODE_URL, BACKEND_MINTER_ACCOUNT, getHederaClient } from '../config'
+import { API_BASE_URL, BACKEND_MINTER_ACCOUNT, getHederaClient } from '../config'
 import {
   AccountAllowanceApproveTransaction,
   AccountId,
@@ -36,6 +36,7 @@ interface SwapProgram {
   rate_to: number
   total_supply: number | null
   status: 'active' | 'paused' | 'completed'
+  created_by: string
   created_at: string
 }
 
@@ -435,7 +436,7 @@ export class SwapTool {
     })
 
     // Form inputs
-    const bind = (id: string, key: keyof SwapTool) => {
+    const bind = (id: string, key: string) => {
       const el = document.getElementById(id) as HTMLInputElement
       el?.addEventListener('input', () => { (SwapTool as any)[key] = el.value })
     }
