@@ -285,7 +285,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       .addTokenTransfer(fromToken, userAcct, -rawAmount)
       .addTokenTransfer(fromToken, treasuryAcct, rawAmount)
       .addApprovedTokenTransfer(toToken, treasuryAcct, -outputAmount)
-      .addApprovedTokenTransfer(toToken, userAcct, outputAmount)
+      .addTokenTransfer(toToken, userAcct, outputAmount)
       .setTransactionId(TransactionId.generate(userAcct))
       // Pin to a single node so the wallet receives exactly one transaction version.
       // Without this, the SDK creates one version per node; the wallet signs only one,
