@@ -292,6 +292,18 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
       // Calculate output amount based on rate (rateFrom from-tokens = rateTo to-tokens)
       const outputAmount = BigInt(Math.floor((Number(amount) * Number(program.rate_to)) / Number(program.rate_from)));
 
+      console.log('[executeSwap] fungible swap:', {
+        userAccountId,
+        fromToken: program.from_token_id,
+        toToken: program.to_token_id,
+        treasury: program.treasury_account_id,
+        amountReceived: amount,
+        amountType: typeof amount,
+        rateFrom: program.rate_from,
+        rateTo: program.rate_to,
+        outputAmountCalculated: outputAmount.toString(),
+      });
+
       const transferTx = new TransferTransaction()
         // From-tokens: user → treasury (operator uses user's prior allowance)
         .addApprovedTokenTransfer(fromToken, userAcct, -BigInt(amount))
