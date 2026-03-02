@@ -6,8 +6,8 @@ import {
   TokenId,
   NftId,
   TransferTransaction,
-  AccountAllowanceApproveTransaction,
-  AccountAllowanceDeleteTransaction,
+  Transaction,
+  TransactionId,
 } from '@hashgraph/sdk';
 import { pool } from '../db';
 
@@ -23,10 +23,19 @@ function getOperatorClient(): Client {
   try {
     pk = PrivateKey.fromStringECDSA(BACKEND_PRIVATE_KEY);
   } catch {
-    pk = PrivateKey.fromString(BACKEND_PRIVATE_KEY);
+    pk = PrivateKey.fromStringED25519(BACKEND_PRIVATE_KEY);
   }
   client.setOperator(BACKEND_ACCOUNT_ID, pk);
   return client;
+}
+
+function getOperatorKey(): PrivateKey {
+  if (!BACKEND_PRIVATE_KEY) throw new Error('Backend operator account not configured');
+  try {
+    return PrivateKey.fromStringECDSA(BACKEND_PRIVATE_KEY);
+  } catch {
+    return PrivateKey.fromStringED25519(BACKEND_PRIVATE_KEY);
+  }
 }
 
 // ─── ADMIN: Create swap program ─────────────────────────────────────────────
@@ -118,7 +127,7 @@ export async function listSwapPrograms(req: Request, res: Response): Promise<voi
  * GET /api/swap-programs/public
  * Returns only active swap programs — called by community-facing dApps.
  */
-export async function listPublicSwapPrograms(req: Request, res: Response): Promise<void> {
+export async function listPublicSwapPrograms(_req: Request, res: Response): Promise<void> {
   try {
     const result = await pool.query(
       `SELECT id, name, description, swap_type, from_token_id, to_token_id,
@@ -195,24 +204,196 @@ export async function deleteSwapProgram(req: Request, res: Response): Promise<vo
   }
 }
 
-// ─── PUBLIC: Execute a swap (called by community dApp) ──────────────────────
+// ─── PUBLIC: Prepare a fungible swap (step 1 of 2) ──────────────────────────
+
+/**
+ * POST /api/swap-programs/:id/prepare
+ *
+ * Fungible swap — step 1 of 2.
+ *
+ * Builds an atomic TransferTransaction, signs it with the operator key
+ * (so it can use the creator's pre-approved TO-token allowance), and returns
+ * the partially-signed transaction bytes to the dApp.
+ *
+ * The dApp must then:
+ *   1. Deserialise the bytes: Transaction.fromBytes(Buffer.from(txBytes, 'base64'))
+ *   2. Have the user sign in their wallet (signWithSigner / hedera_signTransaction)
+ *      — the user's signature authorises the FROM-token debit AND pays the HBAR fee.
+ *   3. POST the user-signed bytes to /api/swap-programs/:id/submit
+ *
+ * Fee responsibility:
+ *   The TransactionId is generated from the USER's account, so the HBAR network
+ *   fee is charged to the user — NOT to the operator.
+ *
+ * Body:  { userAccountId: string, amount: string | number }  (amount in raw units)
+ * Returns: { success, txBytes, txId, amountIn, amountOut, fromToken, toToken }
+ */
+export async function prepareSwap(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { userAccountId, amount } = req.body;
+
+    if (!userAccountId || amount == null) {
+      res.status(400).json({ success: false, error: 'userAccountId and amount are required' });
+      return;
+    }
+
+    const programResult = await pool.query(
+      "SELECT * FROM swap_programs WHERE id = $1 AND status = 'active'",
+      [id]
+    );
+
+    if (programResult.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Swap program not found or not active' });
+      return;
+    }
+
+    const program = programResult.rows[0];
+
+    if (program.swap_type !== 'fungible') {
+      res.status(400).json({ success: false, error: '/prepare is only supported for fungible token swaps' });
+      return;
+    }
+
+    const client = getOperatorClient();
+    const operatorPk = getOperatorKey();
+
+    const userAcct = AccountId.fromString(userAccountId);
+    const treasuryAcct = AccountId.fromString(program.treasury_account_id);
+
+    const fromToken = TokenId.fromString(program.from_token_id);
+    const toToken = TokenId.fromString(program.to_token_id);
+
+    const rawAmount = BigInt(amount);
+    const outputAmount = BigInt(
+      Math.floor((Number(rawAmount) * Number(program.rate_to)) / Number(program.rate_from))
+    );
+
+    // Atomic swap transaction:
+    //
+    // FROM tokens (user → treasury):
+    //   Standard transfer — requires the USER's signature on the transaction.
+    //   No pre-approved allowance needed from the user.
+    //
+    // TO tokens (treasury → user):
+    //   Approved transfer — operator uses the creator's pre-approved allowance.
+    //   Operator signature (added below) authorises this leg.
+    //
+    // TransactionId is from the user's account → user pays the HBAR network fee.
+    // Operator signs only to authorise the TO-token approved transfer.
+    const transferTx = new TransferTransaction()
+      .addTokenTransfer(fromToken, userAcct, -rawAmount)
+      .addTokenTransfer(fromToken, treasuryAcct, rawAmount)
+      .addApprovedTokenTransfer(toToken, treasuryAcct, -outputAmount)
+      .addApprovedTokenTransfer(toToken, userAcct, outputAmount)
+      .setTransactionId(TransactionId.generate(userAcct));
+
+    const frozenTx = transferTx.freezeWith(client);
+
+    // Operator signs — authorises the approved TO-token transfer only.
+    // This does NOT make the operator the fee payer.
+    const operatorSignedTx = await frozenTx.sign(operatorPk);
+
+    const txBytes = Buffer.from(operatorSignedTx.toBytes()).toString('base64');
+    const txId = frozenTx.transactionId!.toString();
+
+    res.json({
+      success: true,
+      txBytes,
+      txId,
+      amountIn: rawAmount.toString(),
+      amountOut: outputAmount.toString(),
+      fromToken: program.from_token_id,
+      toToken: program.to_token_id,
+    });
+  } catch (err: any) {
+    console.error('prepareSwap error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── PUBLIC: Submit a signed fungible swap (step 2 of 2) ────────────────────
+
+/**
+ * POST /api/swap-programs/:id/submit
+ *
+ * Fungible swap — step 2 of 2.
+ *
+ * Receives the transaction bytes that were signed by both the operator
+ * (in /prepare) and the user (in the dApp wallet). Submits to Hedera and
+ * records the result.
+ *
+ * The transaction already contains all required signatures, so the HBAR fee
+ * is charged to the user (whose account is in the TransactionId).
+ *
+ * Body:  { txBytes: string, userAccountId: string, amount: string | number }
+ * Returns: { success, txId }
+ */
+export async function submitSwap(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { txBytes, userAccountId, amount } = req.body;
+
+    if (!txBytes || !userAccountId) {
+      res.status(400).json({ success: false, error: 'txBytes and userAccountId are required' });
+      return;
+    }
+
+    const txBuf = Buffer.from(txBytes, 'base64');
+    const tx = Transaction.fromBytes(txBuf);
+
+    const client = getOperatorClient();
+
+    // Both operator and user signatures are already in the transaction.
+    // execute() submits to Hedera; HBAR fee is charged to the user
+    // because their account is in the TransactionId.
+    const txResponse = await tx.execute(client);
+    await txResponse.getReceipt(client);
+    const txId = txResponse.transactionId.toString();
+
+    await pool.query(
+      `INSERT INTO swap_transactions (swap_program_id, user_account_id, amount, tx_id, status)
+       VALUES ($1, $2, $3, $4, 'completed')`,
+      [id, userAccountId, amount || null, txId]
+    );
+
+    res.json({ success: true, txId });
+  } catch (err: any) {
+    console.error('submitSwap error:', err);
+
+    try {
+      const { id } = req.params;
+      const { userAccountId } = req.body;
+      if (id && userAccountId) {
+        await pool.query(
+          `INSERT INTO swap_transactions (swap_program_id, user_account_id, tx_id, status)
+           VALUES ($1, $2, NULL, 'failed')`,
+          [id, userAccountId]
+        );
+      }
+    } catch (_) {}
+
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── PUBLIC: Execute a swap — legacy NFT flow ───────────────────────────────
 
 /**
  * POST /api/swap-programs/:id/execute
  *
- * NFT swap flow:
- *   1. User has already approved their old NFTs to the creator treasury (done client-side).
- *   2. Our operator (granted allowance by creator) transfers new NFTs from treasury to user.
- *   3. Old NFTs are pulled from user to treasury using user's approval.
+ * NFT swap flow (operator-executed, requires user pre-approved NFT allowances):
+ *   1. User has already approved their old NFT serials to the treasury (done client-side).
+ *   2. Operator transfers new NFTs from treasury → user (creator's allowance).
+ *   3. Operator transfers old NFTs from user → treasury (user's NFT allowance).
  *
- * Fungible swap flow:
- *   1. User sends from-tokens to treasury (or approves operator).
- *   2. Operator uses creator's allowance to send to-tokens from treasury to user.
+ * Fungible swaps should use /prepare + /submit instead, which does not require
+ * a pre-approved user allowance and correctly charges the HBAR fee to the user.
  */
 export async function executeSwap(req: Request, res: Response): Promise<void> {
   try {
     const { id } = req.params;
-    const { userAccountId, serialNumbers, amount } = req.body;
+    const { userAccountId, serialNumbers } = req.body;
 
     if (!userAccountId) {
       res.status(400).json({ success: false, error: 'userAccountId is required' });
@@ -235,7 +416,6 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
 
     const userAcct = AccountId.fromString(userAccountId);
     const treasuryAcct = AccountId.fromString(program.treasury_account_id);
-    const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
 
     let txId: string | null = null;
 
@@ -248,9 +428,6 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
       const fromToken = TokenId.fromString(program.from_token_id);
       const toToken = TokenId.fromString(program.to_token_id);
 
-      // Build atomic transfer:
-      //   - Move old NFTs from user → treasury (operator uses user's prior allowance)
-      //   - Move new NFTs from treasury → user (operator uses creator's prior allowance)
       const transferTx = new TransferTransaction();
 
       for (const serial of serialNumbers) {
@@ -260,12 +437,11 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
         transferTx.addApprovedNftTransfer(new NftId(toToken, serial), treasuryAcct, userAcct);
       }
 
-      const frozenTx = await transferTx.freezeWith(client);
+      const frozenTx = transferTx.freezeWith(client);
       const txResponse = await frozenTx.execute(client);
-      const receipt = await txResponse.getReceipt(client);
+      await txResponse.getReceipt(client);
       txId = txResponse.transactionId.toString();
 
-      // Log the transaction
       await pool.query(
         `INSERT INTO swap_transactions (swap_program_id, user_account_id, serial_numbers, tx_id, status)
          VALUES ($1, $2, $3, $4, 'completed')`,
@@ -280,61 +456,15 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
       });
 
     } else {
-      // Fungible token swap
-      if (!amount || amount <= 0) {
-        res.status(400).json({ success: false, error: 'amount is required for fungible swaps' });
-        return;
-      }
-
-      const fromToken = TokenId.fromString(program.from_token_id);
-      const toToken = TokenId.fromString(program.to_token_id);
-
-      // Calculate output amount based on rate (rateFrom from-tokens = rateTo to-tokens)
-      const outputAmount = BigInt(Math.floor((Number(amount) * Number(program.rate_to)) / Number(program.rate_from)));
-
-      console.log('[executeSwap] fungible swap:', {
-        userAccountId,
-        fromToken: program.from_token_id,
-        toToken: program.to_token_id,
-        treasury: program.treasury_account_id,
-        amountReceived: amount,
-        amountType: typeof amount,
-        rateFrom: program.rate_from,
-        rateTo: program.rate_to,
-        outputAmountCalculated: outputAmount.toString(),
-      });
-
-      const transferTx = new TransferTransaction()
-        // From-tokens: user → treasury (operator uses user's prior allowance)
-        .addApprovedTokenTransfer(fromToken, userAcct, -BigInt(amount))
-        .addApprovedTokenTransfer(fromToken, treasuryAcct, BigInt(amount))
-        // To-tokens: treasury → user (operator uses creator's prior allowance)
-        .addApprovedTokenTransfer(toToken, treasuryAcct, -outputAmount)
-        .addApprovedTokenTransfer(toToken, userAcct, outputAmount);
-
-      const frozenTx = await transferTx.freezeWith(client);
-      const txResponse = await frozenTx.execute(client);
-      await txResponse.getReceipt(client);
-      txId = txResponse.transactionId.toString();
-
-      await pool.query(
-        `INSERT INTO swap_transactions (swap_program_id, user_account_id, amount, tx_id, status)
-         VALUES ($1, $2, $3, $4, 'completed')`,
-        [id, userAccountId, amount, txId]
-      );
-
-      res.json({
-        success: true,
-        txId,
-        amountIn: amount,
-        amountOut: outputAmount.toString(),
-        message: `Successfully swapped ${amount} tokens for ${outputAmount} tokens`,
+      // Fungible: redirect callers to the /prepare + /submit flow
+      res.status(400).json({
+        success: false,
+        error: 'Fungible swaps must use POST /prepare then POST /submit. See API docs.',
       });
     }
   } catch (err: any) {
     console.error('executeSwap error:', err);
 
-    // Log failed transaction if we have context
     try {
       const { id } = req.params;
       const { userAccountId } = req.body;

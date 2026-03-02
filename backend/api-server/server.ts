@@ -21,6 +21,8 @@ import {
   updateSwapStatus,
   deleteSwapProgram,
   executeSwap,
+  prepareSwap,
+  submitSwap,
 } from './routes/swap';
 import { initDb } from './db';
 
@@ -145,6 +147,8 @@ app.get('/api/swap-programs', (req, res, next) => listSwapPrograms(req, res).cat
 app.get('/api/swap-programs/public', (req, res, next) => listPublicSwapPrograms(req, res).catch(next));
 app.put('/api/swap-programs/:id/status', (req, res, next) => updateSwapStatus(req, res).catch(next));
 app.delete('/api/swap-programs/:id', (req, res, next) => deleteSwapProgram(req, res).catch(next));
+app.post('/api/swap-programs/:id/prepare', (req, res, next) => prepareSwap(req, res).catch(next));
+app.post('/api/swap-programs/:id/submit', (req, res, next) => submitSwap(req, res).catch(next));
 app.post('/api/swap-programs/:id/execute', (req, res, next) => executeSwap(req, res).catch(next));
 
 // Health check endpoint
