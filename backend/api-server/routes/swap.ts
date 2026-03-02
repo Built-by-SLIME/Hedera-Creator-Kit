@@ -211,13 +211,14 @@ export async function deleteSwapProgram(req: Request, res: Response): Promise<vo
  *
  * Fungible swap — step 1 of 2.
  *
- * Builds an atomic TransferTransaction, signs it with the operator key
- * (so it can use the creator's pre-approved TO-token allowance), and returns
- * the partially-signed transaction bytes to the dApp.
+ * Builds an atomic TransferTransaction and returns the UNSIGNED frozen bytes
+ * to the dApp. The operator does NOT sign here — it signs last in /submit
+ * after the user's signature has been collected, which avoids wallets
+ * stripping pre-existing signatures during their own signing step.
  *
  * The dApp must then:
- *   1. Deserialise the bytes: Transaction.fromBytes(Buffer.from(txBytes, 'base64'))
- *   2. Have the user sign in their wallet (signWithSigner / hedera_signTransaction)
+ *   1. Deserialise the bytes: Transaction.fromBytes(...)
+ *   2. Have the user sign-only in their wallet (signWithSigner, NOT executeWithSigner)
  *      — the user's signature authorises the FROM-token debit AND pays the HBAR fee.
  *   3. POST the user-signed bytes to /api/swap-programs/:id/submit
  *
@@ -256,7 +257,6 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
     }
 
     const client = getOperatorClient();
-    const operatorPk = getOperatorKey();
 
     const userAcct = AccountId.fromString(userAccountId);
     const treasuryAcct = AccountId.fromString(program.treasury_account_id);
@@ -290,11 +290,9 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
 
     const frozenTx = transferTx.freezeWith(client);
 
-    // Operator signs — authorises the approved TO-token transfer only.
-    // This does NOT make the operator the fee payer.
-    const operatorSignedTx = await frozenTx.sign(operatorPk);
-
-    const txBytes = Buffer.from(operatorSignedTx.toBytes()).toString('base64');
+    // Return unsigned bytes — operator signs LAST in /submit after the user
+    // has signed, so wallet signing cannot strip the operator signature.
+    const txBytes = Buffer.from(frozenTx.toBytes()).toString('base64');
     const txId = frozenTx.transactionId!.toString();
 
     res.json({
@@ -319,12 +317,11 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
  *
  * Fungible swap — step 2 of 2.
  *
- * Receives the transaction bytes that were signed by both the operator
- * (in /prepare) and the user (in the dApp wallet). Submits to Hedera and
- * records the result.
+ * Receives user-signed transaction bytes from the dApp. The operator signs
+ * last here (preserving the user's signature), then submits to Hedera.
+ * Signing order: user first (wallet) → operator last (backend) → submit.
  *
- * The transaction already contains all required signatures, so the HBAR fee
- * is charged to the user (whose account is in the TransactionId).
+ * HBAR fee is charged to the user because their account is in the TransactionId.
  *
  * Body:  { txBytes: string, userAccountId: string, amount: string | number }
  * Returns: { success, txId }
@@ -343,11 +340,13 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
     const tx = Transaction.fromBytes(txBuf);
 
     const client = getOperatorClient();
+    const operatorPk = getOperatorKey();
 
-    // Both operator and user signatures are already in the transaction.
-    // execute() submits to Hedera; HBAR fee is charged to the user
-    // because their account is in the TransactionId.
-    const txResponse = await tx.execute(client);
+    // Operator signs last — user's signature is already in the bytes.
+    // This authorises the approved TO-token transfer using the creator's allowance.
+    // HBAR fee is charged to the user (their account is in the TransactionId).
+    const signedTx = await tx.sign(operatorPk);
+    const txResponse = await signedTx.execute(client);
     await txResponse.getReceipt(client);
     const txId = txResponse.transactionId.toString();
 
