@@ -12,7 +12,7 @@
  *     GET /api/swap-programs/public for community-facing dApps.
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { API_BASE_URL, BACKEND_MINTER_ACCOUNT, getHederaClient } from '../config'
+import { API_BASE_URL, BACKEND_MINTER_ACCOUNT, MIRROR_NODE_URL, getHederaClient } from '../config'
 import {
   AccountAllowanceApproveTransaction,
   AccountId,
@@ -56,6 +56,11 @@ export class SwapTool {
   // ─── Program list state ────────────────────────────────────
   private static programs: SwapProgram[] = []
   private static loadingPrograms = false
+
+  // ─── To-token info (fetched from Mirror Node on blur) ──────
+  private static toTokenDecimals: number | null = null
+  private static toTokenTotalSupply: string | null = null
+  private static toTokenName: string = ''
 
   // ─── Flow state ────────────────────────────────────────────
   private static loading = false
@@ -191,6 +196,14 @@ export class SwapTool {
         <div class="input-group">
           <label for="swap-to-token">To Token ID * <span style="opacity:0.5;font-size:0.75rem">(token holders will receive)</span></label>
           <input type="text" id="swap-to-token" class="token-input" placeholder="0.0.xxxxxxx" value="${this.escapeHtml(this.toTokenId)}" />
+          ${this.toTokenDecimals !== null ? (() => {
+            const humanSupply = this.toTokenTotalSupply
+              ? (Number(this.toTokenTotalSupply) / Math.pow(10, this.toTokenDecimals!)).toLocaleString()
+              : '—'
+            return `<div style="margin-top:0.35rem;padding:0.35rem 0.6rem;background:rgba(0,255,64,0.06);border:1px solid rgba(0,255,64,0.15);border-radius:4px;font-size:0.74rem;color:var(--terminal-text);opacity:0.85">
+              <strong style="color:var(--accent-green,#00ff40)">${this.escapeHtml(this.toTokenName)}</strong> · ${this.toTokenDecimals} decimals · Supply: ${humanSupply}
+            </div>`
+          })() : ''}
         </div>
 
         <div class="input-group">
@@ -259,9 +272,13 @@ export class SwapTool {
 
         ${isFungible ? `
         <div class="input-group">
-          <label for="swap-allowance-amount">Allowance Amount * <span style="opacity:0.5;font-size:0.75rem">(total "to" tokens operator may distribute)</span></label>
-          <input type="number" id="swap-allowance-amount" class="token-input" placeholder="e.g. 1000000" min="1" />
-          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">In base token units (smallest denomination). You can always increase later.</p>
+          <label for="swap-allowance-amount">Allowance Amount * <span style="opacity:0.5;font-size:0.75rem">(whole tokens the operator may distribute)</span></label>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <input type="number" id="swap-allowance-amount" class="token-input" placeholder="e.g. 1000000" min="1" style="flex:1" />
+            ${this.toTokenTotalSupply !== null ? `<button class="terminal-button secondary" id="swap-use-full-supply" style="white-space:nowrap;font-size:0.72rem;padding:0.4rem 0.7rem">USE FULL SUPPLY</button>` : ''}
+          </div>
+          <p id="swap-raw-conversion" style="font-size:0.74rem;color:var(--accent-green,#00ff40);opacity:0.8;margin:0.3rem 0 0"></p>
+          <p style="font-size:0.73rem;color:var(--terminal-text);opacity:0.45;margin:0.2rem 0 0">Enter the number of whole tokens. Raw unit conversion shown above.</p>
         </div>` : `
         <div class="input-group">
           <label for="swap-allowance-serials">Serial Numbers to Allow * <span style="opacity:0.5;font-size:0.75rem">(comma-separated or range e.g. 1-500)</span></label>
@@ -402,6 +419,9 @@ export class SwapTool {
     this.rateFrom = '1'
     this.rateTo = '1'
     this.totalSupply = ''
+    this.toTokenDecimals = null
+    this.toTokenTotalSupply = null
+    this.toTokenName = ''
     this.programs = []
     this.loading = false
     this.error = null
@@ -448,6 +468,32 @@ export class SwapTool {
     bind('swap-rate-from', 'rateFrom')
     bind('swap-rate-to', 'rateTo')
     bind('swap-total-supply', 'totalSupply')
+
+    // Fetch token info when creator finishes typing toTokenId
+    document.getElementById('swap-to-token')?.addEventListener('blur', () => {
+      if (this.toTokenId.trim()) this.fetchToTokenInfo(this.toTokenId.trim())
+    })
+
+    // Live raw unit conversion display on allowance amount input
+    document.getElementById('swap-allowance-amount')?.addEventListener('input', (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value)
+      const convEl = document.getElementById('swap-raw-conversion')
+      if (!convEl) return
+      if (!val || val <= 0 || this.toTokenDecimals === null) { convEl.textContent = ''; return }
+      const raw = Math.floor(val * Math.pow(10, this.toTokenDecimals))
+      convEl.textContent = `= ${raw.toLocaleString()} raw units (${this.toTokenDecimals} decimals)`
+    })
+
+    // Use full supply button
+    document.getElementById('swap-use-full-supply')?.addEventListener('click', () => {
+      if (this.toTokenTotalSupply === null || this.toTokenDecimals === null) return
+      const humanSupply = Number(this.toTokenTotalSupply) / Math.pow(10, this.toTokenDecimals)
+      const amountEl = document.getElementById('swap-allowance-amount') as HTMLInputElement
+      if (amountEl) {
+        amountEl.value = humanSupply.toString()
+        amountEl.dispatchEvent(new Event('input'))
+      }
+    })
 
     // Submit form → move to allowance step
     document.getElementById('swap-submit')?.addEventListener('click', () => this.handleSubmitForm())
@@ -544,19 +590,21 @@ export class SwapTool {
           )
         }
         approveTx.setTransactionId(TransactionId.generate(acctId))
-        await approveTx.freezeWith(client)
+        approveTx.freezeWith(client)
         await approveTx.executeWithSigner(signer)
 
       } else {
-        // Fungible allowance
-        const amount = parseInt(allowanceAmountEl?.value || '0')
-        if (!amount || amount <= 0) throw new Error('Please enter a valid allowance amount.')
+        // Fungible allowance — input is whole tokens, convert to raw units
+        const humanAmount = parseFloat(allowanceAmountEl?.value || '0')
+        if (!humanAmount || humanAmount <= 0) throw new Error('Please enter a valid allowance amount.')
+        const decimals = this.toTokenDecimals ?? 0
+        const rawAmount = Math.floor(humanAmount * Math.pow(10, decimals))
 
-        this.statusMessage = `Approving ${amount} token allowance — approve in wallet...`
+        this.statusMessage = `Approving ${humanAmount.toLocaleString()} token allowance — approve in wallet...`
         this.refresh()
 
         const approveTx = new AccountAllowanceApproveTransaction()
-          .approveTokenAllowance(TokenId.fromString(this.toTokenId), acctId, operatorId, amount)
+          .approveTokenAllowance(TokenId.fromString(this.toTokenId), acctId, operatorId, rawAmount)
         approveTx.setTransactionId(TransactionId.generate(acctId))
         approveTx.freezeWith(client)
         await approveTx.executeWithSigner(signer)
@@ -678,6 +726,22 @@ export class SwapTool {
       this.error = err.message || 'Failed to delete program'
       this.refresh()
     }
+  }
+
+  private static async fetchToTokenInfo(tokenId: string): Promise<void> {
+    try {
+      const res = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${tokenId.trim()}`)
+      if (!res.ok) throw new Error('not found')
+      const data = await res.json()
+      this.toTokenDecimals = parseInt(data.decimals ?? '0')
+      this.toTokenTotalSupply = data.total_supply || null
+      this.toTokenName = data.name || tokenId
+    } catch {
+      this.toTokenDecimals = null
+      this.toTokenTotalSupply = null
+      this.toTokenName = ''
+    }
+    this.refresh()
   }
 
   /** Parse serial input: supports ranges (1-500) and comma-separated values (1,2,3) */
