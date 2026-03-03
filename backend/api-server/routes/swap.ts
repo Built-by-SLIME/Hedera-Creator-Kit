@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import {
   Client,
+  Hbar,
   PrivateKey,
   AccountId,
   TokenId,
@@ -218,13 +219,15 @@ export async function deleteSwapProgram(req: Request, res: Response): Promise<vo
  *
  * The dApp must then:
  *   1. Deserialise the bytes: Transaction.fromBytes(...)
- *   2. Have the user sign-only in their wallet (signWithSigner, NOT executeWithSigner)
- *      — the user's signature authorises the FROM-token debit AND pays the HBAR fee.
+ *   2. Have the user sign-only in their wallet (signer.signTransaction, NOT executeWithSigner)
+ *      — the user's signature authorises the FROM-token debit AND the HBAR reimbursement.
  *   3. POST the user-signed bytes to /api/swap-programs/:id/submit
  *
  * Fee responsibility:
- *   The TransactionId is generated from the USER's account, so the HBAR network
- *   fee is charged to the user — NOT to the operator.
+ *   Hedera requires the approved SPENDER (operator) to be the TransactionId payer.
+ *   The operator nominally pays the network fee, but the transaction includes a small
+ *   HBAR transfer (user → operator, ~0.01 HBAR) so the user reimburses the operator.
+ *   Net cost to the operator: zero.
  *
  * Body:  { userAccountId: string, amount: string | number }  (amount in raw units)
  * Returns: { success, txBytes, txId, amountIn, amountOut, fromToken, toToken }
@@ -269,24 +272,31 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       Math.floor((Number(rawAmount) * Number(program.rate_to)) / Number(program.rate_from))
     );
 
-    // Atomic swap transaction:
+    // Hedera protocol requirement: when using addApprovedTokenTransfer, the approved
+    // SPENDER must be the TransactionId payer. The operator (0.0.9348822) holds the
+    // treasury's token allowance and is therefore the spender — so the operator must
+    // be the payer account in the TransactionId.
     //
-    // FROM tokens (user → treasury):
-    //   Standard transfer — requires the USER's signature on the transaction.
-    //   No pre-approved allowance needed from the user.
+    // To keep the operator whole, the user reimburses the operator for the network fee
+    // via a small HBAR transfer included in this same atomic transaction. The user's
+    // wallet signature covers both the FROM-token debit and the HBAR reimbursement.
     //
-    // TO tokens (treasury → user):
-    //   Approved transfer — operator uses the creator's pre-approved allowance.
-    //   Operator signature (added below) authorises this leg.
-    //
-    // TransactionId is from the user's account → user pays the HBAR network fee.
-    // Operator signs only to authorise the TO-token approved transfer.
+    // Transaction legs:
+    //   1. FROM tokens (user → treasury):   standard transfer, user signs
+    //   2. TO tokens (treasury → user):     approved transfer, operator signs (uses allowance)
+    //   3. HBAR reimbursement (user → operator): covers the operator's network fee
+    const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
+    const HBAR_REIMBURSEMENT = new Hbar(0.01); // ~$0.003 — covers typical swap tx fee
+
     const transferTx = new TransferTransaction()
       .addTokenTransfer(fromToken, userAcct, -rawAmount)
       .addTokenTransfer(fromToken, treasuryAcct, rawAmount)
       .addApprovedTokenTransfer(toToken, treasuryAcct, -outputAmount)
       .addTokenTransfer(toToken, userAcct, outputAmount)
-      .setTransactionId(TransactionId.generate(userAcct))
+      .addHbarTransfer(userAcct, HBAR_REIMBURSEMENT.negated())
+      .addHbarTransfer(operatorAcct, HBAR_REIMBURSEMENT)
+      // Operator is the TransactionId payer (Hedera requirement for approved transfers).
+      .setTransactionId(TransactionId.generate(operatorAcct))
       // Pin to a single node so the wallet receives exactly one transaction version.
       // Without this, the SDK creates one version per node; the wallet signs only one,
       // and if the backend submits to a different node the signatures won't match.
@@ -325,7 +335,9 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
  * last here (preserving the user's signature), then submits to Hedera.
  * Signing order: user first (wallet) → operator last (backend) → submit.
  *
- * HBAR fee is charged to the user because their account is in the TransactionId.
+ * HBAR fee is nominally charged to the operator (TransactionId payer), but the
+ * transaction includes a user→operator reimbursement transfer so the net cost
+ * to the operator is zero.
  *
  * Body:  { txBytes: string, userAccountId: string, amount: string | number }
  * Returns: { success, txId }
@@ -346,12 +358,8 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
     const client = getOperatorClient();
     const operatorPk = getOperatorKey();
 
-    // Diagnostic: log the operator public key so we can verify it matches 0.0.9348822 on-chain
-    console.log('[submitSwap] operator public key:', operatorPk.publicKey.toString());
-
     // Operator signs last — user's signature is already in the bytes.
     // This authorises the approved TO-token transfer using the creator's allowance.
-    // HBAR fee is charged to the user (their account is in the TransactionId).
     const signedTx = await tx.sign(operatorPk);
     const txResponse = await signedTx.execute(client);
     await txResponse.getReceipt(client);
