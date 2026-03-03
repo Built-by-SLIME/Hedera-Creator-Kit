@@ -346,6 +346,9 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
     const client = getOperatorClient();
     const operatorPk = getOperatorKey();
 
+    // Diagnostic: log the operator public key so we can verify it matches 0.0.9348822 on-chain
+    console.log('[submitSwap] operator public key:', operatorPk.publicKey.toString());
+
     // Operator signs last — user's signature is already in the bytes.
     // This authorises the approved TO-token transfer using the creator's allowance.
     // HBAR fee is charged to the user (their account is in the TransactionId).
