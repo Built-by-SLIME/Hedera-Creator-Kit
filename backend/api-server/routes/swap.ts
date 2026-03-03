@@ -301,6 +301,15 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       Math.floor((Number(rawAmount) * Number(program.rate_to)) / Number(program.rate_from))
     );
 
+    console.log('[prepareSwap] accounts:', {
+      userAcct: userAcct.toString(),
+      treasuryAcct: treasuryAcct.toString(),
+      fromToken: fromToken.toString(),
+      toToken: toToken.toString(),
+      rawAmount: rawAmount.toString(),
+      outputAmount: outputAmount.toString(),
+    });
+
     // Hedera protocol requirement: when using addApprovedTokenTransfer, the approved
     // SPENDER must be the TransactionId payer. The operator (0.0.9348822) holds the
     // treasury's token allowance and is therefore the spender — so the operator must
@@ -333,10 +342,16 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
 
     const frozenTx = transferTx.freezeWith(client);
 
+    const txId = frozenTx.transactionId!.toString();
+    console.log('[prepareSwap] built tx:', {
+      txId,
+      payer: frozenTx.transactionId?.accountId?.toString(),
+      networkFee: networkFee.toString(),
+    });
+
     // Return unsigned bytes — operator signs LAST in /submit after the user
     // has signed, so wallet signing cannot strip the operator signature.
     const txBytes = Buffer.from(frozenTx.toBytes()).toString('base64');
-    const txId = frozenTx.transactionId!.toString();
 
     res.json({
       success: true,
