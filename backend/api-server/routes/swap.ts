@@ -15,6 +15,35 @@ import { pool } from '../db';
 const BACKEND_ACCOUNT_ID = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
 
+const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
+
+// Minimum safe fallback if Mirror Node has no history for this operator.
+// Based on observed mainnet fees for multi-token CryptoTransfers (~0.015-0.02 HBAR).
+const FALLBACK_REIMBURSEMENT = new Hbar(0.05);
+
+/**
+ * Queries the Mirror Node for the most recent CRYPTOTRANSFER fee paid by the operator.
+ * Adds a 20% buffer to ensure full coverage. Falls back to FALLBACK_REIMBURSEMENT
+ * if no previous transfer is found.
+ */
+async function getNetworkFeeEstimate(): Promise<Hbar> {
+  try {
+    const url = `${MIRROR_NODE_URL}/api/v1/transactions?account.id=${BACKEND_ACCOUNT_ID}&transactiontype=CRYPTOTRANSFER&limit=10&order=desc`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Mirror Node responded ${res.status}`);
+    const data = await res.json() as { transactions?: Array<{ charged_tx_fee: number; nonce: number }> };
+    // Find the most recent top-level (nonce 0) transaction that had a non-zero fee
+    const recent = data.transactions?.find(tx => tx.charged_tx_fee > 0 && tx.nonce === 0);
+    if (!recent) return FALLBACK_REIMBURSEMENT;
+    const withBuffer = Math.ceil(recent.charged_tx_fee * 1.2); // actual fee + 20% buffer
+    console.log(`[getNetworkFeeEstimate] recent fee ${recent.charged_tx_fee} tinybars → charging ${withBuffer} tinybars (20% buffer)`);
+    return Hbar.fromTinybars(withBuffer);
+  } catch (err) {
+    console.warn('[getNetworkFeeEstimate] Mirror Node query failed, using fallback:', err);
+    return FALLBACK_REIMBURSEMENT;
+  }
+}
+
 function getOperatorClient(): Client {
   if (!BACKEND_ACCOUNT_ID || !BACKEND_PRIVATE_KEY) {
     throw new Error('Backend operator account not configured');
@@ -277,8 +306,8 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
     // treasury's token allowance and is therefore the spender — so the operator must
     // be the payer account in the TransactionId.
     //
-    // To keep the operator whole, the user reimburses the operator for the network fee
-    // via a small HBAR transfer included in this same atomic transaction. The user's
+    // To keep the operator whole, the user reimburses the operator for the exact network
+    // fee via a small HBAR transfer included in this same atomic transaction. The user's
     // wallet signature covers both the FROM-token debit and the HBAR reimbursement.
     //
     // Transaction legs:
@@ -286,15 +315,15 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
     //   2. TO tokens (treasury → user):     approved transfer, operator signs (uses allowance)
     //   3. HBAR reimbursement (user → operator): covers the operator's network fee
     const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
-    const HBAR_REIMBURSEMENT = new Hbar(0.01); // ~$0.003 — covers typical swap tx fee
+    const networkFee = await getNetworkFeeEstimate();
 
     const transferTx = new TransferTransaction()
       .addTokenTransfer(fromToken, userAcct, -rawAmount)
       .addTokenTransfer(fromToken, treasuryAcct, rawAmount)
       .addApprovedTokenTransfer(toToken, treasuryAcct, -outputAmount)
       .addTokenTransfer(toToken, userAcct, outputAmount)
-      .addHbarTransfer(userAcct, HBAR_REIMBURSEMENT.negated())
-      .addHbarTransfer(operatorAcct, HBAR_REIMBURSEMENT)
+      .addHbarTransfer(userAcct, networkFee.negated())
+      .addHbarTransfer(operatorAcct, networkFee)
       // Operator is the TransactionId payer (Hedera requirement for approved transfers).
       .setTransactionId(TransactionId.generate(operatorAcct))
       // Pin to a single node so the wallet receives exactly one transaction version.
