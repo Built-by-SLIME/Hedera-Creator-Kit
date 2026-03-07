@@ -799,6 +799,90 @@ w3m-modal, wcm-modal {
   color: var(--terminal-text-dim);
 }
 
+/* ============================================================================
+   EVM / Smart Contract Token View
+   ============================================================================ */
+
+.evm-badge-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.evm-standard-badge,
+.evm-chain-badge {
+  display: inline-block;
+  padding: 0.2rem 0.65rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.evm-standard-badge {
+  background: rgba(0, 217, 255, 0.12);
+  color: var(--terminal-blue-bright);
+  border: 1px solid var(--terminal-blue);
+}
+
+.evm-chain-badge {
+  background: rgba(0, 255, 64, 0.1);
+  color: var(--terminal-purple-bright);
+  border: 1px solid var(--terminal-purple);
+}
+
+.evm-address-item {
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-start;
+}
+
+.evm-address-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  color: var(--terminal-blue-bright);
+  word-break: break-all;
+}
+
+.evm-note {
+  margin-top: 1.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 190, 11, 0.07);
+  border: 1px solid rgba(255, 190, 11, 0.25);
+  border-left: 3px solid var(--warning-yellow);
+  border-radius: 4px;
+  color: var(--warning-yellow);
+  font-size: 0.85rem;
+}
+
+.evm-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.terminal-button-link {
+  display: inline-block;
+  background: var(--terminal-purple);
+  color: var(--terminal-bg-dark);
+  border: none;
+  border-radius: 4px;
+  padding: 0.6rem 1.4rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.terminal-button-link:hover {
+  background: var(--terminal-purple-bright);
+  transform: translateY(-1px);
+}
+
 /* Holders Table */
 .holders-section {
   margin-top: 2rem;
