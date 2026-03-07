@@ -424,11 +424,12 @@ export class AirdropTool {
     // Randomize serials button
     document.getElementById('randomize-serials-btn')?.addEventListener('click', () => this.randomizeSerials())
 
-    // Inline serial number editing
+    // Inline serial number editing — use 'input' so state stays in sync on every keystroke,
+    // not just on blur (change event fires too late when user clicks START AIRDROP directly)
     document.querySelectorAll('.serial-input').forEach(inp => {
-      inp.addEventListener('change', (e) => {
+      inp.addEventListener('input', (e) => {
         const idx = parseInt((e.target as HTMLInputElement).getAttribute('data-index') || '-1')
-        if (idx >= 0) {
+        if (idx >= 0 && idx < this.config.recipients.length) {
           const val = (e.target as HTMLInputElement).value
           this.config.recipients[idx].serialNumbers = val.split(',').map(s => s.trim()).filter(s => s.length > 0)
         }
@@ -462,16 +463,21 @@ export class AirdropTool {
     const lines = csvText.split('\n').filter(line => line.trim())
     const recipients: AirdropRecipient[] = []
 
-    // Detect token type from header
+    // Check CSV header to understand its format (NFT snapshot has "serial" column)
     const header = lines[0]?.toLowerCase() || ''
-    const isNFT = header.includes('serial')
+    const headerHasSerials = header.includes('serial')
+
+    // Always respect the user's explicit token type selection.
+    // Only auto-detect from the header if the user hasn't chosen a type yet.
+    const isNFT = this.config.tokenType
+      ? this.config.tokenType === 'NFT'
+      : headerHasSerials
 
     // Skip header row
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim()
       if (!line) continue
 
-      // Parse CSV line properly handling quoted fields
       const recipient: AirdropRecipient = {
         accountId: '',
         status: 'pending'
@@ -479,28 +485,31 @@ export class AirdropTool {
 
       if (isNFT) {
         // NFT format: Account ID, Balance, "Serial Numbers"
-        // Match: accountId, balance, "serials,serials,serials"
+        // Use quoted-field regex to safely extract serial list
         const match = line.match(/^([^,]+),([^,]+),"([^"]*)"/)
         if (match) {
           const accountId = match[1].trim()
-          match[2].trim() // balance - not used yet
           const serialsStr = match[3].trim()
 
           if (!accountId.match(/^\d+\.\d+\.\d+$/)) continue
 
           recipient.accountId = accountId
-
-          if (serialsStr) {
-            recipient.serialNumbers = serialsStr.split(',').map(s => s.trim()).filter(s => s)
-          } else {
-            // If no serials, use balance as count
-            recipient.serialNumbers = []
-          }
+          recipient.serialNumbers = serialsStr
+            ? serialsStr.split(',').map(s => s.trim()).filter(s => s)
+            : []
         } else {
-          continue
+          // Try plain format: Account ID, Balance (no quoted serials)
+          const parts = line.split(',')
+          const accountId = parts[0]?.trim()
+          if (!accountId || !accountId.match(/^\d+\.\d+\.\d+$/)) continue
+          recipient.accountId = accountId
+          recipient.serialNumbers = []
         }
       } else {
         // Fungible token format: Account ID, Balance
+        // When loading an NFT snapshot CSV in FUNGIBLE mode, parts[0] = account ID,
+        // parts[1] = holder balance (used as fallback amount). The quoted serial
+        // column (parts[2+]) is intentionally ignored.
         const parts = line.split(',')
         const accountId = parts[0]?.trim()
 
@@ -508,7 +517,10 @@ export class AirdropTool {
 
         recipient.accountId = accountId
 
-        if (parts[1]) {
+        // Prefer the form-level "Amount Per Recipient" if set; fall back to CSV column
+        if (this.amountPerRecipient.trim()) {
+          recipient.amount = this.amountPerRecipient.trim()
+        } else if (parts[1]) {
           recipient.amount = parts[1].trim()
         }
       }
@@ -516,7 +528,7 @@ export class AirdropTool {
       recipients.push(recipient)
     }
 
-    // Set token type if not already set
+    // Auto-set token type from CSV header only when user hasn't chosen one yet
     if (recipients.length > 0 && !this.config.tokenType) {
       this.config.tokenType = isNFT ? 'NFT' : 'FUNGIBLE'
     }
@@ -565,15 +577,28 @@ export class AirdropTool {
 
     this.config.recipients.splice(index, 1)
 
-    // Reset token type if no recipients left
-    if (this.config.recipients.length === 0) {
-      this.config.tokenType = null
-    }
+    // Bug #4 fix: do NOT reset tokenType here — the user explicitly chose it and
+    // clearing it when the last recipient is removed means re-adding recipients
+    // (manually or via CSV) loses all type context. Only clearAll() resets tokenType.
 
     this.refresh()
   }
 
   private static async startAirdrop(): Promise<void> {
+    // Flush any unsaved values from the DOM before reading state.
+    // 'input' event keeps serial numbers in sync on each keystroke, but as a safety
+    // net we also read directly from DOM here in case focus was never lost.
+    document.querySelectorAll<HTMLInputElement>('.serial-input').forEach(inp => {
+      const idx = parseInt(inp.getAttribute('data-index') || '-1')
+      if (idx >= 0 && idx < this.config.recipients.length) {
+        this.config.recipients[idx].serialNumbers = inp.value
+          .split(',').map(s => s.trim()).filter(s => s.length > 0)
+      }
+    })
+    // Flush amount-per-recipient in case the field is still focused
+    const amountInputEl = document.getElementById('amount-per-recipient') as HTMLInputElement
+    if (amountInputEl) this.amountPerRecipient = amountInputEl.value.trim()
+
     // Validate inputs
     const airdropName = this.config.airdropName.trim()
     const tokenType = this.config.tokenType
@@ -667,6 +692,7 @@ export class AirdropTool {
 
         try {
           const tx = new TransferTransaction()
+          let transfersAdded = 0
 
           for (const recipient of batch) {
             const recipAcct = AccountId.fromString(recipient.accountId)
@@ -674,7 +700,13 @@ export class AirdropTool {
             if (tokenType === 'NFT') {
               if (recipient.serialNumbers && recipient.serialNumbers.length > 0) {
                 for (const serial of recipient.serialNumbers) {
-                  tx.addNftTransfer(new NftId(tid, parseInt(serial)), acctId, recipAcct)
+                  // Bug #2: validate serial is a positive integer before use
+                  const serialNum = parseInt(serial, 10)
+                  if (isNaN(serialNum) || serialNum <= 0 || serialNum.toString() !== serial.trim()) {
+                    throw new Error(`Invalid serial number "${serial}" for recipient ${recipient.accountId}. Serials must be positive whole numbers.`)
+                  }
+                  tx.addNftTransfer(new NftId(tid, serialNum), acctId, recipAcct)
+                  transfersAdded++
                 }
               }
             } else {
@@ -683,8 +715,20 @@ export class AirdropTool {
                 const rawAmount = Math.round(amount * Math.pow(10, decimals))
                 tx.addTokenTransfer(tid, acctId, -rawAmount)
                 tx.addTokenTransfer(tid, recipAcct, rawAmount)
+                transfersAdded++
               }
             }
+          }
+
+          // Guard: prevent submitting an empty transaction (silent no-op on-chain).
+          // This catches the CSV-mismatch case where amount was never set, and any
+          // other path where no valid transfers were built for this batch.
+          if (transfersAdded === 0) {
+            throw new Error(
+              tokenType === 'NFT'
+                ? 'No serial numbers assigned to recipients in this batch. Use "RANDOMIZE SERIALS" or enter serials manually before starting the airdrop.'
+                : 'No valid amounts found for recipients in this batch. Please enter an Amount Per Recipient before starting the airdrop.'
+            )
           }
 
           tx.setTransactionId(TransactionId.generate(acctId))
