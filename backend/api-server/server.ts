@@ -24,6 +24,12 @@ import {
   prepareSwap,
   submitSwap,
 } from './routes/swap';
+import {
+  initTopics,
+  checkDomain,
+  registerDomain,
+  resolveDomain,
+} from './routes/domains';
 import { initDb } from './db';
 
 
@@ -150,6 +156,12 @@ app.delete('/api/swap-programs/:id', (req, res, next) => deleteSwapProgram(req, 
 app.post('/api/swap-programs/:id/prepare', (req, res, next) => prepareSwap(req, res).catch(next));
 app.post('/api/swap-programs/:id/submit', (req, res, next) => submitSwap(req, res).catch(next));
 app.post('/api/swap-programs/:id/execute', (req, res, next) => executeSwap(req, res).catch(next));
+
+// Domain registration routes
+app.post('/api/domains/init-topics',          (req, res, next) => initTopics(req, res).catch(next));
+app.get('/api/domains/check',                 (req, res, next) => checkDomain(req, res).catch(next));
+app.post('/api/domains/register',             (req, res, next) => registerDomain(req, res).catch(next));
+app.get('/api/domains/resolve/:name/:tld',    (req, res, next) => resolveDomain(req, res).catch(next));
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

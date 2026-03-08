@@ -66,6 +66,29 @@ export async function initDb(): Promise<void> {
       total_sessions INTEGER      NOT NULL DEFAULT 1,
       tools_used     TEXT[]       NOT NULL DEFAULT '{}'
     );
+
+    CREATE TABLE IF NOT EXISTS domain_registrations (
+      id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name                VARCHAR(100) NOT NULL,
+      tld                 VARCHAR(20)  NOT NULL,
+      owner_account_id    VARCHAR(50)  NOT NULL,
+      years               INTEGER      NOT NULL DEFAULT 1,
+      registered_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      expires_at          TIMESTAMPTZ  NOT NULL,
+      payment_tx_id       VARCHAR(255) NOT NULL UNIQUE,
+      hcs_topic_id        VARCHAR(50),
+      hcs_sequence_number BIGINT,
+      price_usd           NUMERIC      NOT NULL,
+      price_hbar          NUMERIC      NOT NULL,
+      status              VARCHAR(20)  NOT NULL DEFAULT 'active'
+                            CHECK (status IN ('active', 'expired')),
+      created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_domain_registrations_name_tld
+      ON domain_registrations (name, tld);
+    CREATE INDEX IF NOT EXISTS idx_domain_registrations_owner
+      ON domain_registrations (owner_account_id);
   `);
 
   console.log('Database tables initialized');

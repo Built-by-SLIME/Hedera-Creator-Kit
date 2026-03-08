@@ -46,17 +46,9 @@ export const SAUCER_V1_ROUTER = '0.0.3045981'
 /** Wrapped HBAR token on SaucerSwap */
 export const WHBAR_TOKEN_ID = '0.0.1456986'
 
-/** HNS (Hedera Name Service) REST API */
-export const HNS_API_BASE = 'https://api.prod.hashgraph.name'
-
-/** HNS .hbar domain NFT token */
-export const HNS_NFT_TOKEN_ID = '0.0.1234197'
-
-/** HNS fee collection account */
-export const HNS_FEE_ACCOUNT = '0.0.1233811'
-
-/** Backend minter account (for HBAR allowance approvals) */
-export const BACKEND_MINTER_ACCOUNT = (import.meta as any).env?.VITE_BACKEND_MINTER_ACCOUNT || '0.0.1234567' // TODO: Replace with actual backend account
+/** Supported TLDs for the HCS domain registry */
+export const DOMAIN_SUPPORTED_TLDS = ['hedera', 'slime', 'gib'] as const
+export type DomainTld = typeof DOMAIN_SUPPORTED_TLDS[number]
 
 // ---------------------------------------------------------------------------
 // Hedera SDK helpers
