@@ -30,6 +30,10 @@ export const WALLETCONNECT_PROJECT_ID: string =
 export const SAUCERSWAP_API_KEY: string =
   (import.meta as any).env?.VITE_SAUCERSWAP_API_KEY || ''
 
+/** Backend minter/operator account ID — receives HBAR fee transfers for minting and swaps */
+export const BACKEND_MINTER_ACCOUNT: string =
+  (import.meta as any).env?.VITE_BACKEND_MINTER_ACCOUNT || ''
+
 /** SaucerSwap REST API base URL */
 export const SAUCERSWAP_API_URL = 'https://api.saucerswap.finance'
 
