@@ -107,9 +107,21 @@ async function verifyHbarPayment(
 ): Promise<VerifyResult> {
   const mirrorTxId = normalizeTxId(txId);
   const url = `${MIRROR_NODE_URL}/api/v1/transactions/${encodeURIComponent(mirrorTxId)}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    return { valid: false, reason: `Mirror Node returned HTTP ${res.status} for tx ${txId}` };
+
+  // Mirror Node can take up to ~15s to index a transaction — retry up to 5 times
+  const MAX_ATTEMPTS = 5;
+  const RETRY_DELAY_MS = 3000;
+  let res: globalThis.Response | null = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    res = await fetch(url);
+    if (res.ok) break;
+    if (res.status !== 404 || attempt === MAX_ATTEMPTS) break;
+    console.log(`[verifyHbarPayment] Mirror Node 404 for ${mirrorTxId} — retrying in ${RETRY_DELAY_MS / 1000}s (attempt ${attempt}/${MAX_ATTEMPTS})`);
+    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+  }
+  if (!res || !res.ok) {
+    const status = res?.status ?? 0;
+    return { valid: false, reason: `Mirror Node returned HTTP ${status} for tx ${txId} after ${MAX_ATTEMPTS} attempts` };
   }
   const data = await res.json() as {
     transactions?: Array<{
