@@ -8,9 +8,10 @@ import {
 } from '@hashgraph/sdk';
 import { pool } from '../db';
 
-const BACKEND_ACCOUNT_ID = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
+const BACKEND_ACCOUNT_ID  = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
-const DOMAIN_ADMIN_KEY    = process.env.DOMAIN_ADMIN_KEY;   // protects init-topics
+const DOMAIN_ADMIN_KEY    = process.env.DOMAIN_ADMIN_KEY;         // protects init-topics
+const DOMAIN_ADMIN_ACCOUNT = process.env.DOMAIN_ADMIN_ACCOUNT;   // treasury wallet — free registrations
 const DOMAIN_FEE_ACCOUNT  = process.env.DOMAIN_FEE_ACCOUNT || BACKEND_ACCOUNT_ID;
 const MIRROR_NODE_URL     = 'https://mainnet-public.mirrornode.hedera.com';
 
@@ -272,8 +273,14 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
   try {
     const { name, tld, years: yearsRaw, ownerAccountId, paymentTxId } = req.body;
 
-    if (!name || !tld || !ownerAccountId || !paymentTxId) {
-      res.status(400).json({ success: false, error: 'name, tld, ownerAccountId, and paymentTxId are required' });
+    const isAdmin = !!(DOMAIN_ADMIN_ACCOUNT && ownerAccountId === DOMAIN_ADMIN_ACCOUNT);
+
+    if (!name || !tld || !ownerAccountId) {
+      res.status(400).json({ success: false, error: 'name, tld, and ownerAccountId are required' });
+      return;
+    }
+    if (!isAdmin && !paymentTxId) {
+      res.status(400).json({ success: false, error: 'paymentTxId is required' });
       return;
     }
     if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
@@ -312,30 +319,39 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Guard against payment replay
-    const usedTx = await pool.query(
-      'SELECT id FROM domain_registrations WHERE payment_tx_id = $1',
-      [paymentTxId]
-    );
-    if (usedTx.rowCount && usedTx.rowCount > 0) {
-      res.status(409).json({ success: false, error: 'This payment transaction has already been used' });
-      return;
-    }
+    // Calculate price (always, for HCS message record-keeping)
+    const isPremium    = isPremiumName(name);
+    const annualUsd    = getAnnualUsdPrice(name, isPremium);
+    const priceUsd     = annualUsd * years;
+    const hbarPriceUsd = await getHbarPriceUsd();
+    const priceHbar    = priceUsd / hbarPriceUsd;
 
-    // Calculate expected price and allow 5% slippage
-    const isPremium     = isPremiumName(name);
-    const annualUsd     = getAnnualUsdPrice(name, isPremium);
-    const priceUsd      = annualUsd * years;
-    const hbarPriceUsd  = await getHbarPriceUsd();
-    const priceHbar     = priceUsd / hbarPriceUsd;
-    const expectedTiny  = BigInt(Math.floor(priceHbar * 1e8));
-    const minTiny       = (expectedTiny * BigInt(95)) / BigInt(100); // 5% tolerance
+    // Effective payment tx id — admin registrations use a generated reference
+    const effectivePaymentTxId = isAdmin
+      ? `admin-${ownerAccountId}-${Date.now()}`
+      : paymentTxId;
 
-    // Verify HBAR payment on Mirror Node
-    const verification = await verifyHbarPayment(paymentTxId, DOMAIN_FEE_ACCOUNT, minTiny);
-    if (!verification.valid) {
-      res.status(400).json({ success: false, error: `Payment verification failed: ${verification.reason}` });
-      return;
+    if (!isAdmin) {
+      // Guard against payment replay
+      const usedTx = await pool.query(
+        'SELECT id FROM domain_registrations WHERE payment_tx_id = $1',
+        [effectivePaymentTxId]
+      );
+      if (usedTx.rowCount && usedTx.rowCount > 0) {
+        res.status(409).json({ success: false, error: 'This payment transaction has already been used' });
+        return;
+      }
+
+      // Verify HBAR payment on Mirror Node
+      const expectedTiny = BigInt(Math.floor(priceHbar * 1e8));
+      const minTiny      = (expectedTiny * BigInt(95)) / BigInt(100); // 5% tolerance
+      const verification = await verifyHbarPayment(effectivePaymentTxId, DOMAIN_FEE_ACCOUNT!, minTiny);
+      if (!verification.valid) {
+        res.status(400).json({ success: false, error: `Payment verification failed: ${verification.reason}` });
+        return;
+      }
+    } else {
+      console.log(`[registerDomain] Admin registration by ${ownerAccountId} — payment skipped`);
     }
 
     // Submit HCS registration message
@@ -343,13 +359,13 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
     expiresAt.setFullYear(expiresAt.getFullYear() + years);
 
     const hcsMessage = JSON.stringify({
-      action:     'register',
+      action:     isAdmin ? 'admin-register' : 'register',
       name,
       tld,
       owner:      ownerAccountId,
       years,
       expires_at: expiresAt.toISOString(),
-      payment_tx: paymentTxId,
+      payment_tx: effectivePaymentTxId,
     });
 
     const client      = getOperatorClient();
@@ -371,7 +387,7 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [name, tld, ownerAccountId, years, expiresAt.toISOString(),
-       paymentTxId, topicId, sequenceNumber, priceUsd, priceHbar]
+       effectivePaymentTxId, topicId, sequenceNumber, priceUsd, priceHbar]
     );
 
     console.log(`[registerDomain] Registered ${name}.${tld} for ${ownerAccountId} seq=${sequenceNumber}`);

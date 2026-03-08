@@ -4,7 +4,7 @@
  * No third-party dependencies — fully on-chain via Hedera Consensus Service.
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { API_BASE_URL, DOMAIN_SUPPORTED_TLDS, DomainTld, getHederaClient } from '../config'
+import { API_BASE_URL, DOMAIN_SUPPORTED_TLDS, DomainTld, DOMAIN_ADMIN_ACCOUNT, getHederaClient } from '../config'
 import { TransferTransaction, AccountId, Hbar, TransactionId } from '@hashgraph/sdk'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -137,6 +137,27 @@ export class DomainTool {
           <div class="filter-divider"></div>
           <button class="terminal-button" id="domain-register" style="background:rgba(107,255,158,0.15);border-color:rgba(107,255,158,0.5);color:#6bff9e">◆ REGISTER ${this.escapeHtml(r!.name).toUpperCase()}.${r!.tld.toUpperCase()} — ${priceHbar} ℏ</button>
         ` : ''}
+        ${this.isAdmin() ? this.renderAdminPanel() : ''}
+      </div>`
+  }
+
+  private static isAdmin(): boolean {
+    const ws = WalletConnectService.getState()
+    return ws.connected && ws.accountId === DOMAIN_ADMIN_ACCOUNT
+  }
+
+  private static renderAdminPanel(): string {
+    const r = this.checkResult
+    const canRegister = r?.available === true
+    return `
+      <div style="margin-top:1.25rem;padding:0.75rem 0.9rem;background:rgba(107,255,158,0.05);border:1px solid rgba(107,255,158,0.3);border-radius:8px">
+        <p style="font-size:0.78rem;color:#6bff9e;margin:0 0 0.5rem">🔑 <strong>Admin Registration</strong> — Treasury wallet detected. Register for free.</p>
+        <div class="filter-divider"></div>
+        ${canRegister ? `
+          <button class="terminal-button" id="domain-admin-register" style="background:rgba(107,255,158,0.2);border-color:#6bff9e;color:#6bff9e;width:100%">
+            ◆ ADMIN REGISTER ${this.escapeHtml(r!.name).toUpperCase()}.${r!.tld.toUpperCase()} — FREE
+          </button>` : `
+          <p style="font-size:0.78rem;color:var(--terminal-text);opacity:0.5;margin:0">Check availability above first, then register for free.</p>`}
       </div>`
   }
 
@@ -285,6 +306,7 @@ export class DomainTool {
 
     document.getElementById('domain-check')?.addEventListener('click', () => this.checkAvailability())
     document.getElementById('domain-register')?.addEventListener('click', () => this.startRegistration())
+    document.getElementById('domain-admin-register')?.addEventListener('click', () => this.executeAdminRegistration())
     document.getElementById('domain-confirm-cancel')?.addEventListener('click', () => { this.showConfirmModal = false; this.refresh() })
     document.getElementById('domain-confirm-ok')?.addEventListener('click', () => { this.showConfirmModal = false; this.executeRegistration() })
     document.getElementById('domain-dismiss-error')?.addEventListener('click', () => { this.error = null; this.refresh() })
@@ -389,6 +411,48 @@ export class DomainTool {
       console.error('[DomainTool] executeRegistration error:', err)
       this.loading       = false
       this.error         = err.message || 'Registration failed'
+      this.statusMessage = ''
+      this.refresh()
+    }
+  }
+
+  // ─── ADMIN REGISTRATION (no payment) ───────────────────────
+
+  private static async executeAdminRegistration(): Promise<void> {
+    const r = this.checkResult
+    if (!r?.available) return
+    const ws = WalletConnectService.getState()
+    if (!ws.connected || !ws.accountId) return
+
+    this.loading = true
+    this.error   = null
+    this.statusMessage = 'Registering domain (admin — no payment required)...'
+    this.refresh()
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/domains/register`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:           r.name,
+          tld:            r.tld,
+          years:          r.years,
+          ownerAccountId: ws.accountId,
+        }),
+      })
+      const data = await res.json() as { success: boolean; domain?: string; error?: string }
+      if (!data.success) throw new Error(data.error || 'Admin registration failed')
+
+      this.registeredDomain = data.domain ?? `${r.name}.${r.tld}`
+      this.txId          = null
+      this.step          = 'success'
+      this.loading       = false
+      this.statusMessage = `Registered — ${this.registeredDomain}`
+      this.refresh()
+    } catch (err: any) {
+      console.error('[DomainTool] executeAdminRegistration error:', err)
+      this.loading       = false
+      this.error         = err.message || 'Admin registration failed'
       this.statusMessage = ''
       this.refresh()
     }

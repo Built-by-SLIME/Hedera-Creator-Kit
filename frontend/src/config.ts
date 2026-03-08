@@ -54,6 +54,9 @@ export const WHBAR_TOKEN_ID = '0.0.1456986'
 export const DOMAIN_SUPPORTED_TLDS = ['hedera', 'slime', 'gib'] as const
 export type DomainTld = typeof DOMAIN_SUPPORTED_TLDS[number]
 
+/** Treasury wallet — when connected, unlocks free admin domain registration */
+export const DOMAIN_ADMIN_ACCOUNT = '0.0.9463056'
+
 // ---------------------------------------------------------------------------
 // Hedera SDK helpers
 // ---------------------------------------------------------------------------
