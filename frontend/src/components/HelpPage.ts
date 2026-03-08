@@ -76,7 +76,7 @@ export class HelpPage {
       { type: 'output', content: '    Standard (no emoji)        Premium (with emoji)' },
       { type: 'output', content: '    1 letter  — $100/yr        1 letter  — $250/yr' },
       { type: 'output', content: '    2 letters — $50/yr         2 letters — $150/yr' },
-      { type: 'output', content: '    3+ letters — $10/yr        3 letters — $25/yr' },
+      { type: 'output', content: '    3+ letters — $10/yr        3+ letters — $50/yr' },
       { type: 'output', content: '' },
 
       // --- TOOLS ---
