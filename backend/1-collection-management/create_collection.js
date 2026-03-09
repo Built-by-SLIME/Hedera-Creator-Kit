@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
  * Create NFT Collection on Hedera
- * 
+ *
  * This script creates a new NFT collection with configurable:
- * - Token name, symbol, max supply
+ * - Token name, symbol, supply type (Infinite or Finite)
+ * - Max supply (only used when SUPPLY_TYPE=finite)
  * - Royalty fees (optional)
  * - Admin, Supply, Metadata keys
  * - Network (mainnet/testnet)
@@ -31,7 +32,12 @@ const TREASURY_PK = process.env.TREASURY_PK;
 // Collection Details
 const TOKEN_NAME = process.env.TOKEN_NAME || 'My NFT Collection';
 const TOKEN_SYMBOL = process.env.TOKEN_SYMBOL || 'MYNFT';
-const MAX_SUPPLY = parseInt(process.env.MAX_SUPPLY || '10000');
+
+// Supply Type: 'infinite' (default) or 'finite'
+// When 'infinite', MAX_SUPPLY is ignored — Hedera allows unlimited minting
+const SUPPLY_TYPE = (process.env.SUPPLY_TYPE || 'infinite').toLowerCase();
+const IS_INFINITE = SUPPLY_TYPE !== 'finite';
+const MAX_SUPPLY = IS_INFINITE ? null : parseInt(process.env.MAX_SUPPLY || '10000');
 
 // Royalty Configuration (optional)
 const ROYALTY_ENABLED = process.env.ROYALTY_ENABLED === 'true';
@@ -45,7 +51,12 @@ const FALLBACK_FEE_HBAR = parseInt(process.env.FALLBACK_FEE_HBAR || '5');
 if (!TREASURY_ID || !TREASURY_PK) {
     console.error('❌ ERROR: Missing required environment variables');
     console.error('   Required: TREASURY_ID, TREASURY_PK');
-    console.error('   Optional: TOKEN_NAME, TOKEN_SYMBOL, MAX_SUPPLY, ROYALTY_ENABLED, ROYALTY_PERCENTAGE');
+    console.error('   Optional: TOKEN_NAME, TOKEN_SYMBOL, SUPPLY_TYPE (infinite|finite), MAX_SUPPLY (only for finite), ROYALTY_ENABLED, ROYALTY_PERCENTAGE');
+    process.exit(1);
+}
+
+if (!IS_INFINITE && (!MAX_SUPPLY || MAX_SUPPLY < 1)) {
+    console.error('❌ ERROR: MAX_SUPPLY must be a positive integer when SUPPLY_TYPE=finite');
     process.exit(1);
 }
 
@@ -73,7 +84,8 @@ async function createCollection() {
     console.log('📋 Collection Details:');
     console.log(`   Name: ${TOKEN_NAME}`);
     console.log(`   Symbol: ${TOKEN_SYMBOL}`);
-    console.log(`   Max Supply: ${MAX_SUPPLY}`);
+    console.log(`   Supply Type: ${IS_INFINITE ? 'Infinite ♾️' : 'Finite'}`);
+    if (!IS_INFINITE) console.log(`   Max Supply: ${MAX_SUPPLY.toLocaleString()}`);
     console.log(`   Treasury: ${TREASURY_ID}`);
     console.log(`   Network: ${NETWORK.toUpperCase()}`);
     console.log();
@@ -99,14 +111,18 @@ async function createCollection() {
             .setTokenName(TOKEN_NAME)
             .setTokenSymbol(TOKEN_SYMBOL)
             .setTokenType(TokenType.NonFungibleUnique)
-            .setSupplyType(TokenSupplyType.Finite)
-            .setMaxSupply(MAX_SUPPLY)
+            .setSupplyType(IS_INFINITE ? TokenSupplyType.Infinite : TokenSupplyType.Finite)
             .setDecimals(0)
             .setInitialSupply(0)
             .setTreasuryAccountId(TREASURY_ID)
             .setAdminKey(treasuryKey)
             .setSupplyKey(treasuryKey)
             .setMetadataKey(treasuryKey);
+
+        // Only set max supply for Finite collections
+        if (!IS_INFINITE) {
+            tokenCreateTx.setMaxSupply(MAX_SUPPLY);
+        }
 
         // Add royalty fees if enabled
         if (ROYALTY_ENABLED) {
@@ -132,7 +148,7 @@ async function createCollection() {
         console.log(`🎫 Token ID: ${tokenId}`);
         console.log(`📝 Name: ${TOKEN_NAME}`);
         console.log(`🔤 Symbol: ${TOKEN_SYMBOL}`);
-        console.log(`📊 Max Supply: ${MAX_SUPPLY}`);
+        console.log(`📊 Supply Type: ${IS_INFINITE ? 'Infinite ♾️' : `Finite (max ${MAX_SUPPLY.toLocaleString()})`}`);
         console.log(`✅ Status: ${receipt.status.toString()}`);
         console.log();
         console.log('🔗 View on HashScan:');

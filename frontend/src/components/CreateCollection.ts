@@ -27,6 +27,7 @@ export class CreateCollection {
   // Form state — required
   private static collectionName = '';
   private static symbol = '';
+  private static supplyType: 'finite' | 'infinite' = 'finite';
   private static maxSupply = 10000;
 
   // HIP-766 metadata fields — all optional
@@ -134,8 +135,25 @@ export class CreateCollection {
         </div>
         <div class="input-row">
           <div class="input-group"><label for="cc-symbol">Symbol *</label><input type="text" id="cc-symbol" class="token-input" placeholder="MYNFT" value="${this.escapeHtml(this.symbol)}" /></div>
-          <div class="input-group"><label for="cc-supply">Max Supply *</label><input type="number" id="cc-supply" class="token-input" min="1" max="5000000" value="${this.maxSupply}" /></div>
+          <div class="input-group">
+            <label>Supply Type *</label>
+            <div class="cc-supply-toggle">
+              <label class="cc-radio-label">
+                <input type="radio" name="cc-supply-type" value="finite" ${this.supplyType === 'finite' ? 'checked' : ''} />
+                Finite
+              </label>
+              <label class="cc-radio-label">
+                <input type="radio" name="cc-supply-type" value="infinite" ${this.supplyType === 'infinite' ? 'checked' : ''} />
+                Infinite ♾️
+              </label>
+            </div>
+          </div>
         </div>
+        ${this.supplyType === 'finite' ? `
+        <div class="input-group" id="cc-supply-wrap">
+          <label for="cc-supply">Max Supply *</label>
+          <input type="number" id="cc-supply" class="token-input" min="1" max="5000000" value="${this.maxSupply}" />
+        </div>` : ''}
 
         <div class="filter-divider"></div>
         <p class="cc-hip-badge">⬡ HIP-766 Collection Metadata <span class="cc-hip-optional">(all fields optional)</span></p>
@@ -316,10 +334,10 @@ export class CreateCollection {
         <div class="preview-info">
           <div class="info-row"><span>Name</span><span class="status-value">${this.collectionName || '—'}</span></div>
           <div class="info-row"><span>Symbol</span><span class="status-value">${this.symbol || '—'}</span></div>
-          <div class="info-row"><span>Max Supply</span><span class="status-value">${this.maxSupply.toLocaleString()}</span></div>
+          <div class="info-row"><span>Supply Type</span><span class="status-value">${this.supplyType === 'infinite' ? 'Infinite ♾️' : 'Finite'}</span></div>
+          ${this.supplyType === 'finite' ? `<div class="info-row"><span>Max Supply</span><span class="status-value">${this.maxSupply.toLocaleString()}</span></div>` : ''}
           <div class="info-row"><span>Treasury</span><span class="status-value">${treasury}</span></div>
           <div class="info-row"><span>Token Type</span><span class="status-value">Non-Fungible (NFT)</span></div>
-          <div class="info-row"><span>Supply Type</span><span class="status-value">Finite</span></div>
         </div>
         ${this.description ? `<div class="result-block" style="margin-top:0.75rem"><label>Description</label><p style="font-size:0.85rem;color:var(--terminal-text);margin:0">${this.escapeHtml(this.description)}</p></div>` : ''}
         ${this.creator || this.website ? `
@@ -378,7 +396,8 @@ export class CreateCollection {
           <div class="info-row"><span>Token ID</span><span class="status-value">${this.tokenId}</span></div>
           <div class="info-row"><span>Name</span><span class="status-value">${this.collectionName}</span></div>
           <div class="info-row"><span>Symbol</span><span class="status-value">${this.symbol}</span></div>
-          <div class="info-row"><span>Max Supply</span><span class="status-value">${this.maxSupply.toLocaleString()}</span></div>
+          <div class="info-row"><span>Supply Type</span><span class="status-value">${this.supplyType === 'infinite' ? 'Infinite ♾️' : 'Finite'}</span></div>
+          ${this.supplyType === 'finite' ? `<div class="info-row"><span>Max Supply</span><span class="status-value">${this.maxSupply.toLocaleString()}</span></div>` : ''}
         </div>
         <button class="terminal-button" id="cc-new" style="margin-top:1rem">CREATE ANOTHER COLLECTION</button>
       </div>`;
@@ -424,7 +443,7 @@ export class CreateCollection {
   private static canCreate(): boolean {
     if (!this.collectionName.trim()) return false;
     if (!this.symbol.trim()) return false;
-    if (!this.maxSupply || this.maxSupply < 1) return false;
+    if (this.supplyType === 'finite' && (!this.maxSupply || this.maxSupply < 1)) return false;
     const ws = WalletConnectService.getState();
     if (!ws.connected) return false;
     if (this.royaltiesEnabled) {
@@ -457,6 +476,7 @@ export class CreateCollection {
   static resetForm(): void {
     this.collectionName = '';
     this.symbol = '';
+    this.supplyType = 'finite';
     this.maxSupply = 10000;
     this.description = '';
     this.creator = '';
@@ -502,13 +522,23 @@ export class CreateCollection {
     // Text inputs — sync to state on change
     const nameInput = document.getElementById('cc-name') as HTMLInputElement;
     const symbolInput = document.getElementById('cc-symbol') as HTMLInputElement;
-    const supplyInput = document.getElementById('cc-supply') as HTMLInputElement;
     const descInput = document.getElementById('cc-desc') as HTMLTextAreaElement;
 
     nameInput?.addEventListener('input', () => { this.collectionName = nameInput.value; this.refreshPreview(); });
     symbolInput?.addEventListener('input', () => { this.symbol = symbolInput.value; this.refreshPreview(); });
-    supplyInput?.addEventListener('input', () => { this.maxSupply = parseInt(supplyInput.value) || 0; this.refreshPreview(); });
     descInput?.addEventListener('input', () => { this.description = descInput.value; this.refreshPreview(); });
+
+    // Supply type toggle — re-renders form section to show/hide max supply input
+    document.querySelectorAll('input[name="cc-supply-type"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        this.supplyType = (e.target as HTMLInputElement).value as 'finite' | 'infinite';
+        this.refresh();
+      });
+    });
+
+    // Max supply input — only present when supply type is finite
+    const supplyInput = document.getElementById('cc-supply') as HTMLInputElement;
+    supplyInput?.addEventListener('input', () => { this.maxSupply = parseInt(supplyInput.value) || 0; this.refreshPreview(); });
 
     // HIP-766 text inputs
     const creatorInput = document.getElementById('cc-creator') as HTMLInputElement;
@@ -758,11 +788,15 @@ export class CreateCollection {
         .setTokenName(this.collectionName.trim())
         .setTokenSymbol(this.symbol.trim())
         .setTokenType(TokenType.NonFungibleUnique)
-        .setSupplyType(TokenSupplyType.Finite)
-        .setMaxSupply(this.maxSupply)
+        .setSupplyType(this.supplyType === 'infinite' ? TokenSupplyType.Infinite : TokenSupplyType.Finite)
         .setDecimals(0)
         .setInitialSupply(0)
         .setTreasuryAccountId(AccountId.fromString(accountId));
+
+      // Only set max supply for Finite collections
+      if (this.supplyType === 'finite') {
+        tx.setMaxSupply(this.maxSupply);
+      }
 
       // Conditionally set keys based on user selection
       if (this.keyAdmin) tx.setAdminKey(pubKey);
