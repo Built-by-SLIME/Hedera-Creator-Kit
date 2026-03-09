@@ -61,7 +61,9 @@ function getTopicId(tld: SupportedTld): string | undefined {
 
 function getDomainSupplyKey(): PrivateKey {
   if (!DOMAIN_NFT_SUPPLY_KEY) throw new Error('DOMAIN_NFT_SUPPLY_KEY is not configured');
-  try { return PrivateKey.fromStringECDSA(DOMAIN_NFT_SUPPLY_KEY); }
+  // Use fromString() for auto-detection — avoids ECDSA silently "succeeding"
+  // on a raw ED25519 hex key (both are 32 bytes) and producing the wrong key.
+  try { return PrivateKey.fromString(DOMAIN_NFT_SUPPLY_KEY); }
   catch { return PrivateKey.fromStringED25519(DOMAIN_NFT_SUPPLY_KEY); }
 }
 
