@@ -102,7 +102,7 @@ async function generateDomainImage(domain: string): Promise<Buffer> {
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
        <rect x="0" y="0" width="${W}" height="${barH}" fill="rgba(0,0,0,0.68)"/>
        <text x="${W / 2}" y="${barH / 2}"
-             font-family="Arial, Helvetica, sans-serif"
+             font-family="Liberation Sans, Arial, Helvetica, sans-serif"
              font-size="${fontSize}"
              font-weight="bold"
              fill="white"
