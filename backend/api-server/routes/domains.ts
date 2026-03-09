@@ -621,6 +621,31 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
   }
 }
 
+// ─── ADMIN: Purge All Domain Registrations ───────────────────────────────────
+
+/**
+ * POST /api/domains/admin/purge-registrations
+ * One-time admin utility — deletes ALL rows from domain_registrations ONLY.
+ * No other tables are affected.
+ * Body: { adminKey: string }
+ */
+export async function purgeRegistrations(req: Request, res: Response): Promise<void> {
+  const { adminKey } = req.body;
+  if (!DOMAIN_ADMIN_KEY || adminKey !== DOMAIN_ADMIN_KEY) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+  try {
+    const result = await pool.query('DELETE FROM domain_registrations');
+    const deleted = result.rowCount ?? 0;
+    console.log(`[purgeRegistrations] Deleted ${deleted} row(s) from domain_registrations`);
+    res.json({ success: true, deleted });
+  } catch (err: any) {
+    console.error('[purgeRegistrations] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // ─── PUBLIC: Resolve Domain ───────────────────────────────────────────────────
 
 /**
