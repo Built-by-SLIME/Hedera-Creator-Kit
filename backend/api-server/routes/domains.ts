@@ -425,17 +425,12 @@ export async function checkDomain(req: Request, res: Response): Promise<void> {
     const owner      = hcsRecord?.owner ?? hcsRecord?.new_owner ?? null;
     const expiresAt  = hcsRecord?.expires_at ?? null;
 
-    let priceUsd: number | null = null;
-    let priceHbar: number | null = null;
-    let hbarPriceUsd: number | null = null;
-
-    if (available) {
-      const isPremium = isPremiumName(name);
-      const annualUsd = getAnnualUsdPrice(name, isPremium);
-      priceUsd        = annualUsd * years;
-      hbarPriceUsd    = await getHbarPriceUsd();
-      priceHbar       = priceUsd / hbarPriceUsd;
-    }
+    // Always compute price — used for both registration and renewal previews
+    const isPremium    = isPremiumName(name);
+    const annualUsd    = getAnnualUsdPrice(name, isPremium);
+    const priceUsd     = annualUsd * years;
+    const hbarPriceUsd = await getHbarPriceUsd();
+    const priceHbar    = priceUsd / hbarPriceUsd;
 
     res.json({
       success: true, available, name, tld, years,

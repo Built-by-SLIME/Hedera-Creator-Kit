@@ -10,6 +10,7 @@ import { TransferTransaction, AccountId, Hbar, TransactionId, TokenAssociateTran
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type DomainStep = 'form' | 'success'
+type DomainMode = 'register' | 'transfer' | 'renew'
 
 interface CheckResult {
   available: boolean
@@ -43,6 +44,22 @@ export class DomainTool {
   private static registeredDomain: string | null = null
   private static showConfirmModal = false
 
+  // Mode
+  private static mode: DomainMode = 'register'
+
+  // Transfer state
+  private static transferName    = ''
+  private static transferTld: DomainTld = 'hedera'
+  private static transferSuccess: { domain: string; hcsSeq: string | null } | null = null
+
+  // Renew state
+  private static renewName         = ''
+  private static renewTld: DomainTld = 'hedera'
+  private static renewYears: 1|3|5|10 = 1
+  private static renewRecord: CheckResult | null = null
+  private static renewIsChecking   = false
+  private static renewSuccess: { domain: string; newExpiresAt: string; hcsSeq: string | null } | null = null
+
   // ─── RENDER ────────────────────────────────────────────────
 
   static render(): string {
@@ -70,8 +87,10 @@ export class DomainTool {
 
   private static renderLeftPanel(): string {
     if (this.loading) {
-      return `<div class="art-gen-section"><h3 class="section-title">◆ Registering Domain...</h3><div class="loading-state"><div class="spinner"></div><p>${this.statusMessage || 'Processing...'}</p></div></div>`
+      return `<div class="art-gen-section"><h3 class="section-title">◆ ${this.mode === 'transfer' ? 'Transferring...' : this.mode === 'renew' ? 'Renewing...' : 'Registering Domain...'}</h3><div class="loading-state"><div class="spinner"></div><p>${this.statusMessage || 'Processing...'}</p></div></div>`
     }
+    if (this.mode === 'transfer') return this.renderTransferPanel()
+    if (this.mode === 'renew')    return this.renderRenewPanel()
     return this.step === 'form' ? this.renderForm() : this.renderSuccessPanel()
   }
 
@@ -82,7 +101,17 @@ export class DomainTool {
     if (this.error) {
       return `<div class="cc-right-content"><div class="error-state"><p class="error-message">⚠ ${this.error}</p><button class="terminal-button" id="domain-dismiss-error" style="margin-top:1rem">DISMISS</button></div></div>`
     }
+    if (this.mode === 'transfer') return this.renderTransferPreview()
+    if (this.mode === 'renew')    return this.renderRenewPreview()
     return this.step === 'form' ? this.renderPreview() : this.renderSuccessDetails()
+  }
+
+  private static renderModeTabs(): string {
+    const tab = (m: DomainMode, label: string) => {
+      const active = this.mode === m
+      return `<button class="terminal-button${active ? '' : ' secondary'}" id="domain-mode-${m}" style="flex:1;font-size:0.75rem;padding:0.3rem 0;${active ? 'background:rgba(107,255,158,0.15);border-color:rgba(107,255,158,0.5);color:#6bff9e' : 'opacity:0.6'}">${label}</button>`
+    }
+    return `<div style="display:flex;gap:0.4rem;margin-bottom:0.75rem">${tab('register','◆ REGISTER')}${tab('transfer','⇄ TRANSFER')}${tab('renew','↺ RENEW')}</div>`
   }
 
   // ─── FORM ──────────────────────────────────────────────────
@@ -97,6 +126,7 @@ export class DomainTool {
       <div class="art-gen-section">
         <h3 class="section-title">◆ Domain Registration</h3>
         <div class="back-link" id="domain-back"><span class="back-arrow">←</span><span>Back</span></div>
+        ${this.renderModeTabs()}
 
         <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(107,255,158,0.06);border:1px solid rgba(107,255,158,0.2);border-radius:6px">
           <p style="font-size:0.78rem;color:#6bff9e;margin:0 0 0.25rem">◆ <strong>HCS Domain Registry</strong> — Proprietary on-chain registry. Fully decentralized, no third-party dependency.</p>
@@ -254,6 +284,136 @@ export class DomainTool {
       </div>`
   }
 
+  // ─── TRANSFER UI ───────────────────────────────────────────
+
+  private static renderTransferPanel(): string {
+    const ws = WalletConnectService.getState()
+    const myAccount = ws.connected ? ws.accountId : null
+    return `
+      <div class="art-gen-section">
+        <h3 class="section-title">◆ Assert Transfer Ownership</h3>
+        <div class="back-link" id="domain-back"><span class="back-arrow">←</span><span>Back</span></div>
+        ${this.renderModeTabs()}
+        <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(107,200,255,0.06);border:1px solid rgba(107,200,255,0.2);border-radius:6px">
+          <p style="font-size:0.78rem;color:#6bc8ff;margin:0 0 0.25rem">⇄ <strong>Secondary Market Transfer</strong></p>
+          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin:0">Bought a domain NFT on a marketplace? The HCS record still shows the old owner. Assert your ownership here — the backend verifies you hold the NFT before writing to HCS. No HBAR fee required.</p>
+        </div>
+        <div class="filter-divider"></div>
+        ${!ws.connected ? `<p style="font-size:0.82rem;color:#ff6b6b">⚠ Connect your wallet first.</p>` : `
+          <div class="input-group">
+            <label>Domain Name *</label>
+            <div class="input-row" style="gap:0.5rem;align-items:center">
+              <input type="text" id="transfer-name" class="token-input" placeholder="yourdomain" value="${this.escapeHtml(this.transferName)}" style="flex:1"/>
+              <select id="transfer-tld" class="token-input" style="width:auto;min-width:100px">
+                ${DOMAIN_SUPPORTED_TLDS.map(t => `<option value="${t}" ${this.transferTld === t ? 'selected' : ''}>.${t}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="input-group">
+            <label>Your Account (wallet)</label>
+            <input type="text" class="token-input" value="${myAccount}" disabled style="opacity:0.6"/>
+          </div>
+          <div class="filter-divider"></div>
+          <button class="terminal-button" id="domain-transfer-execute" style="background:rgba(107,200,255,0.12);border-color:rgba(107,200,255,0.4);color:#6bc8ff">⇄ ASSERT OWNERSHIP ON HCS</button>
+          ${this.transferSuccess ? `
+            <div style="margin-top:0.75rem;padding:0.6rem 0.8rem;background:rgba(107,255,158,0.08);border:1px solid rgba(107,255,158,0.3);border-radius:6px">
+              <p style="color:#6bff9e;margin:0 0 0.2rem">✓ Transfer recorded on HCS!</p>
+              <p style="font-size:0.78rem;opacity:0.7;margin:0">Domain: <strong>${this.transferSuccess.domain}</strong></p>
+              ${this.transferSuccess.hcsSeq ? `<p style="font-size:0.75rem;opacity:0.55;margin:0.15rem 0 0">HCS sequence: ${this.transferSuccess.hcsSeq}</p>` : ''}
+            </div>` : ''}
+        `}
+      </div>`
+  }
+
+  private static renderTransferPreview(): string {
+    const ws = WalletConnectService.getState()
+    return `
+      <div class="cc-right-content">
+        <h4 class="section-title" style="font-size:0.95rem">⇄ How Transfer Works</h4>
+        <div class="preview-info">
+          <div class="info-row"><span>NFT Check</span><span class="status-value" style="font-size:0.78rem">Mirror Node</span></div>
+          <div class="info-row"><span>Cost</span><span class="status-value" style="color:#6bff9e">Free</span></div>
+          <div class="info-row"><span>Ledger</span><span class="status-value">HCS on-chain</span></div>
+          <div class="info-row"><span>Wallet</span><span class="status-value" style="font-size:0.78rem">${ws.connected ? ws.accountId : 'Not connected'}</span></div>
+        </div>
+        <div style="margin-top:0.75rem;padding:0.5rem 0.7rem;background:rgba(107,200,255,0.06);border:1px solid rgba(107,200,255,0.15);border-radius:6px">
+          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin:0">The backend confirms you hold the NFT on-chain, then publishes a <code>transfer</code> message to HCS. Resolvers (including HashPack) will immediately see you as the new owner.</p>
+        </div>
+      </div>`
+  }
+
+  // ─── RENEW UI ──────────────────────────────────────────────
+
+  private static renderRenewPanel(): string {
+    const ws = WalletConnectService.getState()
+    const r  = this.renewRecord
+    const myAccount = ws.connected ? ws.accountId : null
+    const isOwner   = r && myAccount && (r.owner === myAccount)
+    const priceHbar = r?.priceHbar?.toFixed(4) ?? null
+
+    return `
+      <div class="art-gen-section">
+        <h3 class="section-title">◆ Renew Domain</h3>
+        <div class="back-link" id="domain-back"><span class="back-arrow">←</span><span>Back</span></div>
+        ${this.renderModeTabs()}
+        <div class="filter-divider"></div>
+        ${!ws.connected ? `<p style="font-size:0.82rem;color:#ff6b6b">⚠ Connect your wallet first.</p>` : `
+          <div class="input-group">
+            <label>Domain to Renew *</label>
+            <div class="input-row" style="gap:0.5rem;align-items:center">
+              <input type="text" id="renew-name" class="token-input" placeholder="yourdomain" value="${this.escapeHtml(this.renewName)}" style="flex:1"/>
+              <select id="renew-tld" class="token-input" style="width:auto;min-width:100px">
+                ${DOMAIN_SUPPORTED_TLDS.map(t => `<option value="${t}" ${this.renewTld === t ? 'selected' : ''}>.${t}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="input-group">
+            <label>Renewal Period</label>
+            <select id="renew-years" class="token-input" style="width:auto;min-width:160px">
+              ${([1, 3, 5, 10] as const).map(y => `<option value="${y}" ${this.renewYears === y ? 'selected' : ''}>${y} year${y > 1 ? 's' : ''}</option>`).join('')}
+            </select>
+          </div>
+          <button class="terminal-button secondary" id="domain-renew-check" ${this.renewIsChecking ? 'disabled' : ''} style="margin-bottom:0.5rem">${this.renewIsChecking ? 'Looking up...' : '🔍 LOOK UP DOMAIN'}</button>
+          ${r ? `
+            <div style="margin-top:0.5rem;padding:0.6rem 0.8rem;background:rgba(107,200,255,0.06);border:1px solid rgba(107,200,255,0.2);border-radius:6px">
+              <p style="font-size:0.82rem;margin:0 0 0.3rem">↺ <strong>${this.escapeHtml(r.name)}.${r.tld}</strong></p>
+              <p style="font-size:0.78rem;opacity:0.65;margin:0">Owner: ${r.owner || '—'}</p>
+              <p style="font-size:0.78rem;opacity:0.65;margin:0.15rem 0 0">Expires: ${r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : '—'}</p>
+              ${priceHbar ? `<p style="font-size:0.78rem;color:#6bff9e;margin:0.25rem 0 0">Renewal: ${this.renewYears} yr — <strong>~${priceHbar} ℏ ($${r.priceUsd})</strong></p>` : ''}
+            </div>
+            ${!isOwner ? `<p style="font-size:0.8rem;color:#ff6b6b;margin-top:0.5rem">⚠ Your wallet (${myAccount}) is not the registered owner of this domain.</p>` : `
+              <div class="filter-divider"></div>
+              <button class="terminal-button" id="domain-renew-execute" style="background:rgba(107,255,158,0.15);border-color:rgba(107,255,158,0.5);color:#6bff9e">↺ RENEW ${this.escapeHtml(r.name).toUpperCase()}.${r.tld.toUpperCase()} — ${priceHbar} ℏ</button>
+            `}` : ''}
+          ${this.renewSuccess ? `
+            <div style="margin-top:0.75rem;padding:0.6rem 0.8rem;background:rgba(107,255,158,0.08);border:1px solid rgba(107,255,158,0.3);border-radius:6px">
+              <p style="color:#6bff9e;margin:0 0 0.2rem">✓ Domain renewed!</p>
+              <p style="font-size:0.78rem;opacity:0.7;margin:0">New expiry: <strong>${new Date(this.renewSuccess.newExpiresAt).toLocaleDateString()}</strong></p>
+              ${this.renewSuccess.hcsSeq ? `<p style="font-size:0.75rem;opacity:0.55;margin:0.15rem 0 0">HCS sequence: ${this.renewSuccess.hcsSeq}</p>` : ''}
+            </div>` : ''}
+        `}
+      </div>`
+  }
+
+  private static renderRenewPreview(): string {
+    const r = this.renewRecord
+    return `
+      <div class="cc-right-content">
+        <h4 class="section-title" style="font-size:0.95rem">↺ Renewal Details</h4>
+        ${r ? `
+          <div class="preview-info">
+            <div class="info-row"><span>Domain</span><span class="status-value">${this.escapeHtml(r.name)}.${r.tld}</span></div>
+            <div class="info-row"><span>Current Expiry</span><span class="status-value">${r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : '—'}</span></div>
+            <div class="info-row"><span>Renew For</span><span class="status-value">${this.renewYears} yr${this.renewYears > 1 ? 's' : ''}</span></div>
+            ${r.priceUsd ? `<div class="info-row"><span>Cost (USD)</span><span class="status-value">$${r.priceUsd}</span></div>` : ''}
+            ${r.priceHbar ? `<div class="info-row"><span>Cost (HBAR)</span><span class="status-value">~${r.priceHbar?.toFixed(4)} ℏ</span></div>` : ''}
+          </div>` : `<p style="font-size:0.82rem;color:var(--terminal-text);opacity:0.5">Enter a domain name and click Look Up to see renewal options.</p>`}
+        <div style="margin-top:0.75rem;padding:0.5rem 0.7rem;background:rgba(107,255,158,0.06);border:1px solid rgba(107,255,158,0.15);border-radius:6px">
+          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin:0">Renewing extends the expiry from its current date (or today if already expired). Payment is verified on Mirror Node before the renewal is written to HCS.</p>
+        </div>
+      </div>`
+  }
+
   // ─── TOKEN ASSOCIATION ─────────────────────────────────────
 
   /**
@@ -317,6 +477,16 @@ export class DomainTool {
     this.txId             = null
     this.registeredDomain = null
     this.showConfirmModal = false
+    this.mode             = 'register'
+    this.transferName     = ''
+    this.transferTld      = 'hedera'
+    this.transferSuccess  = null
+    this.renewName        = ''
+    this.renewTld         = 'hedera'
+    this.renewYears       = 1
+    this.renewRecord      = null
+    this.renewIsChecking  = false
+    this.renewSuccess     = null
   }
 
 
@@ -353,6 +523,30 @@ export class DomainTool {
     document.getElementById('domain-confirm-ok')?.addEventListener('click', () => { this.showConfirmModal = false; this.executeRegistration() })
     document.getElementById('domain-dismiss-error')?.addEventListener('click', () => { this.error = null; this.refresh() })
     document.getElementById('domain-new')?.addEventListener('click', () => { this.resetForm(); this.refresh() })
+
+    // Mode tabs
+    document.getElementById('domain-mode-register')?.addEventListener('click', () => { this.mode = 'register'; this.error = null; this.refresh() })
+    document.getElementById('domain-mode-transfer')?.addEventListener('click', () => { this.mode = 'transfer'; this.error = null; this.refresh() })
+    document.getElementById('domain-mode-renew')?.addEventListener('click',    () => { this.mode = 'renew';    this.error = null; this.refresh() })
+
+    // Transfer inputs
+    const transferName = document.getElementById('transfer-name') as HTMLInputElement
+    transferName?.addEventListener('input', () => { this.transferName = transferName.value })
+    transferName?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.executeTransfer() })
+    const transferTld = document.getElementById('transfer-tld') as HTMLSelectElement
+    transferTld?.addEventListener('change', () => { this.transferTld = transferTld.value as DomainTld })
+    document.getElementById('domain-transfer-execute')?.addEventListener('click', () => this.executeTransfer())
+
+    // Renew inputs
+    const renewName = document.getElementById('renew-name') as HTMLInputElement
+    renewName?.addEventListener('input', () => { this.renewName = renewName.value; this.renewRecord = null })
+    renewName?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.checkRenew() })
+    const renewTld = document.getElementById('renew-tld') as HTMLSelectElement
+    renewTld?.addEventListener('change', () => { this.renewTld = renewTld.value as DomainTld; this.renewRecord = null })
+    const renewYears = document.getElementById('renew-years') as HTMLSelectElement
+    renewYears?.addEventListener('change', () => { this.renewYears = parseInt(renewYears.value) as 1|3|5|10; this.renewRecord = null })
+    document.getElementById('domain-renew-check')?.addEventListener('click', () => this.checkRenew())
+    document.getElementById('domain-renew-execute')?.addEventListener('click', () => this.executeRenewal())
   }
 
   // ─── AVAILABILITY CHECK ────────────────────────────────────
@@ -516,6 +710,131 @@ export class DomainTool {
       this.loading       = false
       this.error         = err.message || 'Admin registration failed'
       this.statusMessage = ''
+      this.refresh()
+    }
+  }
+
+  // ─── TRANSFER EXECUTION ────────────────────────────────────
+
+  private static async executeTransfer(): Promise<void> {
+    const name = this.transferName.toLowerCase().trim()
+    const tld  = this.transferTld
+    const ws   = WalletConnectService.getState()
+    if (!ws.connected || !ws.accountId) { this.error = 'Connect your wallet first.'; this.refresh(); return }
+    if (!name) { this.error = 'Enter a domain name.'; this.refresh(); return }
+
+    this.loading       = true
+    this.error         = null
+    this.transferSuccess = null
+    this.statusMessage = 'Verifying NFT ownership and submitting transfer to HCS...'
+    this.refresh()
+
+    try {
+      const res  = await fetch(`${API_BASE_URL}/api/domains/transfer`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name, tld, newOwnerAccountId: ws.accountId }),
+      })
+      const data = await res.json() as { success: boolean; domain?: string; hcsSequenceNumber?: string; nftHolder?: string; error?: string }
+      if (!data.success) throw new Error(data.error || 'Transfer failed')
+
+      this.transferSuccess = { domain: data.domain ?? `${name}.${tld}`, hcsSeq: data.hcsSequenceNumber ?? null }
+      this.statusMessage   = `Transfer recorded — ${data.domain}`
+    } catch (err: any) {
+      console.error('[DomainTool] executeTransfer error:', err)
+      this.error         = err.message || 'Transfer failed'
+      this.statusMessage = ''
+    } finally {
+      this.loading = false
+      this.refresh()
+    }
+  }
+
+  // ─── RENEW: LOOK UP + EXECUTE ──────────────────────────────
+
+  private static async checkRenew(): Promise<void> {
+    const name = this.renewName.toLowerCase().trim()
+    if (!name) { this.error = 'Enter a domain name.'; this.refresh(); return }
+
+    this.renewIsChecking = true
+    this.renewRecord     = null
+    this.renewSuccess    = null
+    this.error           = null
+    this.refresh()
+
+    try {
+      const url  = `${API_BASE_URL}/api/domains/check?name=${encodeURIComponent(name)}&tld=${this.renewTld}&years=${this.renewYears}`
+      const res  = await fetch(url)
+      const data = await res.json() as CheckResult & { success: boolean; error?: string }
+      if (!data.success) throw new Error(data.error || 'Lookup failed')
+      if (data.available) { this.error = `${name}.${this.renewTld} is not currently registered.`; return }
+      this.renewRecord = data
+    } catch (err: any) {
+      console.error('[DomainTool] checkRenew error:', err)
+      this.error = err.message || 'Failed to look up domain'
+    } finally {
+      this.renewIsChecking = false
+      this.refresh()
+    }
+  }
+
+  private static async executeRenewal(): Promise<void> {
+    const r  = this.renewRecord
+    if (!r) return
+    const ws = WalletConnectService.getState()
+    if (!ws.connected || !ws.accountId) return
+
+    this.loading       = true
+    this.error         = null
+    this.renewSuccess  = null
+    this.statusMessage = 'Building renewal payment...'
+    this.refresh()
+
+    try {
+      const accountId = ws.accountId
+      const signer    = WalletConnectService.getSigner(accountId)
+      const acctId    = AccountId.fromString(accountId)
+      const client    = getHederaClient()
+
+      const networkFeeTinybars = Math.ceil((r.networkFeeHbar ?? 0.5) * 1e8)
+      const domainTinybars     = Math.ceil(r.priceHbar! * 1e8)
+      const operatorAccount    = r.operatorAccount ?? r.feeAccount!
+      const totalDebit         = domainTinybars + networkFeeTinybars
+
+      this.statusMessage = 'Sending renewal payment — approve in wallet...'
+      this.refresh()
+
+      const payTx = new TransferTransaction()
+        .addHbarTransfer(acctId, Hbar.fromTinybars(-totalDebit))
+        .addHbarTransfer(AccountId.fromString(r.feeAccount!), Hbar.fromTinybars(domainTinybars))
+        .addHbarTransfer(AccountId.fromString(operatorAccount), Hbar.fromTinybars(networkFeeTinybars))
+        .setTransactionMemo(`renew:${r.name}.${r.tld}:${this.renewYears}yr`)
+        .setTransactionId(TransactionId.generate(acctId))
+        .freezeWith(client)
+
+      const payResponse = await payTx.executeWithSigner(signer)
+      const paymentTxId = payResponse?.transactionId?.toString() ?? null
+      if (!paymentTxId) throw new Error('Wallet did not return a transaction ID')
+
+      this.statusMessage = 'Payment sent — recording renewal on HCS...'
+      this.refresh()
+
+      const renewRes = await fetch(`${API_BASE_URL}/api/domains/renew`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name: r.name, tld: r.tld, ownerAccountId: accountId, years: this.renewYears, paymentTxId }),
+      })
+      const renewData = await renewRes.json() as { success: boolean; newExpiresAt?: string; hcsSequenceNumber?: string; error?: string }
+      if (!renewData.success) throw new Error(`${renewData.error || 'Renewal failed'}${paymentTxId ? ` (payment tx: ${paymentTxId})` : ''}`)
+
+      this.renewSuccess  = { domain: `${r.name}.${r.tld}`, newExpiresAt: renewData.newExpiresAt!, hcsSeq: renewData.hcsSequenceNumber ?? null }
+      this.statusMessage = `Renewed — ${r.name}.${r.tld}`
+    } catch (err: any) {
+      console.error('[DomainTool] executeRenewal error:', err)
+      this.error         = err.message || 'Renewal failed'
+      this.statusMessage = ''
+    } finally {
+      this.loading = false
       this.refresh()
     }
   }
