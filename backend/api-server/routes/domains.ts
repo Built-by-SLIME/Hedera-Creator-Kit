@@ -89,8 +89,8 @@ async function getBaseImage(): Promise<Buffer> {
 let _fontBase64: string | null = null;
 function getFontBase64(): string {
   if (_fontBase64) return _fontBase64;
-  // __dirname at runtime = dist/routes/ → go up two levels to reach api-server/assets/
-  const fontPath = path.join(__dirname, '../../assets/Roboto-Bold.ttf');
+  // ts-node: __dirname = api-server/routes/ → go up one level to reach api-server/assets/
+  const fontPath = path.join(__dirname, '../assets/Roboto-Bold.ttf');
   _fontBase64 = fs.readFileSync(fontPath).toString('base64');
   return _fontBase64;
 }
