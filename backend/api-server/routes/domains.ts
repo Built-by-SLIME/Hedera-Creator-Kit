@@ -15,6 +15,8 @@ import sharp from 'sharp';
 import axios from 'axios';
 import FormData from 'form-data';
 import { pool } from '../db';
+import fs from 'fs';
+import path from 'path';
 
 const BACKEND_ACCOUNT_ID  = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
@@ -83,9 +85,21 @@ async function getBaseImage(): Promise<Buffer> {
   return _baseImageCache;
 }
 
+// Load and cache the embedded font as base64 so librsvg never needs fontconfig
+let _fontBase64: string | null = null;
+function getFontBase64(): string {
+  if (_fontBase64) return _fontBase64;
+  // __dirname at runtime = dist/routes/ → go up two levels to reach api-server/assets/
+  const fontPath = path.join(__dirname, '../../assets/Roboto-Bold.ttf');
+  _fontBase64 = fs.readFileSync(fontPath).toString('base64');
+  return _fontBase64;
+}
+
 /**
  * Generates a domain-specific NFT image by overlaying the domain name across
  * the top of the base SLIME graphic.
+ * The font is embedded as a base64 data URI so rendering is independent of
+ * any system-level fontconfig installation.
  */
 async function generateDomainImage(domain: string): Promise<Buffer> {
   const base = await getBaseImage();
@@ -98,11 +112,22 @@ async function generateDomainImage(domain: string): Promise<Buffer> {
   const len = domain.length;
   const fontSize = len <= 8 ? 72 : len <= 12 ? 60 : len <= 16 ? 48 : len <= 22 ? 38 : 30;
 
+  const fontB64 = getFontBase64();
+
   const svg = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+       <defs>
+         <style>
+           @font-face {
+             font-family: 'RobotoBold';
+             src: url('data:font/truetype;base64,${fontB64}') format('truetype');
+             font-weight: bold;
+           }
+         </style>
+       </defs>
        <rect x="0" y="0" width="${W}" height="${barH}" fill="rgba(0,0,0,0.68)"/>
        <text x="${W / 2}" y="${barH / 2}"
-             font-family="Liberation Sans, Arial, Helvetica, sans-serif"
+             font-family="RobotoBold"
              font-size="${fontSize}"
              font-weight="bold"
              fill="white"
