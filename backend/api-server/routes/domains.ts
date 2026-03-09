@@ -451,6 +451,7 @@ export async function checkDomain(req: Request, res: Response): Promise<void> {
       success: true, available, name, tld, years,
       owner, expiresAt, priceUsd, priceHbar, hbarPriceUsd,
       feeAccount: DOMAIN_FEE_ACCOUNT ?? null,
+      nftTokenId: DOMAIN_NFT_TOKEN_ID ?? null,
     });
   } catch (err: any) {
     console.error('[checkDomain] error:', err);

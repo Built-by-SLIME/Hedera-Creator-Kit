@@ -4,8 +4,8 @@
  * No third-party dependencies — fully on-chain via Hedera Consensus Service.
  */
 import WalletConnectService from '../services/WalletConnectService'
-import { API_BASE_URL, DOMAIN_SUPPORTED_TLDS, DomainTld, DOMAIN_ADMIN_ACCOUNT, getHederaClient } from '../config'
-import { TransferTransaction, AccountId, Hbar, TransactionId } from '@hashgraph/sdk'
+import { API_BASE_URL, MIRROR_NODE_URL, DOMAIN_SUPPORTED_TLDS, DomainTld, DOMAIN_ADMIN_ACCOUNT, getHederaClient } from '../config'
+import { TransferTransaction, AccountId, Hbar, TransactionId, TokenAssociateTransaction, TokenId } from '@hashgraph/sdk'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +22,7 @@ interface CheckResult {
   priceHbar: number | null
   hbarPriceUsd: number | null
   feeAccount: string | null
+  nftTokenId: string | null
 }
 
 // ─── DomainTool ─────────────────────────────────────────────────────────────
@@ -246,6 +247,40 @@ export class DomainTool {
       </div>`
   }
 
+  // ─── TOKEN ASSOCIATION ─────────────────────────────────────
+
+  /**
+   * Checks if the wallet is associated with the domain NFT token.
+   * If not, prompts the user to sign a TokenAssociateTransaction.
+   * This must run before attempting an NFT transfer, otherwise Hedera
+   * will reject it with TOKEN_NOT_ASSOCIATED_TO_ACCOUNT.
+   */
+  private static async checkAndAssociateToken(nftTokenId: string, accountId: string, signer: any): Promise<void> {
+    const url = `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/tokens?token.id=${nftTokenId}&limit=1`
+    const res  = await fetch(url)
+    const data = await res.json() as { tokens?: Array<{ token_id: string }> }
+    const isAssociated = (data.tokens ?? []).length > 0
+
+    if (!isAssociated) {
+      console.log(`[DomainTool] Token ${nftTokenId} not associated — prompting association`)
+      this.statusMessage = 'Associating domain NFT — approve in wallet...'
+      this.refresh()
+
+      const client  = getHederaClient()
+      const acctId  = AccountId.fromString(accountId)
+      const assocTx = new TokenAssociateTransaction()
+        .setAccountId(acctId)
+        .setTokenIds([TokenId.fromString(nftTokenId)])
+        .setTransactionId(TransactionId.generate(acctId))
+        .freezeWith(client)
+
+      await assocTx.executeWithSigner(signer)
+      console.log(`[DomainTool] Token ${nftTokenId} successfully associated with ${accountId}`)
+    } else {
+      console.log(`[DomainTool] Token ${nftTokenId} already associated with ${accountId}`)
+    }
+  }
+
   // ─── HELPERS ───────────────────────────────────────────────
 
   private static escapeHtml(s: string): string {
@@ -368,7 +403,12 @@ export class DomainTool {
       const client    = getHederaClient()
       const tinybars  = Math.ceil(r.priceHbar! * 1e8)
 
-      // Step 1: Send HBAR payment to the registry fee account
+      // Step 1: Ensure wallet is associated with the domain NFT token
+      if (r.nftTokenId) {
+        await this.checkAndAssociateToken(r.nftTokenId, accountId, signer)
+      }
+
+      // Step 2: Send HBAR payment to the registry fee account
       this.statusMessage = 'Sending payment — approve in wallet...'
       this.refresh()
 
@@ -430,6 +470,16 @@ export class DomainTool {
     this.refresh()
 
     try {
+      const signer = WalletConnectService.getSigner(ws.accountId)
+
+      // Ensure wallet is associated with the domain NFT token before transfer
+      if (r.nftTokenId) {
+        await this.checkAndAssociateToken(r.nftTokenId, ws.accountId, signer)
+      }
+
+      this.statusMessage = 'Registering domain (admin — no payment required)...'
+      this.refresh()
+
       const res = await fetch(`${API_BASE_URL}/api/domains/register`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
