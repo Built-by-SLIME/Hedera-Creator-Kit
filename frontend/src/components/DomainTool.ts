@@ -22,6 +22,8 @@ interface CheckResult {
   priceHbar: number | null
   hbarPriceUsd: number | null
   feeAccount: string | null
+  operatorAccount: string | null
+  networkFeeHbar: number | null
   nftTokenId: string | null
 }
 
@@ -166,13 +168,18 @@ export class DomainTool {
 
   private static renderConfirmModal(): string {
     const r = this.checkResult!
+    const networkFee = r.networkFeeHbar ?? 0.5
+    const totalHbar  = ((r.priceHbar ?? 0) + networkFee).toFixed(4)
     return `
       <div class="burn-confirm-overlay" id="domain-confirm-overlay">
         <div class="burn-confirm-card" style="border-color:rgba(107,255,158,0.4);box-shadow:0 0 60px rgba(107,255,158,0.15)">
           <div class="burn-confirm-icon">◆</div>
           <div class="burn-confirm-title" style="color:#6bff9e">Register ${this.escapeHtml(r.name)}.${r.tld}?</div>
           <div class="burn-confirm-details">${r.years} year${r.years > 1 ? 's' : ''} — $${r.priceUsd} USD (~${r.priceHbar?.toFixed(4)} ℏ)</div>
-          <div class="burn-confirm-warning" style="color:rgba(107,255,158,0.7)">⚠ This will send <strong>~${r.priceHbar?.toFixed(4)} HBAR</strong> to the registry fee account. The backend will verify payment and publish your registration to the HCS topic.</div>
+          <div class="burn-confirm-warning" style="color:rgba(107,255,158,0.7)">⚠ This will send <strong>~${totalHbar} ℏ total</strong> in one transaction:<br/>
+            &nbsp;• ~${r.priceHbar?.toFixed(4)} ℏ → registry fee<br/>
+            &nbsp;• ${networkFee} ℏ → network fee cover (mint + transfer + HCS)<br/>
+            The backend will verify both transfers before publishing your registration to HCS.</div>
           <hr class="burn-confirm-divider" style="border-color:rgba(107,255,158,0.2)" />
           <div class="burn-confirm-buttons">
             <button class="terminal-button secondary" id="domain-confirm-cancel">Cancel</button>
@@ -408,13 +415,18 @@ export class DomainTool {
         await this.checkAndAssociateToken(r.nftTokenId, accountId, signer)
       }
 
-      // Step 2: Send HBAR payment to the registry fee account
+      // Step 2: Send HBAR payment — domain fee to registry + 0.5 ℏ to operator for network costs
       this.statusMessage = 'Sending payment — approve in wallet...'
       this.refresh()
 
+      const networkFeeTinybars = Math.ceil((r.networkFeeHbar ?? 0.5) * 1e8)
+      const operatorAccount    = r.operatorAccount ?? r.feeAccount! // fallback: same wallet
+      const totalDebit         = tinybars + networkFeeTinybars
+
       const payTx = new TransferTransaction()
-        .addHbarTransfer(acctId, Hbar.fromTinybars(-tinybars))
-        .addHbarTransfer(AccountId.fromString(r.feeAccount), Hbar.fromTinybars(tinybars))
+        .addHbarTransfer(acctId, Hbar.fromTinybars(-totalDebit))
+        .addHbarTransfer(AccountId.fromString(r.feeAccount!), Hbar.fromTinybars(tinybars))
+        .addHbarTransfer(AccountId.fromString(operatorAccount), Hbar.fromTinybars(networkFeeTinybars))
         .setTransactionMemo(`domain:${r.name}.${r.tld}:${r.years}yr`)
         .setTransactionId(TransactionId.generate(acctId))
         .freezeWith(client)

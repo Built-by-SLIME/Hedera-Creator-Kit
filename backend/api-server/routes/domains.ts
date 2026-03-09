@@ -23,6 +23,7 @@ const DOMAIN_ADMIN_KEY    = process.env.DOMAIN_ADMIN_KEY;         // protects in
 const DOMAIN_ADMIN_ACCOUNT = process.env.DOMAIN_ADMIN_ACCOUNT;   // treasury wallet — free registrations
 const DOMAIN_FEE_ACCOUNT  = process.env.DOMAIN_FEE_ACCOUNT || BACKEND_ACCOUNT_ID;
 const MIRROR_NODE_URL     = 'https://mainnet-public.mirrornode.hedera.com';
+const NETWORK_FEE_TINYBARS = BigInt(50_000_000); // 0.5 HBAR — flat reimbursement to operator for mint/transfer/HCS fees
 
 // ─── Domain NFT config ────────────────────────────────────────────────────────
 const DOMAIN_NFT_TOKEN_ID      = process.env.DOMAIN_NFT_TOKEN_ID;      // e.g. 0.0.10354981
@@ -445,7 +446,9 @@ export async function checkDomain(req: Request, res: Response): Promise<void> {
     res.json({
       success: true, available, name, tld, years,
       owner, expiresAt, priceUsd, priceHbar, hbarPriceUsd,
-      feeAccount: DOMAIN_FEE_ACCOUNT ?? null,
+      feeAccount:     DOMAIN_FEE_ACCOUNT ?? null,
+      operatorAccount: BACKEND_ACCOUNT_ID ?? null,
+      networkFeeHbar:  0.5,
       nftTokenId: DOMAIN_NFT_TOKEN_ID ?? null,
     });
   } catch (err: any) {
@@ -538,10 +541,29 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       // Verify HBAR payment on Mirror Node
       const expectedTiny = BigInt(Math.floor(priceHbar * 1e8));
       const minTiny      = (expectedTiny * BigInt(95)) / BigInt(100); // 5% tolerance
-      const verification = await verifyHbarPayment(effectivePaymentTxId, DOMAIN_FEE_ACCOUNT!, minTiny);
-      if (!verification.valid) {
-        res.status(400).json({ success: false, error: `Payment verification failed: ${verification.reason}` });
-        return;
+
+      if (DOMAIN_FEE_ACCOUNT === BACKEND_ACCOUNT_ID) {
+        // Same wallet receives both domain fee and operator reimbursement —
+        // verify the combined amount landed in the one account.
+        const verification = await verifyHbarPayment(effectivePaymentTxId, DOMAIN_FEE_ACCOUNT!, minTiny + NETWORK_FEE_TINYBARS);
+        if (!verification.valid) {
+          res.status(400).json({ success: false, error: `Payment verification failed: ${verification.reason}` });
+          return;
+        }
+      } else {
+        // Separate wallets — verify each leg independently.
+        const verification = await verifyHbarPayment(effectivePaymentTxId, DOMAIN_FEE_ACCOUNT!, minTiny);
+        if (!verification.valid) {
+          res.status(400).json({ success: false, error: `Payment verification failed: ${verification.reason}` });
+          return;
+        }
+        if (BACKEND_ACCOUNT_ID) {
+          const opVerification = await verifyHbarPayment(effectivePaymentTxId, BACKEND_ACCOUNT_ID, NETWORK_FEE_TINYBARS);
+          if (!opVerification.valid) {
+            res.status(400).json({ success: false, error: `Network fee verification failed: ${opVerification.reason}` });
+            return;
+          }
+        }
       }
     } else {
       console.log(`[registerDomain] Admin registration by ${ownerAccountId} — payment skipped`);
