@@ -24,8 +24,10 @@ const DOMAIN_FEE_ACCOUNT  = process.env.DOMAIN_FEE_ACCOUNT || BACKEND_ACCOUNT_ID
 const MIRROR_NODE_URL     = 'https://mainnet-public.mirrornode.hedera.com';
 
 // ─── Domain NFT config ────────────────────────────────────────────────────────
-const DOMAIN_NFT_TOKEN_ID   = process.env.DOMAIN_NFT_TOKEN_ID;   // e.g. 0.0.10354981
-const DOMAIN_NFT_SUPPLY_KEY = process.env.DOMAIN_NFT_SUPPLY_KEY; // supply key for minting
+const DOMAIN_NFT_TOKEN_ID      = process.env.DOMAIN_NFT_TOKEN_ID;      // e.g. 0.0.10354981
+const DOMAIN_NFT_SUPPLY_KEY    = process.env.DOMAIN_NFT_SUPPLY_KEY;    // supply key for minting
+const DOMAIN_NFT_TREASURY_ID   = process.env.DOMAIN_NFT_TREASURY_ID;   // treasury that holds minted NFTs (0.0.9463056)
+const DOMAIN_NFT_TREASURY_KEY  = process.env.DOMAIN_NFT_TREASURY_KEY;  // private key for that treasury account
 const PINATA_API_KEY        = process.env.PINATA_API_KEY;
 const PINATA_API_SECRET     = process.env.PINATA_API_SECRET;
 // Base logo image pinned to IPFS — fetched once and cached in memory
@@ -204,16 +206,20 @@ async function mintAndTransferDomainNft(
   console.log(`[domains] Minted serial #${serial} for ${domain}`);
 
   // 4. Transfer from treasury to registrant
-  const operatorKey = getOperatorKey();
+  // Minted NFTs land in the token's treasury account — transfer must originate there.
+  const treasuryId  = DOMAIN_NFT_TREASURY_ID || BACKEND_ACCOUNT_ID!;
+  const treasuryKey = DOMAIN_NFT_TREASURY_KEY
+    ? PrivateKey.fromString(DOMAIN_NFT_TREASURY_KEY)
+    : getOperatorKey();
   const transferTx  = await new TransferTransaction()
     .addNftTransfer(
       TokenId.fromString(DOMAIN_NFT_TOKEN_ID!),
       serial,
-      AccountId.fromString(BACKEND_ACCOUNT_ID!),
+      AccountId.fromString(treasuryId),
       AccountId.fromString(toAccountId)
     )
     .freezeWith(client)
-    .sign(operatorKey);
+    .sign(treasuryKey);
   const transferRes = await transferTx.execute(client);
   await transferRes.getReceipt(client);
   console.log(`[domains] NFT serial #${serial} transferred to ${toAccountId}`);
