@@ -137,16 +137,10 @@ export class CreateCollection {
           <div class="input-group"><label for="cc-symbol">Symbol *</label><input type="text" id="cc-symbol" class="token-input" placeholder="MYNFT" value="${this.escapeHtml(this.symbol)}" /></div>
           <div class="input-group">
             <label>Supply Type *</label>
-            <div class="cc-supply-toggle">
-              <label class="cc-radio-label">
-                <input type="radio" name="cc-supply-type" value="finite" ${this.supplyType === 'finite' ? 'checked' : ''} />
-                Finite
-              </label>
-              <label class="cc-radio-label">
-                <input type="radio" name="cc-supply-type" value="infinite" ${this.supplyType === 'infinite' ? 'checked' : ''} />
-                Infinite ♾️
-              </label>
-            </div>
+            <select id="cc-supply-type" class="token-input">
+              <option value="finite"   ${this.supplyType === 'finite'   ? 'selected' : ''}>Finite</option>
+              <option value="infinite" ${this.supplyType === 'infinite' ? 'selected' : ''}>Infinite ♾️</option>
+            </select>
           </div>
         </div>
         ${this.supplyType === 'finite' ? `
@@ -528,12 +522,11 @@ export class CreateCollection {
     symbolInput?.addEventListener('input', () => { this.symbol = symbolInput.value; this.refreshPreview(); });
     descInput?.addEventListener('input', () => { this.description = descInput.value; this.refreshPreview(); });
 
-    // Supply type toggle — re-renders form section to show/hide max supply input
-    document.querySelectorAll('input[name="cc-supply-type"]').forEach((radio) => {
-      radio.addEventListener('change', (e) => {
-        this.supplyType = (e.target as HTMLInputElement).value as 'finite' | 'infinite';
-        this.refresh();
-      });
+    // Supply type dropdown — re-renders form section to show/hide max supply input
+    const supplyTypeSelect = document.getElementById('cc-supply-type') as HTMLSelectElement;
+    supplyTypeSelect?.addEventListener('change', () => {
+      this.supplyType = supplyTypeSelect.value as 'finite' | 'infinite';
+      this.refresh();
     });
 
     // Max supply input — only present when supply type is finite
