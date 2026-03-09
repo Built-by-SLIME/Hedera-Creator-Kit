@@ -15,7 +15,7 @@ import sharp from 'sharp';
 import axios from 'axios';
 import FormData from 'form-data';
 import { pool } from '../db';
-import path from 'path';
+
 
 const BACKEND_ACCOUNT_ID  = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
@@ -85,55 +85,13 @@ async function getBaseImage(): Promise<Buffer> {
 }
 
 /**
- * Generates a domain-specific NFT image by overlaying the domain name across
- * the top of the base SLIME graphic.
- *
- * Uses Sharp's native `text` input (Pango + FreeType) with an explicit
- * `fontfile` path — no librsvg, no system fontconfig needed.
+ * Returns the base SLIME graphic as the domain NFT image.
+ * The domain name is already set as the NFT's on-chain name, making it
+ * visible in wallets and secondary markets without needing a text overlay.
  */
-async function generateDomainImage(domain: string): Promise<Buffer> {
+async function generateDomainImage(_domain: string): Promise<Buffer> {
   const base = await getBaseImage();
-  const meta = await sharp(base).metadata();
-  const W    = meta.width  ?? 1042;
-  const H    = meta.height ?? 1042;
-  const barH = Math.round(H * 0.11); // ~114px dark bar at top
-
-  // Scale font size down for longer domain names
-  const len      = domain.length;
-  const fontSize = len <= 8 ? 72 : len <= 12 ? 60 : len <= 16 ? 48 : len <= 22 ? 38 : 30;
-
-  // ts-node: __dirname = api-server/routes/ → one level up to api-server/assets/
-  const fontPath = path.join(__dirname, '../assets/Roboto-Bold.ttf');
-
-  // 1. Dark semi-transparent bar
-  const barBuffer = await sharp({
-    create: { width: W, height: barH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0.68 } },
-  }).png().toBuffer();
-
-  // 2. White text rendered by Pango using the bundled TTF — no fontconfig needed
-  const textBuffer = await sharp({
-    text: {
-      text:     `<span foreground="white">${domain}</span>`,
-      font:     `Roboto Bold ${fontSize}`,
-      fontfile: fontPath,
-      width:    W,
-      rgba:     true,
-      align:    'centre',
-    },
-  }).png().toBuffer();
-
-  // Vertically centre the text within the bar
-  const textMeta = await sharp(textBuffer).metadata();
-  const textTop  = Math.max(0, Math.round((barH - (textMeta.height ?? fontSize)) / 2));
-
-  // 3. Composite: base → bar → centred text
-  return sharp(base)
-    .composite([
-      { input: barBuffer,  top: 0,       left: 0 },
-      { input: textBuffer, top: textTop, left: 0 },
-    ])
-    .png()
-    .toBuffer();
+  return sharp(base).png().toBuffer();
 }
 
 /** Uploads a Buffer to Pinata and returns the IPFS CID. */
