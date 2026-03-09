@@ -28,9 +28,9 @@ const DOMAIN_NFT_TOKEN_ID   = process.env.DOMAIN_NFT_TOKEN_ID;   // e.g. 0.0.103
 const DOMAIN_NFT_SUPPLY_KEY = process.env.DOMAIN_NFT_SUPPLY_KEY; // supply key for minting
 const PINATA_API_KEY        = process.env.PINATA_API_KEY;
 const PINATA_API_SECRET     = process.env.PINATA_API_SECRET;
-// Base image already pinned to IPFS — fetched once and cached in memory
+// Base logo image pinned to IPFS — fetched once and cached in memory
 const DOMAIN_BASE_IMAGE_CID = process.env.DOMAIN_NFT_BASE_IMAGE_CID
-  || 'QmZvBcrqrAJp5rhzsxWniZzT4veZasEjSQF4s7ScxKPCaD';
+  || 'QmZ3LyEANVuKBjPtjCvKBMTEV2rqWrB8VS839wTbS1hyZp';
 
 const SUPPORTED_TLDS = ['hedera', 'slime', 'gib'] as const;
 type SupportedTld = typeof SUPPORTED_TLDS[number];
