@@ -494,10 +494,13 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
     }
 
     // Check domain is still available — source of truth is HCS, not the DB
-    const hcsExisting = await resolveFromHcs(name, tld as SupportedTld);
-    if (hcsExisting !== null) {
-      res.status(409).json({ success: false, error: `${name}.${tld} was just registered by someone else` });
-      return;
+    // Admin can override (e.g. NFT was burned, re-registering the same name)
+    if (!isAdmin) {
+      const hcsExisting = await resolveFromHcs(name, tld as SupportedTld);
+      if (hcsExisting !== null) {
+        res.status(409).json({ success: false, error: `${name}.${tld} is already registered` });
+        return;
+      }
     }
 
     // Calculate price (always, for HCS message record-keeping)
