@@ -29,6 +29,8 @@ import {
   initTopics,
   checkDomain,
   registerDomain,
+  transferDomain,
+  renewDomain,
   resolveDomain,
   purgeRegistrations,
 } from './routes/domains';
@@ -163,6 +165,8 @@ app.post('/api/swap-programs/:id/execute', (req, res, next) => executeSwap(req, 
 app.post('/api/domains/init-topics',                  (req, res, next) => initTopics(req, res).catch(next));
 app.get('/api/domains/check',                         (req, res, next) => checkDomain(req, res).catch(next));
 app.post('/api/domains/register',                     (req, res, next) => registerDomain(req, res).catch(next));
+app.post('/api/domains/transfer',                     (req, res, next) => transferDomain(req, res).catch(next));
+app.post('/api/domains/renew',                        (req, res, next) => renewDomain(req, res).catch(next));
 app.get('/api/domains/resolve/:name/:tld',            (req, res, next) => resolveDomain(req, res).catch(next));
 app.post('/api/domains/admin/purge-registrations',    (req, res, next) => purgeRegistrations(req, res).catch(next));
 

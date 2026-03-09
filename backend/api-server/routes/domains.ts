@@ -658,6 +658,271 @@ export async function purgeRegistrations(req: Request, res: Response): Promise<v
   }
 }
 
+// ─── PUBLIC: Transfer Domain ─────────────────────────────────────────────────
+
+/**
+ * POST /api/domains/transfer
+ * Body: { name, tld, newOwnerAccountId }
+ *
+ * Called after an NFT sale on a secondary market. The new owner supplies their
+ * account ID. The backend:
+ *   1. Resolves the current HCS state to find the NFT serial for this domain.
+ *   2. Checks the Mirror Node to confirm the caller's wallet now holds that serial.
+ *   3. Submits a `transfer` HCS message pointing to the new owner.
+ *
+ * No HBAR payment required — the caller only needs to hold the NFT.
+ * The backend signs and pays the tiny HCS submit fee (~0.009 HBAR).
+ */
+export async function transferDomain(req: Request, res: Response): Promise<void> {
+  try {
+    const { name, tld, newOwnerAccountId } = req.body;
+
+    if (!name || !tld || !newOwnerAccountId) {
+      res.status(400).json({ success: false, error: 'name, tld, and newOwnerAccountId are required' });
+      return;
+    }
+    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
+      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
+      return;
+    }
+
+    const topicId = getTopicId(tld as SupportedTld);
+    if (!topicId) {
+      res.status(503).json({ success: false, error: `HCS topic for .${tld} is not configured` });
+      return;
+    }
+
+    // Step 1 — resolve current HCS state to get the NFT serial
+    const current = await resolveFromHcs(name, tld as SupportedTld);
+    if (!current) {
+      res.status(404).json({ success: false, error: `${name}.${tld} is not registered or has expired` });
+      return;
+    }
+    if (current.nft_serial == null || !current.nft_token_id) {
+      res.status(422).json({ success: false, error: `${name}.${tld} has no NFT record on HCS — cannot verify ownership` });
+      return;
+    }
+
+    // Step 2 — confirm the new owner currently holds the NFT on Mirror Node
+    const nftUrl = `${MIRROR_NODE_URL}/api/v1/tokens/${current.nft_token_id}/nfts/${current.nft_serial}`;
+    let nftHolder: string;
+    try {
+      const nftResp = await axios.get<{ account_id: string }>(nftUrl);
+      nftHolder = nftResp.data.account_id;
+    } catch {
+      res.status(503).json({ success: false, error: 'Could not verify NFT ownership via Mirror Node' });
+      return;
+    }
+
+    if (nftHolder !== newOwnerAccountId) {
+      res.status(403).json({
+        success:     false,
+        error:       `NFT serial ${current.nft_serial} is held by ${nftHolder}, not ${newOwnerAccountId}`,
+        nftHolder,
+      });
+      return;
+    }
+
+    // Step 3 — submit transfer HCS message
+    const client      = getOperatorClient();
+    const operatorKey = getOperatorKey();
+
+    const hcsMessage = JSON.stringify({
+      action:        'transfer',
+      name,
+      tld,
+      new_owner:     newOwnerAccountId,
+      prev_owner:    current.owner ?? current.new_owner,
+      nft_token_id:  current.nft_token_id,
+      nft_serial:    current.nft_serial,
+      expires_at:    current.expires_at,
+      transferred_at: new Date().toISOString(),
+    });
+
+    const submitTx = await new TopicMessageSubmitTransaction()
+      .setTopicId(TopicId.fromString(topicId))
+      .setMessage(hcsMessage)
+      .freezeWith(client)
+      .sign(operatorKey);
+    const submitResponse = await submitTx.execute(client);
+    const submitReceipt  = await submitResponse.getReceipt(client);
+    const sequenceNumber = submitReceipt.topicSequenceNumber?.toString() ?? null;
+
+    // Also update the DB cache
+    await pool.query(
+      `UPDATE domain_registrations
+          SET owner_account_id     = $1,
+              hcs_sequence_number  = $2,
+              updated_at           = NOW()
+        WHERE name = $3 AND tld = $4 AND status = 'active'`,
+      [newOwnerAccountId, sequenceNumber, name, tld]
+    );
+
+    res.json({
+      success:           true,
+      domain:            `${name}.${tld}`,
+      newOwner:          newOwnerAccountId,
+      hcsTopicId:        topicId,
+      hcsSequenceNumber: sequenceNumber,
+    });
+  } catch (err: any) {
+    console.error('[transferDomain] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── PUBLIC: Renew Domain ────────────────────────────────────────────────────
+
+/**
+ * POST /api/domains/renew
+ * Body: { name, tld, ownerAccountId, years, paymentTxId }
+ *
+ * Renews an active (or recently-expired) domain by:
+ *   1. Verifying the HBAR renewal payment on Mirror Node (same fee structure as registration).
+ *   2. Submitting a `renew` HCS message with the updated expiry.
+ *   3. Updating the DB cache.
+ *
+ * The caller must be the current owner according to HCS.
+ */
+export async function renewDomain(req: Request, res: Response): Promise<void> {
+  try {
+    const { name, tld, ownerAccountId, years: yearsRaw, paymentTxId } = req.body;
+
+    if (!name || !tld || !ownerAccountId || !paymentTxId) {
+      res.status(400).json({ success: false, error: 'name, tld, ownerAccountId, years, and paymentTxId are required' });
+      return;
+    }
+    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
+      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
+      return;
+    }
+
+    const years = parseInt(yearsRaw || '1');
+    if (![1, 3, 5, 10].includes(years)) {
+      res.status(400).json({ success: false, error: 'years must be 1, 3, 5, or 10' });
+      return;
+    }
+
+    const topicId = getTopicId(tld as SupportedTld);
+    if (!topicId) {
+      res.status(503).json({ success: false, error: `HCS topic for .${tld} is not configured` });
+      return;
+    }
+
+    // Step 1 — resolve current HCS state
+    // Note: we allow recently-expired domains to be renewed too, so we call
+    // fetchAllTopicMessages directly and check without the expiry filter.
+    const rawMessages = await fetchAllTopicMessages(topicId);
+    const domainRecords: HcsDomainRecord[] = [];
+    for (const msg of rawMessages) {
+      try {
+        const text   = Buffer.from(msg.message, 'base64').toString('utf-8');
+        const parsed = JSON.parse(text) as HcsDomainRecord;
+        if (parsed.name?.toLowerCase() === name.toLowerCase() && parsed.tld?.toLowerCase() === tld.toLowerCase()) {
+          parsed.sequence_number = msg.sequence_number;
+          domainRecords.push(parsed);
+        }
+      } catch { /* skip */ }
+    }
+
+    if (domainRecords.length === 0) {
+      res.status(404).json({ success: false, error: `${name}.${tld} has never been registered` });
+      return;
+    }
+    domainRecords.sort((a, b) => b.sequence_number - a.sequence_number);
+    const current = domainRecords[0];
+    const currentOwner = current.new_owner ?? current.owner;
+
+    // Only current owner may renew
+    if (currentOwner !== ownerAccountId) {
+      res.status(403).json({ success: false, error: `Only the current owner (${currentOwner}) can renew this domain` });
+      return;
+    }
+
+    // Step 2 — guard against payment replay
+    const usedTx = await pool.query('SELECT id FROM domain_registrations WHERE payment_tx_id = $1', [paymentTxId]);
+    if (usedTx.rowCount && usedTx.rowCount > 0) {
+      res.status(409).json({ success: false, error: 'This payment transaction has already been used' });
+      return;
+    }
+
+    // Step 3 — verify renewal payment (same fee structure as registration)
+    const isPremium    = isPremiumName(name);
+    const annualUsd    = getAnnualUsdPrice(name, isPremium);
+    const priceUsd     = annualUsd * years;
+    const hbarPriceUsd = await getHbarPriceUsd();
+    const priceHbar    = priceUsd / hbarPriceUsd;
+    const expectedTiny = BigInt(Math.floor(priceHbar * 1e8));
+    const minTiny      = (expectedTiny * BigInt(95)) / BigInt(100);
+
+    if (DOMAIN_FEE_ACCOUNT === BACKEND_ACCOUNT_ID) {
+      const v = await verifyHbarPayment(paymentTxId, DOMAIN_FEE_ACCOUNT!, minTiny + NETWORK_FEE_TINYBARS);
+      if (!v.valid) { res.status(400).json({ success: false, error: `Payment verification failed: ${v.reason}` }); return; }
+    } else {
+      const v = await verifyHbarPayment(paymentTxId, DOMAIN_FEE_ACCOUNT!, minTiny);
+      if (!v.valid) { res.status(400).json({ success: false, error: `Payment verification failed: ${v.reason}` }); return; }
+      if (BACKEND_ACCOUNT_ID) {
+        const ov = await verifyHbarPayment(paymentTxId, BACKEND_ACCOUNT_ID, NETWORK_FEE_TINYBARS);
+        if (!ov.valid) { res.status(400).json({ success: false, error: `Network fee verification failed: ${ov.reason}` }); return; }
+      }
+    }
+
+    // Step 4 — compute new expiry (extend from now or from current expiry, whichever is later)
+    const baseDate  = current.expires_at && new Date(current.expires_at) > new Date()
+      ? new Date(current.expires_at)
+      : new Date();
+    const newExpiry = new Date(baseDate);
+    newExpiry.setFullYear(newExpiry.getFullYear() + years);
+
+    // Step 5 — submit renew HCS message
+    const client      = getOperatorClient();
+    const operatorKey = getOperatorKey();
+
+    const hcsMessage = JSON.stringify({
+      action:        'renew',
+      name, tld,
+      owner:         currentOwner,
+      years,
+      prev_expires_at: current.expires_at,
+      expires_at:    newExpiry.toISOString(),
+      payment_tx:    paymentTxId,
+      ...(current.nft_token_id && { nft_token_id: current.nft_token_id, nft_serial: current.nft_serial }),
+    });
+
+    const submitTx = await new TopicMessageSubmitTransaction()
+      .setTopicId(TopicId.fromString(topicId))
+      .setMessage(hcsMessage)
+      .freezeWith(client)
+      .sign(operatorKey);
+    const submitResponse = await submitTx.execute(client);
+    const submitReceipt  = await submitResponse.getReceipt(client);
+    const sequenceNumber = submitReceipt.topicSequenceNumber?.toString() ?? null;
+
+    // Update DB cache
+    await pool.query(
+      `UPDATE domain_registrations
+          SET expires_at          = $1,
+              hcs_sequence_number = $2,
+              payment_tx_id       = $3,
+              updated_at          = NOW()
+        WHERE name = $4 AND tld = $5 AND status = 'active'`,
+      [newExpiry.toISOString(), sequenceNumber, paymentTxId, name, tld]
+    );
+
+    res.json({
+      success: true,
+      domain:  `${name}.${tld}`,
+      owner:   currentOwner,
+      newExpiresAt:      newExpiry.toISOString(),
+      hcsTopicId:        topicId,
+      hcsSequenceNumber: sequenceNumber,
+    });
+  } catch (err: any) {
+    console.error('[renewDomain] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // ─── PUBLIC: Resolve Domain ───────────────────────────────────────────────────
 
 interface HcsMessage {
