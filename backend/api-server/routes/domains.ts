@@ -5,7 +5,15 @@ import {
   TopicCreateTransaction,
   TopicMessageSubmitTransaction,
   TopicId,
+  TokenMintTransaction,
+  TokenId,
+  AccountId,
+  TransferTransaction,
+  Hbar,
 } from '@hashgraph/sdk';
+import sharp from 'sharp';
+import axios from 'axios';
+import FormData from 'form-data';
 import { pool } from '../db';
 
 const BACKEND_ACCOUNT_ID  = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
@@ -14,6 +22,15 @@ const DOMAIN_ADMIN_KEY    = process.env.DOMAIN_ADMIN_KEY;         // protects in
 const DOMAIN_ADMIN_ACCOUNT = process.env.DOMAIN_ADMIN_ACCOUNT;   // treasury wallet — free registrations
 const DOMAIN_FEE_ACCOUNT  = process.env.DOMAIN_FEE_ACCOUNT || BACKEND_ACCOUNT_ID;
 const MIRROR_NODE_URL     = 'https://mainnet-public.mirrornode.hedera.com';
+
+// ─── Domain NFT config ────────────────────────────────────────────────────────
+const DOMAIN_NFT_TOKEN_ID   = process.env.DOMAIN_NFT_TOKEN_ID;   // e.g. 0.0.10354981
+const DOMAIN_NFT_SUPPLY_KEY = process.env.DOMAIN_NFT_SUPPLY_KEY; // supply key for minting
+const PINATA_API_KEY        = process.env.PINATA_API_KEY;
+const PINATA_API_SECRET     = process.env.PINATA_API_SECRET;
+// Base image already pinned to IPFS — fetched once and cached in memory
+const DOMAIN_BASE_IMAGE_CID = process.env.DOMAIN_NFT_BASE_IMAGE_CID
+  || 'QmZvBcrqrAJp5rhzsxWniZzT4veZasEjSQF4s7ScxKPCaD';
 
 const SUPPORTED_TLDS = ['hedera', 'slime', 'gib'] as const;
 type SupportedTld = typeof SUPPORTED_TLDS[number];
@@ -40,6 +57,166 @@ function getOperatorKey(): PrivateKey {
 
 function getTopicId(tld: SupportedTld): string | undefined {
   return process.env[`DOMAIN_TOPIC_ID_${tld.toUpperCase()}`];
+}
+
+function getDomainSupplyKey(): PrivateKey {
+  if (!DOMAIN_NFT_SUPPLY_KEY) throw new Error('DOMAIN_NFT_SUPPLY_KEY is not configured');
+  try { return PrivateKey.fromStringECDSA(DOMAIN_NFT_SUPPLY_KEY); }
+  catch { return PrivateKey.fromStringED25519(DOMAIN_NFT_SUPPLY_KEY); }
+}
+
+// ─── Domain NFT helpers ────────────────────────────────────────────────────
+
+let _baseImageCache: Buffer | null = null;
+
+/** Fetches the base SLIME graphic from IPFS (cached in memory after first call). */
+async function getBaseImage(): Promise<Buffer> {
+  if (_baseImageCache) return _baseImageCache;
+  const url = `https://gateway.pinata.cloud/ipfs/${DOMAIN_BASE_IMAGE_CID}`;
+  const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 15_000 });
+  _baseImageCache = Buffer.from(res.data as ArrayBuffer);
+  console.log('[domains] Base image fetched from IPFS and cached');
+  return _baseImageCache;
+}
+
+/**
+ * Generates a domain-specific NFT image by overlaying the domain name across
+ * the top of the base SLIME graphic.
+ */
+async function generateDomainImage(domain: string): Promise<Buffer> {
+  const base = await getBaseImage();
+  const meta = await sharp(base).metadata();
+  const W = meta.width  ?? 1042;
+  const H = meta.height ?? 1042;
+  const barH = Math.round(H * 0.11); // ~114px bar at top
+
+  // Scale font down for longer names
+  const len = domain.length;
+  const fontSize = len <= 8 ? 72 : len <= 12 ? 60 : len <= 16 ? 48 : len <= 22 ? 38 : 30;
+
+  const svg = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+       <rect x="0" y="0" width="${W}" height="${barH}" fill="rgba(0,0,0,0.68)"/>
+       <text x="${W / 2}" y="${barH / 2}"
+             font-family="Arial, Helvetica, sans-serif"
+             font-size="${fontSize}"
+             font-weight="bold"
+             fill="white"
+             text-anchor="middle"
+             dominant-baseline="middle">${domain}</text>
+     </svg>`
+  );
+
+  return sharp(base)
+    .composite([{ input: svg, blend: 'over' }])
+    .png()
+    .toBuffer();
+}
+
+/** Uploads a Buffer to Pinata and returns the IPFS CID. */
+async function pinBufferToPinata(buf: Buffer, filename: string, label: string): Promise<string> {
+  if (!PINATA_API_KEY || !PINATA_API_SECRET) throw new Error('Pinata credentials not configured');
+  const form = new FormData();
+  form.append('file', buf, { filename, contentType: 'image/png' });
+  form.append('pinataMetadata', JSON.stringify({ name: label }));
+  const res = await axios.post('https://api.pinata.cloud/pinning/pinFileToIPFS', form, {
+    maxBodyLength: Infinity,
+    headers: {
+      ...form.getHeaders(),
+      pinata_api_key: PINATA_API_KEY,
+      pinata_secret_api_key: PINATA_API_SECRET,
+    },
+  });
+  return res.data.IpfsHash as string;
+}
+
+/** Uploads a JSON object to Pinata and returns the IPFS CID. */
+async function pinJsonToPinata(obj: object, label: string): Promise<string> {
+  if (!PINATA_API_KEY || !PINATA_API_SECRET) throw new Error('Pinata credentials not configured');
+  const form = new FormData();
+  form.append('file', Buffer.from(JSON.stringify(obj, null, 2)), {
+    filename: `${label.replace(/[^a-zA-Z0-9]/g, '_')}.json`,
+    contentType: 'application/json',
+  });
+  form.append('pinataMetadata', JSON.stringify({ name: label }));
+  const res = await axios.post('https://api.pinata.cloud/pinning/pinFileToIPFS', form, {
+    maxBodyLength: Infinity,
+    headers: {
+      ...form.getHeaders(),
+      pinata_api_key: PINATA_API_KEY,
+      pinata_secret_api_key: PINATA_API_SECRET,
+    },
+  });
+  return res.data.IpfsHash as string;
+}
+
+/**
+ * Generates the NFT image, uploads both image and metadata to IPFS, mints
+ * a new serial on the domain collection, and transfers it to the registrant.
+ * Returns the minted serial number.
+ */
+async function mintAndTransferDomainNft(
+  name: string, tld: string, years: number, toAccountId: string
+): Promise<number> {
+  const domain = `${name}.${tld}`;
+
+  // 1. Generate image
+  const imageBuffer = await generateDomainImage(domain);
+  const imageCid    = await pinBufferToPinata(imageBuffer, `${domain}.png`, `Domain NFT - ${domain}`);
+  console.log(`[domains] NFT image pinned: ${imageCid}`);
+
+  // 2. Build HIP-412 metadata
+  const metadata = {
+    name:        domain,
+    description: `Hedera Domain Name — ${domain}`,
+    image:       `ipfs://${imageCid}`,
+    type:        'image/png',
+    attributes: [
+      { trait_type: 'Domain',      value: domain },
+      { trait_type: 'TLD',         value: tld },
+      { trait_type: 'Name',        value: name },
+      { trait_type: 'Name Length', value: [...name].length },
+      { trait_type: 'Years',       value: years },
+    ],
+    format: 'HIP412@2.0.0',
+  };
+  const metadataCid = await pinJsonToPinata(metadata, `Domain NFT Metadata - ${domain}`);
+  console.log(`[domains] NFT metadata pinned: ${metadataCid}`);
+
+  // 3. Mint
+  const supplyKey  = getDomainSupplyKey();
+  const client     = getOperatorClient();
+  const mintTx     = await new TokenMintTransaction()
+    .setTokenId(DOMAIN_NFT_TOKEN_ID!)
+    .setMetadata([Buffer.from(`ipfs://${metadataCid}`)])
+    .setMaxTransactionFee(new Hbar(10))
+    .freezeWith(client)
+    .sign(supplyKey);
+  const mintRes     = await mintTx.execute(client);
+  const mintReceipt = await mintRes.getReceipt(client);
+  const rawSerial   = mintReceipt.serials?.[0];
+  if (!rawSerial) throw new Error('Mint transaction returned no serial');
+  const serial = typeof rawSerial === 'object' && 'low' in rawSerial
+    ? (rawSerial as any).low as number
+    : Number(rawSerial);
+  console.log(`[domains] Minted serial #${serial} for ${domain}`);
+
+  // 4. Transfer from treasury to registrant
+  const operatorKey = getOperatorKey();
+  const transferTx  = await new TransferTransaction()
+    .addNftTransfer(
+      TokenId.fromString(DOMAIN_NFT_TOKEN_ID!),
+      serial,
+      AccountId.fromString(BACKEND_ACCOUNT_ID!),
+      AccountId.fromString(toAccountId)
+    )
+    .freezeWith(client)
+    .sign(operatorKey);
+  const transferRes = await transferTx.execute(client);
+  await transferRes.getReceipt(client);
+  console.log(`[domains] NFT serial #${serial} transferred to ${toAccountId}`);
+
+  return serial;
 }
 
 // ─── Pricing ──────────────────────────────────────────────────────────────
@@ -366,10 +543,24 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       console.log(`[registerDomain] Admin registration by ${ownerAccountId} — payment skipped`);
     }
 
-    // Submit HCS registration message
     const expiresAt = new Date();
     expiresAt.setFullYear(expiresAt.getFullYear() + years);
 
+    // Mint + transfer domain NFT (if collection is configured)
+    let nftSerial: number | null = null;
+    if (DOMAIN_NFT_TOKEN_ID && DOMAIN_NFT_SUPPLY_KEY && PINATA_API_KEY && PINATA_API_SECRET) {
+      try {
+        nftSerial = await mintAndTransferDomainNft(name, tld, years, ownerAccountId);
+      } catch (nftErr: any) {
+        console.error('[registerDomain] NFT minting failed — aborting registration:', nftErr.message);
+        res.status(500).json({ success: false, error: `NFT minting failed: ${nftErr.message}` });
+        return;
+      }
+    } else {
+      console.warn('[registerDomain] Domain NFT config incomplete — skipping NFT mint');
+    }
+
+    // Submit HCS registration message
     const hcsMessage = JSON.stringify({
       action:     isAdmin ? 'admin-register' : 'register',
       name,
@@ -378,6 +569,10 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       years,
       expires_at: expiresAt.toISOString(),
       payment_tx: effectivePaymentTxId,
+      ...(nftSerial !== null && {
+        nft_token_id: DOMAIN_NFT_TOKEN_ID,
+        nft_serial:   nftSerial,
+      }),
     });
 
     const client      = getOperatorClient();
@@ -395,20 +590,26 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
     const dbResult = await pool.query(
       `INSERT INTO domain_registrations
          (name, tld, owner_account_id, years, expires_at, payment_tx_id,
-          hcs_topic_id, hcs_sequence_number, price_usd, price_hbar)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          hcs_topic_id, hcs_sequence_number, price_usd, price_hbar,
+          nft_token_id, nft_serial)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING *`,
       [name, tld, ownerAccountId, years, expiresAt.toISOString(),
-       effectivePaymentTxId, topicId, sequenceNumber, priceUsd, priceHbar]
+       effectivePaymentTxId, topicId, sequenceNumber, priceUsd, priceHbar,
+       DOMAIN_NFT_TOKEN_ID ?? null, nftSerial]
     );
 
-    console.log(`[registerDomain] Registered ${name}.${tld} for ${ownerAccountId} seq=${sequenceNumber}`);
+    console.log(`[registerDomain] Registered ${name}.${tld} for ${ownerAccountId} seq=${sequenceNumber} nftSerial=${nftSerial}`);
     res.json({
       success: true,
       domain: `${name}.${tld}`,
       registration: dbResult.rows[0],
       hcsTopicId: topicId,
       hcsSequenceNumber: sequenceNumber,
+      ...(nftSerial !== null && {
+        nftTokenId: DOMAIN_NFT_TOKEN_ID,
+        nftSerial,
+      }),
     });
   } catch (err: any) {
     console.error('[registerDomain] error:', err);

@@ -91,5 +91,12 @@ export async function initDb(): Promise<void> {
       ON domain_registrations (owner_account_id);
   `);
 
+  // Add NFT columns if they don't exist (idempotent migration)
+  await pool.query(`
+    ALTER TABLE domain_registrations
+      ADD COLUMN IF NOT EXISTS nft_token_id VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS nft_serial   BIGINT;
+  `);
+
   console.log('Database tables initialized');
 }
