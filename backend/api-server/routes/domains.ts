@@ -419,17 +419,11 @@ export async function checkDomain(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const existing = await pool.query(
-      `SELECT owner_account_id, expires_at
-       FROM domain_registrations
-       WHERE name = $1 AND tld = $2 AND status = 'active' AND expires_at > NOW()
-       LIMIT 1`,
-      [name, tld]
-    );
-
-    const available = existing.rowCount === 0;
-    const owner     = existing.rows[0]?.owner_account_id ?? null;
-    const expiresAt = existing.rows[0]?.expires_at ?? null;
+    // Availability is determined by HCS (Mirror Node), not the DB
+    const hcsRecord  = await resolveFromHcs(name, tld as SupportedTld);
+    const available  = hcsRecord === null;
+    const owner      = hcsRecord?.owner ?? hcsRecord?.new_owner ?? null;
+    const expiresAt  = hcsRecord?.expires_at ?? null;
 
     let priceUsd: number | null = null;
     let priceHbar: number | null = null;
@@ -504,13 +498,9 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Check domain is still available
-    const existing = await pool.query(
-      `SELECT id FROM domain_registrations
-       WHERE name = $1 AND tld = $2 AND status = 'active' AND expires_at > NOW()`,
-      [name, tld]
-    );
-    if (existing.rowCount && existing.rowCount > 0) {
+    // Check domain is still available — source of truth is HCS, not the DB
+    const hcsExisting = await resolveFromHcs(name, tld as SupportedTld);
+    if (hcsExisting !== null) {
       res.status(409).json({ success: false, error: `${name}.${tld} was just registered by someone else` });
       return;
     }
@@ -710,6 +700,47 @@ async function fetchAllTopicMessages(topicId: string): Promise<HcsMessage[]> {
 }
 
 /**
+ * Shared resolver: reads HCS topic messages for a given domain and returns
+ * the latest authoritative record, or null if not registered / expired.
+ * Used by both checkDomain (availability) and resolveDomain (resolution).
+ */
+async function resolveFromHcs(
+  name: string,
+  tld: SupportedTld,
+): Promise<HcsDomainRecord | null> {
+  const topicId = getTopicId(tld);
+  if (!topicId) return null;
+
+  const rawMessages = await fetchAllTopicMessages(topicId);
+  const domainRecords: HcsDomainRecord[] = [];
+
+  for (const msg of rawMessages) {
+    try {
+      const text   = Buffer.from(msg.message, 'base64').toString('utf-8');
+      const parsed = JSON.parse(text) as HcsDomainRecord;
+      if (
+        parsed.name?.toLowerCase() === name.toLowerCase() &&
+        parsed.tld?.toLowerCase()  === tld.toLowerCase()
+      ) {
+        parsed.sequence_number = msg.sequence_number;
+        domainRecords.push(parsed);
+      }
+    } catch { /* skip malformed */ }
+  }
+
+  if (domainRecords.length === 0) return null;
+
+  // Latest sequence number is authoritative
+  domainRecords.sort((a, b) => b.sequence_number - a.sequence_number);
+  const latest = domainRecords[0];
+
+  // Treat expired domains as not found
+  if (!latest.expires_at || new Date(latest.expires_at) <= new Date()) return null;
+
+  return latest;
+}
+
+/**
  * GET /api/domains/resolve/:name/:tld
  *
  * Reads the HCS topic for the given TLD directly from the Hedera Mirror Node,
@@ -735,48 +766,15 @@ export async function resolveDomain(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Pull every message from the topic
-    const rawMessages = await fetchAllTopicMessages(topicId);
+    const latest = await resolveFromHcs(name, tld as SupportedTld);
 
-    // Decode base64 → JSON, keep only messages for this domain
-    const domainRecords: HcsDomainRecord[] = [];
-    for (const msg of rawMessages) {
-      try {
-        const text   = Buffer.from(msg.message, 'base64').toString('utf-8');
-        const parsed = JSON.parse(text) as HcsDomainRecord;
-        if (
-          parsed.name?.toLowerCase()  === name.toLowerCase() &&
-          parsed.tld?.toLowerCase()   === tld.toLowerCase()
-        ) {
-          parsed.sequence_number = msg.sequence_number;
-          domainRecords.push(parsed);
-        }
-      } catch {
-        // skip malformed messages silently
-      }
-    }
-
-    if (domainRecords.length === 0) {
-      res.status(404).json({ success: false, error: `${name}.${tld} is not registered` });
+    if (!latest) {
+      res.status(404).json({ success: false, error: `${name}.${tld} is not registered or has expired` });
       return;
     }
-
-    // Latest sequence number is authoritative
-    domainRecords.sort((a, b) => b.sequence_number - a.sequence_number);
-    const latest = domainRecords[0];
 
     // transfer action stores new_owner; everything else uses owner
     const effectiveOwner = latest.new_owner ?? latest.owner;
-
-    // Check expiry
-    if (!latest.expires_at || new Date(latest.expires_at) <= new Date()) {
-      res.status(404).json({
-        success:   false,
-        error:     `${name}.${tld} has expired`,
-        expiredAt: latest.expires_at ?? null,
-      });
-      return;
-    }
 
     res.json({
       success:           true,
