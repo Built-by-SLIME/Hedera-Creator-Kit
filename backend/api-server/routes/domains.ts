@@ -15,7 +15,6 @@ import sharp from 'sharp';
 import axios from 'axios';
 import FormData from 'form-data';
 import { pool } from '../db';
-import fs from 'fs';
 import path from 'path';
 
 const BACKEND_ACCOUNT_ID  = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
@@ -85,59 +84,54 @@ async function getBaseImage(): Promise<Buffer> {
   return _baseImageCache;
 }
 
-// Load and cache the embedded font as base64 so librsvg never needs fontconfig
-let _fontBase64: string | null = null;
-function getFontBase64(): string {
-  if (_fontBase64) return _fontBase64;
-  // ts-node: __dirname = api-server/routes/ → go up one level to reach api-server/assets/
-  const fontPath = path.join(__dirname, '../assets/Roboto-Bold.ttf');
-  _fontBase64 = fs.readFileSync(fontPath).toString('base64');
-  return _fontBase64;
-}
-
 /**
  * Generates a domain-specific NFT image by overlaying the domain name across
  * the top of the base SLIME graphic.
- * The font is embedded as a base64 data URI so rendering is independent of
- * any system-level fontconfig installation.
+ *
+ * Uses Sharp's native `text` input (Pango + FreeType) with an explicit
+ * `fontfile` path — no librsvg, no system fontconfig needed.
  */
 async function generateDomainImage(domain: string): Promise<Buffer> {
   const base = await getBaseImage();
   const meta = await sharp(base).metadata();
-  const W = meta.width  ?? 1042;
-  const H = meta.height ?? 1042;
-  const barH = Math.round(H * 0.11); // ~114px bar at top
+  const W    = meta.width  ?? 1042;
+  const H    = meta.height ?? 1042;
+  const barH = Math.round(H * 0.11); // ~114px dark bar at top
 
-  // Scale font down for longer names
-  const len = domain.length;
+  // Scale font size down for longer domain names
+  const len      = domain.length;
   const fontSize = len <= 8 ? 72 : len <= 12 ? 60 : len <= 16 ? 48 : len <= 22 ? 38 : 30;
 
-  const fontB64 = getFontBase64();
+  // ts-node: __dirname = api-server/routes/ → one level up to api-server/assets/
+  const fontPath = path.join(__dirname, '../assets/Roboto-Bold.ttf');
 
-  const svg = Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
-       <defs>
-         <style>
-           @font-face {
-             font-family: 'RobotoBold';
-             src: url('data:font/truetype;base64,${fontB64}') format('truetype');
-             font-weight: bold;
-           }
-         </style>
-       </defs>
-       <rect x="0" y="0" width="${W}" height="${barH}" fill="rgba(0,0,0,0.68)"/>
-       <text x="${W / 2}" y="${barH / 2}"
-             font-family="RobotoBold"
-             font-size="${fontSize}"
-             font-weight="bold"
-             fill="white"
-             text-anchor="middle"
-             dominant-baseline="middle">${domain}</text>
-     </svg>`
-  );
+  // 1. Dark semi-transparent bar
+  const barBuffer = await sharp({
+    create: { width: W, height: barH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0.68 } },
+  }).png().toBuffer();
 
+  // 2. White text rendered by Pango using the bundled TTF — no fontconfig needed
+  const textBuffer = await sharp({
+    text: {
+      text:     `<span foreground="white">${domain}</span>`,
+      font:     `Roboto Bold ${fontSize}`,
+      fontfile: fontPath,
+      width:    W,
+      rgba:     true,
+      align:    'centre',
+    },
+  }).png().toBuffer();
+
+  // Vertically centre the text within the bar
+  const textMeta = await sharp(textBuffer).metadata();
+  const textTop  = Math.max(0, Math.round((barH - (textMeta.height ?? fontSize)) / 2));
+
+  // 3. Composite: base → bar → centred text
   return sharp(base)
-    .composite([{ input: svg, blend: 'over' }])
+    .composite([
+      { input: barBuffer,  top: 0,       left: 0 },
+      { input: textBuffer, top: textTop, left: 0 },
+    ])
     .png()
     .toBuffer();
 }
