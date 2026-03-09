@@ -653,117 +653,8 @@ export async function purgeRegistrations(req: Request, res: Response): Promise<v
   }
 }
 
-// ─── PUBLIC: Transfer Domain ─────────────────────────────────────────────────
-
-/**
- * POST /api/domains/transfer
- * Body: { name, tld, newOwnerAccountId }
- *
- * Called after an NFT sale on a secondary market. The new owner supplies their
- * account ID. The backend:
- *   1. Resolves the current HCS state to find the NFT serial for this domain.
- *   2. Checks the Mirror Node to confirm the caller's wallet now holds that serial.
- *   3. Submits a `transfer` HCS message pointing to the new owner.
- *
- * No HBAR payment required — the caller only needs to hold the NFT.
- * The backend signs and pays the tiny HCS submit fee (~0.009 HBAR).
- */
-export async function transferDomain(req: Request, res: Response): Promise<void> {
-  try {
-    const { name, tld, newOwnerAccountId } = req.body;
-
-    if (!name || !tld || !newOwnerAccountId) {
-      res.status(400).json({ success: false, error: 'name, tld, and newOwnerAccountId are required' });
-      return;
-    }
-    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
-      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
-      return;
-    }
-
-    const topicId = getTopicId(tld as SupportedTld);
-    if (!topicId) {
-      res.status(503).json({ success: false, error: `HCS topic for .${tld} is not configured` });
-      return;
-    }
-
-    // Step 1 — resolve current HCS state to get the NFT serial
-    const current = await resolveFromHcs(name, tld as SupportedTld);
-    if (!current) {
-      res.status(404).json({ success: false, error: `${name}.${tld} is not registered or has expired` });
-      return;
-    }
-    if (current.nft_serial == null || !current.nft_token_id) {
-      res.status(422).json({ success: false, error: `${name}.${tld} has no NFT record on HCS — cannot verify ownership` });
-      return;
-    }
-
-    // Step 2 — confirm the new owner currently holds the NFT on Mirror Node
-    const nftUrl = `${MIRROR_NODE_URL}/api/v1/tokens/${current.nft_token_id}/nfts/${current.nft_serial}`;
-    let nftHolder: string;
-    try {
-      const nftResp = await axios.get<{ account_id: string }>(nftUrl);
-      nftHolder = nftResp.data.account_id;
-    } catch {
-      res.status(503).json({ success: false, error: 'Could not verify NFT ownership via Mirror Node' });
-      return;
-    }
-
-    if (nftHolder !== newOwnerAccountId) {
-      res.status(403).json({
-        success:     false,
-        error:       `NFT serial ${current.nft_serial} is held by ${nftHolder}, not ${newOwnerAccountId}`,
-        nftHolder,
-      });
-      return;
-    }
-
-    // Step 3 — submit transfer HCS message
-    const client      = getOperatorClient();
-    const operatorKey = getOperatorKey();
-
-    const hcsMessage = JSON.stringify({
-      action:        'transfer',
-      name,
-      tld,
-      new_owner:     newOwnerAccountId,
-      prev_owner:    current.owner ?? current.new_owner,
-      nft_token_id:  current.nft_token_id,
-      nft_serial:    current.nft_serial,
-      expires_at:    current.expires_at,
-      transferred_at: new Date().toISOString(),
-    });
-
-    const submitTx = await new TopicMessageSubmitTransaction()
-      .setTopicId(TopicId.fromString(topicId))
-      .setMessage(hcsMessage)
-      .freezeWith(client)
-      .sign(operatorKey);
-    const submitResponse = await submitTx.execute(client);
-    const submitReceipt  = await submitResponse.getReceipt(client);
-    const sequenceNumber = submitReceipt.topicSequenceNumber?.toString() ?? null;
-
-    // Also update the DB cache
-    await pool.query(
-      `UPDATE domain_registrations
-          SET owner_account_id     = $1,
-              hcs_sequence_number  = $2,
-              updated_at           = NOW()
-        WHERE name = $3 AND tld = $4 AND status = 'active'`,
-      [newOwnerAccountId, sequenceNumber, name, tld]
-    );
-
-    res.json({
-      success:           true,
-      domain:            `${name}.${tld}`,
-      newOwner:          newOwnerAccountId,
-      hcsTopicId:        topicId,
-      hcsSequenceNumber: sequenceNumber,
-    });
-  } catch (err: any) {
-    console.error('[transferDomain] error:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
+export async function transferDomain(_req: Request, res: Response): Promise<void> {
+  res.status(410).json({ success: false, error: 'Transfer endpoint removed. Ownership is resolved directly from the Mirror Node NFT holder.' });
 }
 
 // ─── PUBLIC: Renew Domain ────────────────────────────────────────────────────
@@ -1033,17 +924,31 @@ export async function resolveDomain(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // transfer action stores new_owner; everything else uses owner
-    const effectiveOwner = latest.new_owner ?? latest.owner;
+    // The NFT IS the ownership record. Look up who currently holds it on Mirror Node.
+    // This means secondary market sales resolve automatically — no manual assertion needed.
+    let currentOwner = latest.owner;
+    if (latest.nft_serial != null && DOMAIN_NFT_TOKEN_ID) {
+      try {
+        const nftUrl  = `${MIRROR_NODE_URL}/api/v1/tokens/${DOMAIN_NFT_TOKEN_ID}/nfts/${latest.nft_serial}`;
+        const nftResp = await axios.get<{ account_id: string }>(nftUrl);
+        if (nftResp.data.account_id) {
+          currentOwner = nftResp.data.account_id;
+        }
+      } catch {
+        // Mirror Node unavailable — fall back to the HCS owner field
+        console.warn(`[resolveDomain] Could not fetch NFT holder for serial ${latest.nft_serial} — falling back to HCS owner`);
+      }
+    }
 
     res.json({
       success:           true,
       domain:            `${name}.${tld}`,
-      owner:             effectiveOwner,
+      owner:             currentOwner,
       expiresAt:         latest.expires_at,
+      nftTokenId:        DOMAIN_NFT_TOKEN_ID ?? null,
+      nftSerial:         latest.nft_serial ?? null,
       hcsTopicId:        topicId,
       hcsSequenceNumber: latest.sequence_number,
-      action:            latest.action,
     });
   } catch (err: any) {
     console.error('[resolveDomain] error:', err);

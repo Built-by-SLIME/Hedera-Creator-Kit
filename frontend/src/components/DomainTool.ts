@@ -10,7 +10,7 @@ import { TransferTransaction, AccountId, Hbar, TransactionId, TokenAssociateTran
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type DomainStep = 'form' | 'success'
-type DomainMode = 'register' | 'transfer' | 'renew'
+type DomainMode = 'register' | 'renew'
 
 interface CheckResult {
   available: boolean
@@ -47,11 +47,6 @@ export class DomainTool {
   // Mode
   private static mode: DomainMode = 'register'
 
-  // Transfer state
-  private static transferName    = ''
-  private static transferTld: DomainTld = 'hedera'
-  private static transferSuccess: { domain: string; hcsSeq: string | null } | null = null
-
   // Renew state
   private static renewName         = ''
   private static renewTld: DomainTld = 'hedera'
@@ -87,10 +82,9 @@ export class DomainTool {
 
   private static renderLeftPanel(): string {
     if (this.loading) {
-      return `<div class="art-gen-section"><h3 class="section-title">◆ ${this.mode === 'transfer' ? 'Transferring...' : this.mode === 'renew' ? 'Renewing...' : 'Registering Domain...'}</h3><div class="loading-state"><div class="spinner"></div><p>${this.statusMessage || 'Processing...'}</p></div></div>`
+      return `<div class="art-gen-section"><h3 class="section-title">◆ ${this.mode === 'renew' ? 'Renewing...' : 'Registering Domain...'}</h3><div class="loading-state"><div class="spinner"></div><p>${this.statusMessage || 'Processing...'}</p></div></div>`
     }
-    if (this.mode === 'transfer') return this.renderTransferPanel()
-    if (this.mode === 'renew')    return this.renderRenewPanel()
+    if (this.mode === 'renew') return this.renderRenewPanel()
     return this.step === 'form' ? this.renderForm() : this.renderSuccessPanel()
   }
 
@@ -101,8 +95,7 @@ export class DomainTool {
     if (this.error) {
       return `<div class="cc-right-content"><div class="error-state"><p class="error-message">⚠ ${this.error}</p><button class="terminal-button" id="domain-dismiss-error" style="margin-top:1rem">DISMISS</button></div></div>`
     }
-    if (this.mode === 'transfer') return this.renderTransferPreview()
-    if (this.mode === 'renew')    return this.renderRenewPreview()
+    if (this.mode === 'renew') return this.renderRenewPreview()
     return this.step === 'form' ? this.renderPreview() : this.renderSuccessDetails()
   }
 
@@ -111,7 +104,7 @@ export class DomainTool {
       const active = this.mode === m
       return `<button class="terminal-button${active ? '' : ' secondary'}" id="domain-mode-${m}" style="flex:1;font-size:0.75rem;padding:0.3rem 0;${active ? 'background:rgba(107,255,158,0.15);border-color:rgba(107,255,158,0.5);color:#6bff9e' : 'opacity:0.6'}">${label}</button>`
     }
-    return `<div style="display:flex;gap:0.4rem;margin-bottom:0.75rem">${tab('register','◆ REGISTER')}${tab('transfer','⇄ TRANSFER')}${tab('renew','↺ RENEW')}</div>`
+    return `<div style="display:flex;gap:0.4rem;margin-bottom:0.75rem">${tab('register','◆ REGISTER')}${tab('renew','↺ RENEW')}</div>`
   }
 
   // ─── FORM ──────────────────────────────────────────────────
@@ -284,64 +277,6 @@ export class DomainTool {
       </div>`
   }
 
-  // ─── TRANSFER UI ───────────────────────────────────────────
-
-  private static renderTransferPanel(): string {
-    const ws = WalletConnectService.getState()
-    const myAccount = ws.connected ? ws.accountId : null
-    return `
-      <div class="art-gen-section">
-        <h3 class="section-title">◆ Assert Transfer Ownership</h3>
-        <div class="back-link" id="domain-back"><span class="back-arrow">←</span><span>Back</span></div>
-        ${this.renderModeTabs()}
-        <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(107,200,255,0.06);border:1px solid rgba(107,200,255,0.2);border-radius:6px">
-          <p style="font-size:0.78rem;color:#6bc8ff;margin:0 0 0.25rem">⇄ <strong>Secondary Market Transfer</strong></p>
-          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin:0">Bought a domain NFT on a marketplace? The HCS record still shows the old owner. Assert your ownership here — the backend verifies you hold the NFT before writing to HCS. No HBAR fee required.</p>
-        </div>
-        <div class="filter-divider"></div>
-        ${!ws.connected ? `<p style="font-size:0.82rem;color:#ff6b6b">⚠ Connect your wallet first.</p>` : `
-          <div class="input-group">
-            <label>Domain Name *</label>
-            <div class="input-row" style="gap:0.5rem;align-items:center">
-              <input type="text" id="transfer-name" class="token-input" placeholder="yourdomain" value="${this.escapeHtml(this.transferName)}" style="flex:1"/>
-              <select id="transfer-tld" class="token-input" style="width:auto;min-width:100px">
-                ${DOMAIN_SUPPORTED_TLDS.map(t => `<option value="${t}" ${this.transferTld === t ? 'selected' : ''}>.${t}</option>`).join('')}
-              </select>
-            </div>
-          </div>
-          <div class="input-group">
-            <label>Your Account (wallet)</label>
-            <input type="text" class="token-input" value="${myAccount}" disabled style="opacity:0.6"/>
-          </div>
-          <div class="filter-divider"></div>
-          <button class="terminal-button" id="domain-transfer-execute" style="background:rgba(107,200,255,0.12);border-color:rgba(107,200,255,0.4);color:#6bc8ff">⇄ ASSERT OWNERSHIP ON HCS</button>
-          ${this.transferSuccess ? `
-            <div style="margin-top:0.75rem;padding:0.6rem 0.8rem;background:rgba(107,255,158,0.08);border:1px solid rgba(107,255,158,0.3);border-radius:6px">
-              <p style="color:#6bff9e;margin:0 0 0.2rem">✓ Transfer recorded on HCS!</p>
-              <p style="font-size:0.78rem;opacity:0.7;margin:0">Domain: <strong>${this.transferSuccess.domain}</strong></p>
-              ${this.transferSuccess.hcsSeq ? `<p style="font-size:0.75rem;opacity:0.55;margin:0.15rem 0 0">HCS sequence: ${this.transferSuccess.hcsSeq}</p>` : ''}
-            </div>` : ''}
-        `}
-      </div>`
-  }
-
-  private static renderTransferPreview(): string {
-    const ws = WalletConnectService.getState()
-    return `
-      <div class="cc-right-content">
-        <h4 class="section-title" style="font-size:0.95rem">⇄ How Transfer Works</h4>
-        <div class="preview-info">
-          <div class="info-row"><span>NFT Check</span><span class="status-value" style="font-size:0.78rem">Mirror Node</span></div>
-          <div class="info-row"><span>Cost</span><span class="status-value" style="color:#6bff9e">Free</span></div>
-          <div class="info-row"><span>Ledger</span><span class="status-value">HCS on-chain</span></div>
-          <div class="info-row"><span>Wallet</span><span class="status-value" style="font-size:0.78rem">${ws.connected ? ws.accountId : 'Not connected'}</span></div>
-        </div>
-        <div style="margin-top:0.75rem;padding:0.5rem 0.7rem;background:rgba(107,200,255,0.06);border:1px solid rgba(107,200,255,0.15);border-radius:6px">
-          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin:0">The backend confirms you hold the NFT on-chain, then publishes a <code>transfer</code> message to HCS. Resolvers (including HashPack) will immediately see you as the new owner.</p>
-        </div>
-      </div>`
-  }
-
   // ─── RENEW UI ──────────────────────────────────────────────
 
   private static renderRenewPanel(): string {
@@ -478,9 +413,6 @@ export class DomainTool {
     this.registeredDomain = null
     this.showConfirmModal = false
     this.mode             = 'register'
-    this.transferName     = ''
-    this.transferTld      = 'hedera'
-    this.transferSuccess  = null
     this.renewName        = ''
     this.renewTld         = 'hedera'
     this.renewYears       = 1
@@ -526,16 +458,7 @@ export class DomainTool {
 
     // Mode tabs
     document.getElementById('domain-mode-register')?.addEventListener('click', () => { this.mode = 'register'; this.error = null; this.refresh() })
-    document.getElementById('domain-mode-transfer')?.addEventListener('click', () => { this.mode = 'transfer'; this.error = null; this.refresh() })
     document.getElementById('domain-mode-renew')?.addEventListener('click',    () => { this.mode = 'renew';    this.error = null; this.refresh() })
-
-    // Transfer inputs
-    const transferName = document.getElementById('transfer-name') as HTMLInputElement
-    transferName?.addEventListener('input', () => { this.transferName = transferName.value })
-    transferName?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.executeTransfer() })
-    const transferTld = document.getElementById('transfer-tld') as HTMLSelectElement
-    transferTld?.addEventListener('change', () => { this.transferTld = transferTld.value as DomainTld })
-    document.getElementById('domain-transfer-execute')?.addEventListener('click', () => this.executeTransfer())
 
     // Renew inputs
     const renewName = document.getElementById('renew-name') as HTMLInputElement
@@ -710,42 +633,6 @@ export class DomainTool {
       this.loading       = false
       this.error         = err.message || 'Admin registration failed'
       this.statusMessage = ''
-      this.refresh()
-    }
-  }
-
-  // ─── TRANSFER EXECUTION ────────────────────────────────────
-
-  private static async executeTransfer(): Promise<void> {
-    const name = this.transferName.toLowerCase().trim()
-    const tld  = this.transferTld
-    const ws   = WalletConnectService.getState()
-    if (!ws.connected || !ws.accountId) { this.error = 'Connect your wallet first.'; this.refresh(); return }
-    if (!name) { this.error = 'Enter a domain name.'; this.refresh(); return }
-
-    this.loading       = true
-    this.error         = null
-    this.transferSuccess = null
-    this.statusMessage = 'Verifying NFT ownership and submitting transfer to HCS...'
-    this.refresh()
-
-    try {
-      const res  = await fetch(`${API_BASE_URL}/api/domains/transfer`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ name, tld, newOwnerAccountId: ws.accountId }),
-      })
-      const data = await res.json() as { success: boolean; domain?: string; hcsSequenceNumber?: string; nftHolder?: string; error?: string }
-      if (!data.success) throw new Error(data.error || 'Transfer failed')
-
-      this.transferSuccess = { domain: data.domain ?? `${name}.${tld}`, hcsSeq: data.hcsSequenceNumber ?? null }
-      this.statusMessage   = `Transfer recorded — ${data.domain}`
-    } catch (err: any) {
-      console.error('[DomainTool] executeTransfer error:', err)
-      this.error         = err.message || 'Transfer failed'
-      this.statusMessage = ''
-    } finally {
-      this.loading = false
       this.refresh()
     }
   }
