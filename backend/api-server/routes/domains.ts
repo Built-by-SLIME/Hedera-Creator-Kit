@@ -270,24 +270,42 @@ function getAnnualUsdPrice(name: string, isPremium: boolean): number {
   return 10;
 }
 
-// ─── HBAR price feed (1-minute in-memory cache) ────────────────────────────
+// ─── HBAR price feed (5-minute in-memory cache) ────────────────────────────
 
 let hbarPriceCache: { usd: number; fetchedAt: number } | null = null;
+const PRICE_CACHE_TTL_MS = 5 * 60_000; // 5 minutes — well within CoinGecko free-tier limits
 
 async function getHbarPriceUsd(): Promise<number> {
   const now = Date.now();
-  if (hbarPriceCache && now - hbarPriceCache.fetchedAt < 60_000) {
+  if (hbarPriceCache && now - hbarPriceCache.fetchedAt < PRICE_CACHE_TTL_MS) {
     return hbarPriceCache.usd;
   }
-  const res = await fetch(
-    'https://api.coingecko.com/api/v3/simple/price?ids=hedera-hashgraph&vs_currencies=usd'
-  );
-  if (!res.ok) throw new Error(`CoinGecko price fetch failed: HTTP ${res.status}`);
-  const data = await res.json() as { 'hedera-hashgraph': { usd: number } };
-  const usd = data['hedera-hashgraph'].usd;
-  hbarPriceCache = { usd, fetchedAt: now };
-  console.log(`[domains] HBAR price refreshed: $${usd}`);
-  return usd;
+  try {
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=hedera-hashgraph&vs_currencies=usd'
+    );
+    if (!res.ok) {
+      // On rate-limit (429) or any transient error, return the stale cached price
+      // rather than throwing — this prevents the UI from breaking on a price blip.
+      if (hbarPriceCache) {
+        console.warn(`[domains] CoinGecko returned HTTP ${res.status} — using stale cached price $${hbarPriceCache.usd}`);
+        return hbarPriceCache.usd;
+      }
+      throw new Error(`CoinGecko price fetch failed: HTTP ${res.status}`);
+    }
+    const data = await res.json() as { 'hedera-hashgraph': { usd: number } };
+    const usd = data['hedera-hashgraph'].usd;
+    hbarPriceCache = { usd, fetchedAt: now };
+    console.log(`[domains] HBAR price refreshed: $${usd}`);
+    return usd;
+  } catch (err: any) {
+    // Network error — fall back to stale cache if available
+    if (hbarPriceCache) {
+      console.warn(`[domains] CoinGecko fetch error — using stale cached price $${hbarPriceCache.usd}:`, err.message);
+      return hbarPriceCache.usd;
+    }
+    throw err;
+  }
 }
 
 // ─── Mirror Node payment verification ────────────────────────────────────
