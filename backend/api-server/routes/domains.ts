@@ -958,3 +958,146 @@ export async function resolveDomain(req: Request, res: Response): Promise<void> 
     res.status(500).json({ success: false, error: err.message });
   }
 }
+
+// ─── PUBLIC: List All Active Domains for a TLD ───────────────────────────────
+
+/**
+ * GET /api/domains/list/:tld
+ * Returns all active (non-expired) domains for a given TLD.
+ * Scans the HCS topic, applies latest-sequence-wins per domain name.
+ */
+export async function listDomainsByTld(req: Request, res: Response): Promise<void> {
+  try {
+    const { tld } = req.params;
+    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
+      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
+      return;
+    }
+    const topicId = getTopicId(tld as SupportedTld);
+    if (!topicId) {
+      res.status(503).json({ success: false, error: `HCS topic for .${tld} is not configured` });
+      return;
+    }
+
+    const rawMessages = await fetchAllTopicMessages(topicId);
+    const domainMap = new Map<string, HcsDomainRecord>();
+
+    for (const msg of rawMessages) {
+      try {
+        const text   = Buffer.from(msg.message, 'base64').toString('utf-8');
+        const parsed = JSON.parse(text) as HcsDomainRecord;
+        parsed.sequence_number = msg.sequence_number;
+        if (!parsed.name) continue;
+        const key      = parsed.name.toLowerCase();
+        const existing = domainMap.get(key);
+        if (!existing || parsed.sequence_number > existing.sequence_number) {
+          domainMap.set(key, parsed);
+        }
+      } catch { /* skip malformed */ }
+    }
+
+    const now     = new Date();
+    const domains = Array.from(domainMap.values())
+      .filter(r => r.expires_at && new Date(r.expires_at) > now)
+      .map(r => ({
+        domain:            `${r.name}.${tld}`,
+        name:              r.name,
+        tld,
+        owner:             r.owner ?? r.new_owner ?? null,
+        expiresAt:         r.expires_at ?? null,
+        nftTokenId:        r.nft_token_id ?? DOMAIN_NFT_TOKEN_ID ?? null,
+        nftSerial:         r.nft_serial ?? null,
+        hcsSequenceNumber: r.sequence_number,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({ success: true, tld, count: domains.length, domains });
+  } catch (err: any) {
+    console.error('[listDomainsByTld] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── PUBLIC: List All Domains Owned by an Account ────────────────────────────
+
+/**
+ * GET /api/domains/owned/:accountId
+ * Returns all active domains owned by a Hedera account across all TLDs.
+ * Ownership is determined by live NFT holdings on the Mirror Node —
+ * secondary market transfers are automatically reflected.
+ */
+export async function listDomainsByOwner(req: Request, res: Response): Promise<void> {
+  try {
+    const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'accountId is required' });
+      return;
+    }
+    if (!DOMAIN_NFT_TOKEN_ID) {
+      res.status(503).json({ success: false, error: 'NFT collection not configured' });
+      return;
+    }
+
+    // 1. Fetch all domain NFTs currently held by this account
+    const nftUrl  = `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/nfts?token.id=${DOMAIN_NFT_TOKEN_ID}&limit=100`;
+    const nftResp = await axios.get<{ nfts: Array<{ serial_number: number }> }>(nftUrl);
+    const ownedSerials = new Set(nftResp.data.nfts.map(n => n.serial_number));
+
+    if (ownedSerials.size === 0) {
+      res.json({ success: true, accountId, count: 0, domains: [] });
+      return;
+    }
+
+    // 2. Scan all TLD topics and match serials to domain records
+    const domains: object[] = [];
+    const now = new Date();
+
+    for (const tld of SUPPORTED_TLDS) {
+      const topicId = getTopicId(tld);
+      if (!topicId) continue;
+
+      const rawMessages = await fetchAllTopicMessages(topicId);
+      const domainMap   = new Map<string, HcsDomainRecord>();
+
+      for (const msg of rawMessages) {
+        try {
+          const text   = Buffer.from(msg.message, 'base64').toString('utf-8');
+          const parsed = JSON.parse(text) as HcsDomainRecord;
+          parsed.sequence_number = msg.sequence_number;
+          if (!parsed.name) continue;
+          const key      = parsed.name.toLowerCase();
+          const existing = domainMap.get(key);
+          if (!existing || parsed.sequence_number > existing.sequence_number) {
+            domainMap.set(key, parsed);
+          }
+        } catch { /* skip malformed */ }
+      }
+
+      for (const record of domainMap.values()) {
+        if (
+          record.nft_serial != null &&
+          ownedSerials.has(record.nft_serial) &&
+          record.expires_at &&
+          new Date(record.expires_at) > now
+        ) {
+          domains.push({
+            domain:            `${record.name}.${tld}`,
+            name:              record.name,
+            tld,
+            owner:             accountId,
+            expiresAt:         record.expires_at,
+            nftTokenId:        DOMAIN_NFT_TOKEN_ID,
+            nftSerial:         record.nft_serial,
+            hcsSequenceNumber: record.sequence_number,
+          });
+        }
+      }
+    }
+
+    domains.sort((a: any, b: any) => a.domain.localeCompare(b.domain));
+    res.json({ success: true, accountId, count: domains.length, domains });
+  } catch (err: any) {
+    console.error('[listDomainsByOwner] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}

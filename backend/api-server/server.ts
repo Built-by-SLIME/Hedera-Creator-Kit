@@ -29,6 +29,8 @@ import {
   initTopics,
   checkDomain,
   registerDomain,
+  listDomainsByTld,
+  listDomainsByOwner,
   transferDomain,
   renewDomain,
   resolveDomain,
@@ -167,6 +169,8 @@ app.get('/api/domains/check',                         (req, res, next) => checkD
 app.post('/api/domains/register',                     (req, res, next) => registerDomain(req, res).catch(next));
 app.post('/api/domains/renew',                        (req, res, next) => renewDomain(req, res).catch(next));
 app.get('/api/domains/resolve/:name/:tld',            (req, res, next) => resolveDomain(req, res).catch(next));
+app.get('/api/domains/list/:tld',                     (req, res, next) => listDomainsByTld(req, res).catch(next));
+app.get('/api/domains/owned/:accountId',              (req, res, next) => listDomainsByOwner(req, res).catch(next));
 app.post('/api/domains/admin/purge-registrations',    (req, res, next) => purgeRegistrations(req, res).catch(next));
 
 // Health check endpoint
