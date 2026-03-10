@@ -1,3 +1,9 @@
+# Nixpacks build configuration for Railway deployment
+# Installs system fonts + fontconfig so librsvg (used by Sharp) can render SVG text
+
+[phases.setup]
+aptPkgs = ["fonts-liberation", "fontconfig"]
+
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["fc-cache -fv", "npm run build"]
 
