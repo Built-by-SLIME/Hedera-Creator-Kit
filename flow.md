@@ -7,21 +7,27 @@ Resolve any `.hedera`, `.slime`, `.gib`, `.tigers`, or `.buds` domain with a sin
 ## The API Call
 
 ```
-GET https://api.slime.tools/api/domains/resolve?name={name}&tld={tld}
+GET https://api.slime.tools/api/domains/resolve/{name}/{tld}
+```
+
+### Example
+
+```
+GET https://api.slime.tools/api/domains/resolve/hefty/slime
 ```
 
 ### Registered Domain
 
 ```json
 {
-  "registered": true,
-  "name": "hefty",
-  "tld": "slime",
+  "success": true,
   "domain": "hefty.slime",
   "owner": "0.0.9463056",
-  "expires_at": "2027-03-10T00:00:00.000Z",
-  "nft_token_id": "0.0.10356088",
-  "nft_serial": 6
+  "expiresAt": "2027-03-10T01:06:00.398Z",
+  "nftTokenId": "0.0.10356088",
+  "nftSerial": 6,
+  "hcsTopicId": "0.0.10354663",
+  "hcsSequenceNumber": 2
 }
 ```
 
@@ -31,7 +37,7 @@ GET https://api.slime.tools/api/domains/resolve?name={name}&tld={tld}
 
 ```json
 {
-  "registered": false,
+  "success": false,
   "error": "hefty.slime is not registered or has expired"
 }
 ```
