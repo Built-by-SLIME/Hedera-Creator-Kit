@@ -174,7 +174,7 @@ export class DomainTool {
 
   private static renderAdminPanel(): string {
     const r = this.checkResult
-    const canRegister = r?.available === true
+    const canRegister = !!(r?.name && r?.tld)
     return `
       <div style="margin-top:1.25rem;padding:0.75rem 0.9rem;background:rgba(107,255,158,0.05);border:1px solid rgba(107,255,158,0.3);border-radius:8px">
         <p style="font-size:0.78rem;color:#6bff9e;margin:0 0 0.5rem">🔑 <strong>Admin Registration</strong> — Treasury wallet detected. Register for free.</p>
@@ -589,7 +589,7 @@ export class DomainTool {
 
   private static async executeAdminRegistration(): Promise<void> {
     const r = this.checkResult
-    if (!r?.available) return
+    if (!r?.name || !r?.tld) return
     const ws = WalletConnectService.getState()
     if (!ws.connected || !ws.accountId) return
 
