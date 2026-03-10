@@ -411,10 +411,12 @@ export async function checkDomain(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) {
+    const isStandardValid = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name);
+    const hasPremiumChars = /[^\u0000-\u007F]/.test(name) && !/\s/.test(name);
+    if (!isStandardValid && !hasPremiumChars) {
       res.status(400).json({
         success: false,
-        error: 'Domain name must use lowercase letters, numbers, or hyphens (not at start/end)',
+        error: 'Domain name must use lowercase letters, numbers, or hyphens — or emoji/Unicode characters for premium domains',
       });
       return;
     }
@@ -478,7 +480,9 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       res.status(400).json({ success: false, error: 'years must be 1, 3, 5, or 10' });
       return;
     }
-    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name)) {
+    const isStandardValid = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(name);
+    const hasPremiumChars = /[^\u0000-\u007F]/.test(name) && !/\s/.test(name);
+    if (!isStandardValid && !hasPremiumChars) {
       res.status(400).json({ success: false, error: 'Invalid domain name format' });
       return;
     }
