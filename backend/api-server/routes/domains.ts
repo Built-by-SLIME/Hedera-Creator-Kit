@@ -36,7 +36,7 @@ const PINATA_API_SECRET     = process.env.PINATA_API_SECRET;
 const DOMAIN_BASE_IMAGE_CID = process.env.DOMAIN_NFT_BASE_IMAGE_CID
   || 'QmZ3LyEANVuKBjPtjCvKBMTEV2rqWrB8VS839wTbS1hyZp';
 
-const SUPPORTED_TLDS = ['hedera', 'slime', 'gib', 'tigers'] as const;
+const SUPPORTED_TLDS = ['hedera', 'slime', 'gib', 'tigers', 'buds'] as const;
 type SupportedTld = typeof SUPPORTED_TLDS[number];
 
 // ─── Operator helpers ──────────────────────────────────────────────────────

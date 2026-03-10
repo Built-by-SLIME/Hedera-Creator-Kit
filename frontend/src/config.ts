@@ -51,7 +51,7 @@ export const SAUCER_V1_ROUTER = '0.0.3045981'
 export const WHBAR_TOKEN_ID = '0.0.1456986'
 
 /** Supported TLDs for the HCS domain registry */
-export const DOMAIN_SUPPORTED_TLDS = ['hedera', 'slime', 'gib', 'tigers'] as const
+export const DOMAIN_SUPPORTED_TLDS = ['hedera', 'slime', 'gib', 'tigers', 'buds'] as const
 export type DomainTld = typeof DOMAIN_SUPPORTED_TLDS[number]
 
 /** Treasury wallet — when connected, unlocks free admin domain registration */
