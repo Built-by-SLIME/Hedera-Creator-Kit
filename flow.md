@@ -1,22 +1,16 @@
-# Domain Resolution Flow — Hedera Creator Kit
+# Hedera Domain Resolution — HashPack Integration
 
-How HashPack (or any wallet/app) resolves a domain with a **single API call**. All the HCS querying, decoding, and NFT ownership lookup happens on our backend — the caller just gets clean JSON back.
+Resolve any `.hedera`, `.slime`, `.gib`, `.tigers`, or `.buds` domain with a single GET request. No API key, no SDK, no auth required.
 
 ---
 
-## The One Call HashPack Needs to Make
+## The API Call
 
 ```
 GET https://api.slime.tools/api/domains/resolve?name={name}&tld={tld}
 ```
 
-### Example
-
-```
-GET https://api.slime.tools/api/domains/resolve?name=hefty&tld=slime
-```
-
-### Response
+### Registered Domain
 
 ```json
 {
@@ -31,9 +25,9 @@ GET https://api.slime.tools/api/domains/resolve?name=hefty&tld=slime
 }
 ```
 
-> `owner` is pulled **live from the HTS NFT ledger** — not from the registration record. Secondary market transfers are reflected instantly with no extra steps.
+> `owner` is resolved live from the HTS NFT ledger — secondary market transfers are reflected instantly.
 
-### Not Registered / Expired
+### Not Registered or Expired
 
 ```json
 {
@@ -56,33 +50,23 @@ GET https://api.slime.tools/api/domains/resolve?name=hefty&tld=slime
 
 ---
 
-## How It Works Under the Hood
-
-HashPack doesn't need to know any of this — it's all handled server-side.
+## Under the Hood
 
 ```
-HashPack calls GET /api/domains/resolve?name=hefty&tld=slime
+GET /api/domains/resolve?name=hefty&tld=slime
        ↓
-Backend queries HCS topic for the TLD
+Query HCS topic for the TLD via Hedera Mirror Node
        ↓
-Decodes all messages, filters by name + tld
+Decode messages → filter by name + tld → latest sequence number wins
        ↓
-Selects the message with the highest sequence number  ← Latest-Sequence-Wins
+Check expires_at — past = not registered
        ↓
-Checks expires_at — expired = not registered
+Fetch live NFT holder from HTS Mirror Node
        ↓
-Fetches current NFT holder live from the Hedera Mirror Node
-       ↓
-Returns clean JSON to HashPack
+Return clean JSON
 ```
 
----
-
-## Key Properties
-
-- **One GET request** — no API key, no auth, no SDK required
-- **NFT-authoritative ownership** — the HTS ledger is always the final word; transfers on any marketplace resolve automatically
-- **Admin-correctable** — failed mints or phantom records can be overwritten; latest-sequence-wins handles it transparently
-- **Expiry enforced** — domains past their `expires_at` are treated as unregistered
-- **No centralized database** — HCS is the registration ledger, HTS is the ownership ledger
+- **HCS** (Hedera Consensus Service) — registration ledger, stores domain records
+- **HTS** (Hedera Token Service) — ownership ledger, whoever holds the NFT is the owner
+- **Latest-sequence-wins** — allows admin to correct failed records; newest HCS message is always authoritative
 
