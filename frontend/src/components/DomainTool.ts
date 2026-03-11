@@ -491,7 +491,10 @@ export class DomainTool {
       this.checkResult = data
     } catch (err: any) {
       console.error('[DomainTool] checkAvailability error:', err)
-      this.error = err.message || 'Failed to check availability'
+      const raw = err.message || ''
+      this.error = raw === 'Load failed' || raw === 'Failed to fetch'
+        ? 'Could not reach the server — please check your connection and try again.'
+        : raw || 'Availability check failed'
     } finally {
       this.isChecking = false
       this.refresh()
@@ -578,8 +581,17 @@ export class DomainTool {
       this.refresh()
     } catch (err: any) {
       console.error('[DomainTool] executeRegistration error:', err)
-      this.loading       = false
-      this.error         = err.message || 'Registration failed'
+      this.loading = false
+      const raw = err.message || ''
+      if (raw.includes('recently deleted') || raw.includes('Missing or invalid') || raw.toLowerCase().includes('session')) {
+        this.error = 'Your wallet session expired — please disconnect, reconnect your wallet, and try again.'
+      } else if ((raw === 'Load failed' || raw === 'Failed to fetch') && this.txId) {
+        this.error = `Connection lost after payment. Your HBAR was sent successfully (tx: ${this.txId}) — if your domain doesn't appear below in a moment, please contact support with that tx ID.`
+      } else if (raw === 'Load failed' || raw === 'Failed to fetch') {
+        this.error = 'Could not reach the server — please check your connection and try again.'
+      } else {
+        this.error = raw || 'Registration failed'
+      }
       this.statusMessage = ''
       this.refresh()
     }
