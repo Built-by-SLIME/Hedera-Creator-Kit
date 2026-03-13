@@ -1,0 +1,531 @@
+/**
+ * Staking Tool — Backend Routes
+ *
+ * Soft-staking: rewards are calculated from live Mirror Node snapshots of
+ * holder wallets. No assets are ever escrowed or locked.
+ *
+ * Creator flow:
+ *  1. Creator configures a staking program (stake token, reward token, rate, frequency).
+ *  2. Creator grants an allowance on their reward-token treasury to the operator.
+ *  3. Backend records the program; cron runs drips on schedule.
+ *
+ * Community flow:
+ *  1. Community member calls POST /api/staking-programs/:id/register with their accountId.
+ *  2. On drip run, backend checks Mirror Node for their holdings and distributes rewards.
+ */
+import { Request, Response } from 'express';
+import {
+  Client,
+  PrivateKey,
+  AccountId,
+  TokenId,
+  TransferTransaction,
+  TransactionId,
+  Hbar,
+} from '@hashgraph/sdk';
+import { pool } from '../db';
+
+const BACKEND_ACCOUNT_ID  = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
+const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
+const MIRROR_NODE_URL     = 'https://mainnet-public.mirrornode.hedera.com';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function getOperatorClient(): Client {
+  if (!BACKEND_ACCOUNT_ID || !BACKEND_PRIVATE_KEY) throw new Error('Operator not configured');
+  const client = Client.forMainnet();
+  let pk: PrivateKey;
+  try { pk = PrivateKey.fromStringECDSA(BACKEND_PRIVATE_KEY); }
+  catch { pk = PrivateKey.fromStringED25519(BACKEND_PRIVATE_KEY); }
+  client.setOperator(BACKEND_ACCOUNT_ID, pk);
+  return client;
+}
+
+function getOperatorKey(): PrivateKey {
+  if (!BACKEND_PRIVATE_KEY) throw new Error('Operator key not configured');
+  try { return PrivateKey.fromStringECDSA(BACKEND_PRIVATE_KEY); }
+  catch { return PrivateKey.fromStringED25519(BACKEND_PRIVATE_KEY); }
+}
+
+/** Returns the number of days represented by a frequency string. */
+function frequencyDays(freq: string): number {
+  const map: Record<string, number> = { '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180, '365d': 365 };
+  return map[freq] ?? 7;
+}
+
+/** Returns raw reward amount (in smallest units) for a distribution. */
+function calcReward(
+  unitsHeld: number,
+  ratePerDay: number,
+  days: number,
+  decimals: number,
+): bigint {
+  // ratePerDay is expressed in whole reward tokens. Convert to raw units.
+  const wholeReward = unitsHeld * ratePerDay * days;
+  return BigInt(Math.floor(wholeReward * Math.pow(10, decimals)));
+}
+
+/** Fetch total NFT count for an account on a given token (handles pagination). */
+async function fetchNftCount(accountId: string, tokenId: string): Promise<number> {
+  let count = 0;
+  let url: string | null =
+    `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/nfts?token.id=${tokenId}&limit=100`;
+  while (url) {
+    const res = await fetch(url);
+    if (!res.ok) break;
+    const data = await res.json() as { nfts: unknown[]; links?: { next?: string } };
+    count += data.nfts?.length ?? 0;
+    url = data.links?.next ? `${MIRROR_NODE_URL}${data.links.next}` : null;
+  }
+  return count;
+}
+
+/** Fetch fungible token balance (raw units) for an account. */
+async function fetchFtBalance(accountId: string, tokenId: string): Promise<bigint> {
+  const url = `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/tokens?token.id=${tokenId}&limit=1`;
+  const res = await fetch(url);
+  if (!res.ok) return 0n;
+  const data = await res.json() as { tokens?: Array<{ balance: number }> };
+  return BigInt(data.tokens?.[0]?.balance ?? 0);
+}
+
+/** Fetch reward token decimals from Mirror Node. */
+async function fetchTokenDecimals(tokenId: string): Promise<number> {
+  const res = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${tokenId}`);
+  if (!res.ok) return 0;
+  const data = await res.json() as { decimals?: string };
+  return parseInt(data.decimals ?? '0');
+}
+
+/** Fetch custom_fees for a token so we can warn creators about fractional fees. */
+async function fetchTokenFees(tokenId: string): Promise<unknown> {
+  const res = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${tokenId}`);
+  if (!res.ok) return null;
+  const data = await res.json() as { custom_fees?: unknown };
+  return data.custom_fees ?? null;
+}
+
+// ─── ADMIN: Create staking program ───────────────────────────────────────────
+
+/**
+ * POST /api/staking-programs
+ * Creator configures a new soft-staking program.
+ * Body: { createdBy, name, description?, stakeTokenId, stakeTokenType,
+ *         rewardTokenId, treasuryAccountId, rewardRatePerDay, minStakeAmount?,
+ *         frequency, totalRewardSupply? }
+ */
+export async function createStakingProgram(req: Request, res: Response): Promise<void> {
+  try {
+    const {
+      createdBy, name, description, stakeTokenId, stakeTokenType,
+      rewardTokenId, treasuryAccountId, rewardRatePerDay,
+      minStakeAmount, frequency, totalRewardSupply,
+    } = req.body;
+
+    if (!createdBy || !name || !stakeTokenId || !stakeTokenType || !rewardTokenId ||
+        !treasuryAccountId || rewardRatePerDay == null || !frequency) {
+      res.status(400).json({ success: false, error: 'Missing required fields' });
+      return;
+    }
+    if (!['NFT', 'FT'].includes(stakeTokenType)) {
+      res.status(400).json({ success: false, error: 'stakeTokenType must be "NFT" or "FT"' });
+      return;
+    }
+    const validFrequencies = ['1d', '7d', '30d', '90d', '180d', '365d'];
+    if (!validFrequencies.includes(frequency)) {
+      res.status(400).json({ success: false, error: `frequency must be one of: ${validFrequencies.join(', ')}` });
+      return;
+    }
+
+    // Fetch reward token fees so the response can include them for the creator's informed consent
+    const customFees = await fetchTokenFees(rewardTokenId);
+
+    const result = await pool.query(
+      `INSERT INTO staking_programs
+         (created_by, name, description, stake_token_id, stake_token_type,
+          reward_token_id, treasury_account_id, reward_rate_per_day,
+          min_stake_amount, frequency, total_reward_supply, allowance_granted)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,false)
+       RETURNING *`,
+      [
+        createdBy, name, description || null, stakeTokenId, stakeTokenType,
+        rewardTokenId, treasuryAccountId, rewardRatePerDay,
+        minStakeAmount || 0, frequency, totalRewardSupply || null,
+      ]
+    );
+
+    res.json({ success: true, program: result.rows[0], customFees });
+  } catch (err: any) {
+    console.error('createStakingProgram error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── ADMIN: Mark allowance granted ───────────────────────────────────────────
+
+/**
+ * PUT /api/staking-programs/:id/allowance
+ * Called from the frontend after creator successfully signs an allowance tx.
+ */
+export async function markAllowanceGranted(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { createdBy } = req.body;
+    const result = await pool.query(
+      `UPDATE staking_programs SET allowance_granted = true, updated_at = NOW()
+       WHERE id = $1 AND created_by = $2 RETURNING *`,
+      [id, createdBy]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Program not found or not owned by you' });
+      return;
+    }
+    res.json({ success: true, program: result.rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── ADMIN: List programs ─────────────────────────────────────────────────────
+
+/** GET /api/staking-programs?createdBy=0.0.xxxxx */
+export async function listStakingPrograms(req: Request, res: Response): Promise<void> {
+  try {
+    const { createdBy } = req.query;
+    const result = createdBy
+      ? await pool.query('SELECT * FROM staking_programs WHERE created_by=$1 ORDER BY created_at DESC', [createdBy])
+      : await pool.query('SELECT * FROM staking_programs ORDER BY created_at DESC');
+    res.json({ success: true, programs: result.rows });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── PUBLIC: Active programs ─────────────────────────────────────────────────
+
+/** GET /api/staking-programs/public */
+export async function listPublicStakingPrograms(_req: Request, res: Response): Promise<void> {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, description, stake_token_id, stake_token_type, reward_token_id,
+              treasury_account_id, reward_rate_per_day, min_stake_amount, frequency,
+              total_reward_supply, last_distributed_at, status, created_at
+       FROM staking_programs WHERE status = 'active' ORDER BY created_at DESC`
+    );
+    res.json({ success: true, programs: result.rows });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── ADMIN: Update status ─────────────────────────────────────────────────────
+
+/** PUT /api/staking-programs/:id/status */
+export async function updateStakingStatus(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { status, createdBy } = req.body;
+    if (!['active', 'paused', 'completed'].includes(status)) {
+      res.status(400).json({ success: false, error: 'status must be active, paused, or completed' });
+      return;
+    }
+    const result = await pool.query(
+      `UPDATE staking_programs SET status=$1, updated_at=NOW() WHERE id=$2 AND created_by=$3 RETURNING *`,
+      [status, id, createdBy]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Program not found or not owned by you' });
+      return;
+    }
+    res.json({ success: true, program: result.rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── ADMIN: Delete program ────────────────────────────────────────────────────
+
+/** DELETE /api/staking-programs/:id */
+export async function deleteStakingProgram(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { createdBy } = req.body;
+    const result = await pool.query(
+      'DELETE FROM staking_programs WHERE id=$1 AND created_by=$2 RETURNING id',
+      [id, createdBy]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Program not found or not owned by you' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── COMMUNITY: Register as participant ──────────────────────────────────────
+
+/**
+ * POST /api/staking-programs/:id/register
+ * Community member opts into a staking program.
+ * The member must have already associated the reward token in their wallet.
+ * Body: { accountId }
+ */
+export async function registerParticipant(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { accountId } = req.body;
+
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'accountId is required' });
+      return;
+    }
+
+    // Verify program exists and is active
+    const prog = await pool.query(
+      `SELECT id FROM staking_programs WHERE id=$1 AND status='active'`, [id]
+    );
+    if (prog.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Staking program not found or not active' });
+      return;
+    }
+
+    // Upsert participant — idempotent
+    const result = await pool.query(
+      `INSERT INTO staking_participants (program_id, account_id)
+       VALUES ($1, $2)
+       ON CONFLICT (program_id, account_id) DO UPDATE SET registered_at = staking_participants.registered_at
+       RETURNING *`,
+      [id, accountId]
+    );
+
+    res.json({ success: true, participant: result.rows[0] });
+  } catch (err: any) {
+    console.error('registerParticipant error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── COMMUNITY: List participants ─────────────────────────────────────────────
+
+/** GET /api/staking-programs/:id/participants */
+export async function listParticipants(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT account_id, registered_at, last_distributed_at
+       FROM staking_participants WHERE program_id=$1 ORDER BY registered_at ASC`,
+      [id]
+    );
+    res.json({ success: true, participants: result.rows, count: result.rowCount });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── ADMIN: Get distribution history ─────────────────────────────────────────
+
+/** GET /api/staking-programs/:id/distributions */
+export async function listDistributions(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT account_id, amount, units_held, tx_id, distributed_at
+       FROM staking_distributions WHERE program_id=$1 ORDER BY distributed_at DESC LIMIT 200`,
+      [id]
+    );
+    res.json({ success: true, distributions: result.rows });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── DRIP ENGINE ──────────────────────────────────────────────────────────────
+
+/**
+ * Core drip logic for a single staking program.
+ * Returns a summary of distributions attempted.
+ *
+ * Flow per participant:
+ *  1. Query Mirror Node for holdings (NFT count or FT balance).
+ *  2. Skip if below min_stake_amount.
+ *  3. Compute reward = units_held × reward_rate_per_day × frequency_days.
+ *  4. Build TransferTransaction using addApprovedTokenTransfer (operator spends creator's allowance).
+ *  5. Operator signs + submits; record in staking_distributions.
+ */
+async function processDrip(programId: string): Promise<{
+  distributed: number; skipped: number; failed: number; errors: string[];
+}> {
+  const progResult = await pool.query(`SELECT * FROM staking_programs WHERE id=$1`, [programId]);
+  if (progResult.rowCount === 0) throw new Error('Program not found');
+
+  const prog = progResult.rows[0];
+  if (prog.status !== 'active') throw new Error('Program is not active');
+  if (!prog.allowance_granted) throw new Error('Allowance not yet granted by creator');
+
+  const decimals = await fetchTokenDecimals(prog.reward_token_id);
+  const days = frequencyDays(prog.frequency);
+
+  const participants = await pool.query(
+    `SELECT account_id FROM staking_participants WHERE program_id=$1`,
+    [programId]
+  );
+
+  const client = getOperatorClient();
+  const operatorKey = getOperatorKey();
+  const treasuryAcct = AccountId.fromString(prog.treasury_account_id);
+  const rewardToken   = TokenId.fromString(prog.reward_token_id);
+  const operatorAcct  = AccountId.fromString(BACKEND_ACCOUNT_ID!);
+
+  let distributed = 0, skipped = 0, failed = 0;
+  const errors: string[] = [];
+
+  for (const row of participants.rows) {
+    const accountId = row.account_id as string;
+    try {
+      // 1. Fetch holdings
+      let unitsHeld: number;
+      if (prog.stake_token_type === 'NFT') {
+        unitsHeld = await fetchNftCount(accountId, prog.stake_token_id);
+      } else {
+        const rawBalance = await fetchFtBalance(accountId, prog.stake_token_id);
+        // Express FT balance in whole tokens (matching ratePerDay which is in whole tokens)
+        unitsHeld = Number(rawBalance) / Math.pow(10, decimals);
+      }
+
+      // 2. Skip if below minimum
+      if (unitsHeld <= 0 || unitsHeld < Number(prog.min_stake_amount)) {
+        skipped++;
+        continue;
+      }
+
+      // 3. Calculate reward (raw units)
+      const rewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, decimals);
+      if (rewardRaw <= 0n) { skipped++; continue; }
+
+      // 4. Build approved transfer: treasury → participant (operator uses creator's allowance)
+      const recipientAcct = AccountId.fromString(accountId);
+      const transferTx = new TransferTransaction()
+        .addApprovedTokenTransfer(rewardToken, treasuryAcct, -rewardRaw)
+        .addTokenTransfer(rewardToken, recipientAcct, rewardRaw)
+        .setTransactionId(TransactionId.generate(operatorAcct))
+        .setNodeAccountIds([new AccountId(3)])
+        .setMaxTransactionFee(new Hbar(2));
+
+      const frozenTx = transferTx.freezeWith(client);
+      const signedTx = await frozenTx.sign(operatorKey);
+      const txResponse = await signedTx.execute(client);
+      await txResponse.getReceipt(client);
+      const txId = txResponse.transactionId.toString();
+
+      // 5. Record distribution
+      await pool.query(
+        `INSERT INTO staking_distributions (program_id, account_id, amount, units_held, tx_id)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [programId, accountId, Number(rewardRaw) / Math.pow(10, decimals), unitsHeld, txId]
+      );
+      await pool.query(
+        `UPDATE staking_participants SET last_distributed_at=NOW() WHERE program_id=$1 AND account_id=$2`,
+        [programId, accountId]
+      );
+
+      console.log(`[drip] Sent ${Number(rewardRaw) / Math.pow(10, decimals)} reward to ${accountId} (tx: ${txId})`);
+      distributed++;
+    } catch (err: any) {
+      failed++;
+      const msg = `${accountId}: ${err.message}`;
+      errors.push(msg);
+      console.error(`[drip] Failed for ${accountId}:`, err.message);
+    }
+  }
+
+  // Update program's last_distributed_at
+  await pool.query(
+    `UPDATE staking_programs SET last_distributed_at=NOW(), updated_at=NOW() WHERE id=$1`,
+    [programId]
+  );
+
+  return { distributed, skipped, failed, errors };
+}
+
+/**
+ * POST /api/staking-programs/:id/drip
+ * Manually trigger a drip for a specific program.
+ * Protected: only the program creator can trigger it.
+ * In production, call this from a Railway Cron job or external scheduler.
+ */
+export async function triggerDrip(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { createdBy } = req.body;
+
+    // Verify ownership
+    const check = await pool.query(
+      `SELECT created_by FROM staking_programs WHERE id=$1`, [id]
+    );
+    if (check.rowCount === 0) { res.status(404).json({ success: false, error: 'Program not found' }); return; }
+    if (check.rows[0].created_by !== createdBy) {
+      res.status(403).json({ success: false, error: 'Not authorized' }); return;
+    }
+
+    const summary = await processDrip(id);
+    res.json({ success: true, programId: id, ...summary });
+  } catch (err: any) {
+    console.error('triggerDrip error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+/**
+ * POST /api/staking-programs/run-all-drips
+ * Process ALL overdue active programs (for use by a scheduler/cron).
+ * Secured by DRIP_SECRET env var — set this to a long random string and
+ * pass it as Bearer token in your cron's Authorization header.
+ */
+export async function runAllDrips(req: Request, res: Response): Promise<void> {
+  const secret = process.env.DRIP_SECRET;
+  if (secret) {
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${secret}`) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+  }
+
+  try {
+    // Find active programs that are due for a drip
+    const due = await pool.query(`
+      SELECT id, frequency, last_distributed_at FROM staking_programs
+      WHERE status = 'active' AND allowance_granted = true
+        AND (
+          last_distributed_at IS NULL
+          OR NOW() - last_distributed_at >= (
+            CASE frequency
+              WHEN '1d'   THEN INTERVAL '1 day'
+              WHEN '7d'   THEN INTERVAL '7 days'
+              WHEN '30d'  THEN INTERVAL '30 days'
+              WHEN '90d'  THEN INTERVAL '90 days'
+              WHEN '180d' THEN INTERVAL '180 days'
+              WHEN '365d' THEN INTERVAL '365 days'
+            END
+          )
+        )
+    `);
+
+    const results: Record<string, unknown> = {};
+    for (const row of due.rows) {
+      try {
+        results[row.id] = await processDrip(row.id);
+      } catch (err: any) {
+        results[row.id] = { error: err.message };
+      }
+    }
+
+    res.json({ success: true, processed: due.rowCount, results });
+  } catch (err: any) {
+    console.error('runAllDrips error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+

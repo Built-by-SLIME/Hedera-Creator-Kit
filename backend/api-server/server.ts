@@ -36,6 +36,19 @@ import {
   resolveDomain,
   purgeRegistrations,
 } from './routes/domains';
+import {
+  createStakingProgram,
+  listStakingPrograms,
+  listPublicStakingPrograms,
+  updateStakingStatus,
+  deleteStakingProgram,
+  markAllowanceGranted,
+  registerParticipant,
+  listParticipants,
+  listDistributions,
+  triggerDrip,
+  runAllDrips,
+} from './routes/staking';
 import { initDb } from './db';
 
 
@@ -162,6 +175,19 @@ app.delete('/api/swap-programs/:id', (req, res, next) => deleteSwapProgram(req, 
 app.post('/api/swap-programs/:id/prepare', (req, res, next) => prepareSwap(req, res).catch(next));
 app.post('/api/swap-programs/:id/submit', (req, res, next) => submitSwap(req, res).catch(next));
 app.post('/api/swap-programs/:id/execute', (req, res, next) => executeSwap(req, res).catch(next));
+
+// Staking program routes
+app.post('/api/staking-programs',                         (req, res, next) => createStakingProgram(req, res).catch(next));
+app.get('/api/staking-programs',                          (req, res, next) => listStakingPrograms(req, res).catch(next));
+app.get('/api/staking-programs/public',                   (req, res, next) => listPublicStakingPrograms(req, res).catch(next));
+app.post('/api/staking-programs/run-all-drips',           (req, res, next) => runAllDrips(req, res).catch(next));
+app.put('/api/staking-programs/:id/status',               (req, res, next) => updateStakingStatus(req, res).catch(next));
+app.put('/api/staking-programs/:id/allowance',            (req, res, next) => markAllowanceGranted(req, res).catch(next));
+app.delete('/api/staking-programs/:id',                   (req, res, next) => deleteStakingProgram(req, res).catch(next));
+app.post('/api/staking-programs/:id/register',            (req, res, next) => registerParticipant(req, res).catch(next));
+app.get('/api/staking-programs/:id/participants',         (req, res, next) => listParticipants(req, res).catch(next));
+app.get('/api/staking-programs/:id/distributions',        (req, res, next) => listDistributions(req, res).catch(next));
+app.post('/api/staking-programs/:id/drip',                (req, res, next) => triggerDrip(req, res).catch(next));
 
 // Domain registration routes
 app.post('/api/domains/init-topics',                  (req, res, next) => initTopics(req, res).catch(next));

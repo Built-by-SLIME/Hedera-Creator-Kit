@@ -57,7 +57,7 @@ export class Terminal {
     { id: 'airdrop', number: 9, title: 'Airdrop Tool', description: 'Distribute tokens to wallets', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'swap', number: 10, title: 'Swap Tool', description: 'Migrate holders to new token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'burn', number: 11, title: 'Burn Tool', description: 'Permanently burn tokens/NFTs', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'staking', number: 12, title: 'Staking Tool', description: 'Rewards for holders', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
+    { id: 'staking', number: 12, title: 'Staking Tool', description: 'Soft-stake rewards for holders', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'domain-registration', number: 13, title: 'Domain Registration', description: 'Register .hedera / .slime / .gib domains', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' }
   ]
 

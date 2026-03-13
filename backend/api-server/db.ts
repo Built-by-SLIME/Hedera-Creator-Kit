@@ -32,21 +32,52 @@ export async function initDb(): Promise<void> {
     );
 
     CREATE TABLE IF NOT EXISTS staking_programs (
-      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      created_by      VARCHAR(50)  NOT NULL,
-      name            VARCHAR(255) NOT NULL,
-      description     TEXT,
-      stake_token_id  VARCHAR(50)  NOT NULL,
-      reward_token_id VARCHAR(50)  NOT NULL,
-      treasury_account_id VARCHAR(50) NOT NULL,
-      reward_rate_per_day NUMERIC  NOT NULL,
-      min_stake_amount    BIGINT   NOT NULL DEFAULT 0,
-      lock_period_days    INTEGER  NOT NULL DEFAULT 0,
+      id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      created_by          VARCHAR(50)  NOT NULL,
+      name                VARCHAR(255) NOT NULL,
+      description         TEXT,
+      stake_token_id      VARCHAR(50)  NOT NULL,
+      stake_token_type    VARCHAR(3)   NOT NULL DEFAULT 'FT' CHECK (stake_token_type IN ('NFT', 'FT')),
+      reward_token_id     VARCHAR(50)  NOT NULL,
+      treasury_account_id VARCHAR(50)  NOT NULL,
+      reward_rate_per_day NUMERIC      NOT NULL,
+      min_stake_amount    BIGINT       NOT NULL DEFAULT 0,
+      frequency           VARCHAR(6)   NOT NULL DEFAULT '7d'
+                            CHECK (frequency IN ('1d','7d','30d','90d','180d','365d')),
+      allowance_granted   BOOLEAN      NOT NULL DEFAULT false,
+      last_distributed_at TIMESTAMPTZ,
       total_reward_supply BIGINT,
-      status          VARCHAR(20)  NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'completed')),
-      created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-      updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      status              VARCHAR(20)  NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'completed')),
+      created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS staking_participants (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      program_id       UUID         NOT NULL REFERENCES staking_programs(id) ON DELETE CASCADE,
+      account_id       VARCHAR(50)  NOT NULL,
+      registered_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      last_distributed_at TIMESTAMPTZ,
+      UNIQUE (program_id, account_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_staking_participants_program
+      ON staking_participants (program_id);
+
+    CREATE TABLE IF NOT EXISTS staking_distributions (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      program_id     UUID         NOT NULL REFERENCES staking_programs(id) ON DELETE CASCADE,
+      account_id     VARCHAR(50)  NOT NULL,
+      amount         NUMERIC      NOT NULL,
+      units_held     NUMERIC      NOT NULL,
+      tx_id          VARCHAR(255),
+      distributed_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_staking_distributions_program
+      ON staking_distributions (program_id);
+    CREATE INDEX IF NOT EXISTS idx_staking_distributions_account
+      ON staking_distributions (account_id);
 
     CREATE TABLE IF NOT EXISTS swap_transactions (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -91,11 +122,17 @@ export async function initDb(): Promise<void> {
       ON domain_registrations (owner_account_id);
   `);
 
-  // Add NFT columns if they don't exist (idempotent migration)
+  // Idempotent migrations — safe to run on every startup
   await pool.query(`
     ALTER TABLE domain_registrations
       ADD COLUMN IF NOT EXISTS nft_token_id VARCHAR(50),
       ADD COLUMN IF NOT EXISTS nft_serial   BIGINT;
+
+    ALTER TABLE staking_programs
+      ADD COLUMN IF NOT EXISTS stake_token_type    VARCHAR(3)  DEFAULT 'FT',
+      ADD COLUMN IF NOT EXISTS frequency           VARCHAR(6)  DEFAULT '7d',
+      ADD COLUMN IF NOT EXISTS allowance_granted   BOOLEAN     DEFAULT false,
+      ADD COLUMN IF NOT EXISTS last_distributed_at TIMESTAMPTZ;
   `);
 
   console.log('Database tables initialized');

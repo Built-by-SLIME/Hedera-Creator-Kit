@@ -6,6 +6,114 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added — Staking Tool (Tool #12)
+
+#### ✨ FEATURE: Soft-staking reward distribution system — non-custodial, allowance-based
+**Date:** 2026-03-13
+**Files changed:**
+- `backend/api-server/db.ts` — 3 new tables
+- `backend/api-server/routes/staking.ts` — new file (full backend logic)
+- `backend/api-server/server.ts` — 12 new routes registered
+- `frontend/src/components/StakingTool.ts` — new file (full frontend UI)
+- `frontend/src/main.ts` — StakingTool registered and resetState() wired
+- `frontend/src/components/Terminal.ts` — Tool #12 status changed from `coming-soon` → `active`
+- `backend/api-server/tsconfig.json` — `rootDir` fixed from `"."` → `".."` (see note below)
+
+**What it does:**
+Creators can configure a staking program where community members earn reward tokens simply by holding a stake token (NFT or FT) in their own wallet. No locking, no escrow — purely proof-of-holding via live Mirror Node snapshots.
+
+**Architecture — Allowance-Based Non-Custodial Distribution:**
+- Creator grants a fungible token allowance on their treasury account to the platform operator (`0.0.9463056`) via `AccountAllowanceApproveTransaction` (signed in wallet via WalletConnect).
+- Backend distributes rewards using `TransferTransaction` + `addApprovedTokenTransfer` (`isApproval = true`) — the operator spends the allowance on behalf of the treasury without ever holding the creator's private key.
+- `TokenAirdropTransaction` (HIP-904) is explicitly **not used** — standard `TransferTransaction` only, per project requirement.
+
+**Database schema — 3 new tables in `db.ts`:**
+```sql
+-- staking_programs (extended from prior schema)
+ALTER TABLE staking_programs ADD COLUMN stake_token_type VARCHAR(3) NOT NULL DEFAULT 'NFT'; -- 'NFT' | 'FT'
+ALTER TABLE staking_programs ADD COLUMN allowance_granted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE staking_programs ADD COLUMN last_distributed_at TIMESTAMPTZ;
+
+-- staking_participants (new)
+CREATE TABLE staking_participants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  program_id UUID REFERENCES staking_programs(id) ON DELETE CASCADE,
+  account_id VARCHAR NOT NULL,
+  registered_at TIMESTAMPTZ DEFAULT now(),
+  last_distributed_at TIMESTAMPTZ,
+  UNIQUE(program_id, account_id)
+);
+
+-- staking_distributions (new — audit log, never deleted)
+CREATE TABLE staking_distributions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  program_id UUID REFERENCES staking_programs(id) ON DELETE SET NULL,
+  account_id VARCHAR NOT NULL,
+  amount NUMERIC NOT NULL,
+  units_held NUMERIC NOT NULL,
+  tx_id VARCHAR,
+  distributed_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+**Supported frequencies:**
+| Label | Internal value |
+|-------|---------------|
+| Daily | `1d` |
+| Weekly | `7d` |
+| Monthly | `30d` |
+| Quarterly | `90d` |
+| Semi-Annual | `180d` |
+| Annual | `365d` |
+
+**Reward formula:**
+- NFT staking: `serialCount × rewardRatePerDay × frequencyDays`
+- FT staking: `(tokenBalance / 10^decimals) × rewardRatePerDay × frequencyDays`
+
+Holdings are read at drip time via Mirror Node:
+- NFT count: `GET /api/v1/tokens/{stakeTokenId}/nfts?account.id={accountId}`
+- FT balance: `GET /api/v1/accounts/{accountId}/tokens?token.id={stakeTokenId}`
+
+**Custom fee handling (HTS protocol level — no code changes needed):**
+- Fixed fees on the reward token: treasury is automatically exempt (Hedera protocol rule). Stakers receive the full intended amount.
+- Fractional fees on the reward token: charged to the receiver — stakers receive slightly less. The UI detects this and shows a warning to the creator at setup time by querying `GET /api/v1/tokens/{rewardTokenId}` → `custom_fees.fractional_fees`.
+- Royalty/fallback fees on the staked NFT: completely irrelevant — NFTs never move.
+
+**Backend API routes (all registered in `server.ts`):**
+```
+POST   /api/staking-programs                        — create program
+GET    /api/staking-programs?createdBy=0.0.x        — list creator's programs
+GET    /api/staking-programs/public                  — list all active programs (public)
+PUT    /api/staking-programs/:id/status              — pause / resume
+PUT    /api/staking-programs/:id/allowance           — mark allowance as granted
+DELETE /api/staking-programs/:id                     — delete program
+POST   /api/staking-programs/:id/register            — participant self-registers
+GET    /api/staking-programs/:id/participants        — list participants
+GET    /api/staking-programs/:id/distributions       — list distribution history
+POST   /api/staking-programs/:id/drip               — trigger single program drip (admin)
+POST   /api/staking-programs/run-all-drips           — trigger all due drips (cron target)
+```
+
+**Drip scheduling:**
+`processDrips` is a backend function; it is not on an internal cron. To schedule drips, point an external scheduler (Railway Cron, GitHub Actions, etc.) at:
+```
+POST /api/staking-programs/run-all-drips
+Authorization: Bearer {DRIP_SECRET}
+```
+Set `DRIP_SECRET` as an environment variable in Railway.
+
+**Association enforcement:**
+Before a participant's first drip, the backend verifies they have associated the reward token via Mirror Node. If not associated, the drip is skipped for that account (prevents `TOKEN_NOT_ASSOCIATED_TO_ACCOUNT` failures on-chain).
+
+---
+
+#### 🔧 FIX: `backend/api-server/tsconfig.json` — `rootDir` corrected
+**Root cause:** `rootDir` was set to `"."` (only `api-server/`), but routes inside `api-server` import files from `../../5-art-generator/` (a sibling directory). TypeScript raised `TS6059` errors: *"File is not under rootDir"*.
+**Fix:** Changed `rootDir` from `"."` → `".."` (the `backend/` parent), so TypeScript's source root covers both `api-server/` and `5-art-generator/`.
+**Impact:** Zero. Dev mode uses `ts-node --transpile-only` (no tsconfig compilation). Production build uses `backend/tsconfig.json` (unchanged). Railway deployment uses `npm run build` → `backend/tsconfig.json`. The `api-server/tsconfig.json` is only used for type-checking.
+
+---
+
 ### Fixed — Airdrop Tool (Tool #9)
 
 #### 🐛 BUG FIX: Fungible token batch size too large — TOKEN_TRANSFER_LIST_SIZE_LIMIT_EXCEEDED (CRITICAL)
