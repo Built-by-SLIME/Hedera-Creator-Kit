@@ -300,6 +300,14 @@ export async function registerParticipant(req: Request, res: Response): Promise<
       [id, accountId]
     );
 
+    // Trigger an immediate drip for this participant
+    try {
+      await processDrip(id, accountId);
+    } catch (dripErr: any) {
+      // Log but don't fail the registration — participant is recorded regardless
+      console.error('registerParticipant: immediate drip failed:', dripErr.message);
+    }
+
     res.json({ success: true, participant: result.rows[0] });
   } catch (err: any) {
     console.error('registerParticipant error:', err);
@@ -354,7 +362,7 @@ export async function listDistributions(req: Request, res: Response): Promise<vo
  *  4. Build TransferTransaction using addApprovedTokenTransfer (operator spends creator's allowance).
  *  5. Operator signs + submits; record in staking_distributions.
  */
-async function processDrip(programId: string): Promise<{
+async function processDrip(programId: string, targetAccountId?: string): Promise<{
   distributed: number; skipped: number; failed: number; errors: string[];
 }> {
   const progResult = await pool.query(`SELECT * FROM staking_programs WHERE id=$1`, [programId]);
@@ -367,10 +375,15 @@ async function processDrip(programId: string): Promise<{
   const decimals = await fetchTokenDecimals(prog.reward_token_id);
   const days = frequencyDays(prog.frequency);
 
-  const participants = await pool.query(
-    `SELECT account_id FROM staking_participants WHERE program_id=$1`,
-    [programId]
-  );
+  const participants = targetAccountId
+    ? await pool.query(
+        `SELECT account_id FROM staking_participants WHERE program_id=$1 AND account_id=$2`,
+        [programId, targetAccountId]
+      )
+    : await pool.query(
+        `SELECT account_id FROM staking_participants WHERE program_id=$1`,
+        [programId]
+      );
 
   const client = getOperatorClient();
   const operatorKey = getOperatorKey();
