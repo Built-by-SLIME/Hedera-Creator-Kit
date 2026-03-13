@@ -36,7 +36,6 @@ export class Terminal {
   private static _currentInput: string = ''
 
   private static walletSubscribed: boolean = false
-  private static connectingWallet: boolean = false
   private static walletData: WalletData = {
     connected: false,
     accountId: null,
@@ -66,6 +65,12 @@ export class Terminal {
   }
 
   static render(): string {
+    // Security: only inject tool HTML into the DOM after SLIME ownership is verified.
+    // If not verified, return ONLY the gate overlay — tools are never present in the DOM.
+    if (!this.isTokenGateVerified()) {
+      return this.renderTokenGateOverlay()
+    }
+
     return `
       <div class="terminal-window">
         ${this.renderWindowChrome()}
@@ -73,7 +78,6 @@ export class Terminal {
         ${this.renderInputArea()}
         ${this.renderStatusBar()}
       </div>
-      ${!this.isTokenGateVerified() && !this.connectingWallet ? this.renderTokenGateOverlay() : ''}
     `
   }
 
@@ -415,25 +419,16 @@ export class Terminal {
       return
     }
 
-    // Set flag to prevent refresh() from re-rendering the overlay while WC modal is open
-    this.connectingWallet = true
-
-    // Hide our overlay so the WalletConnect modal is fully visible
-    const overlay = document.getElementById('token-gate-overlay')
-    if (overlay) {
-      overlay.style.display = 'none'
-    }
-
+    // Security: The WalletConnect modal sits above the token-gate overlay via CSS
+    // z-index (99999 vs 10000), so we no longer need to manually hide the overlay.
+    // Removing the hide logic closes the bypass window where tools were briefly exposed.
     try {
       await WalletConnectService.connect()
     } catch (error: any) {
       console.error('WalletConnect error:', error)
     }
 
-    // Clear the flag — allow overlay to render again
-    this.connectingWallet = false
-
-    // If still not verified, re-render to show the overlay again
+    // If still not verified, re-render the gate overlay
     if (!this.isTokenGateVerified()) {
       this.refresh()
     }

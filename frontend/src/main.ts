@@ -1,5 +1,6 @@
 import './styles/main.css'
 import { Terminal } from './components/Terminal'
+import WalletConnectService from './services/WalletConnectService'
 import { TokenViewer } from './components/TokenViewer'
 import { SnapshotTool } from './components/SnapshotTool'
 import { AirdropTool } from './components/AirdropTool'
@@ -24,6 +25,18 @@ Terminal.init()
 // Listen for navigation events
 window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
   const toolId = event.detail.toolId
+
+  // Security: verify SLIME ownership server-side before rendering any tool.
+  // This blocks console-based dispatch attacks (e.g. window.dispatchEvent(...)).
+  // 'home', 'menu', and 'help' are safe routes that do not require the gate.
+  const publicRoutes = ['home', 'menu', 'help']
+  if (!publicRoutes.includes(toolId) && WalletConnectService.getState().hasSlime !== true) {
+    console.warn('Navigation blocked: SLIME NFT not verified for tool:', toolId)
+    app.innerHTML = Terminal.render()
+    Terminal.init()
+    return
+  }
+
   console.log('Navigating to tool:', toolId)
 
   switch (toolId) {
