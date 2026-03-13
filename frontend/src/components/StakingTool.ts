@@ -227,9 +227,13 @@ export class StakingTool {
           ${this.rewardCustomFees ? this.renderFeeWarning() : ''}
         </div>
         <div class="input-group">
-          <label for="stk-treasury">Treasury Account ID * <span style="opacity:0.5;font-size:0.75rem">(holds reward token supply)</span></label>
-          <input type="text" id="stk-treasury" class="token-input" placeholder="0.0.xxxxxxx" value="${this.escapeHtml(this.treasuryAccountId)}" />
-          ${ws.connected ? `<button class="terminal-button secondary" id="stk-use-wallet" style="margin-top:0.4rem;width:100%;font-size:0.75rem">USE CONNECTED WALLET</button>` : ''}
+          <label>Treasury Account <span style="opacity:0.5;font-size:0.75rem">(holds reward token supply)</span></label>
+          <div style="padding:0.5rem 0.75rem;background:rgba(0,255,64,0.06);border:1px solid rgba(0,255,64,0.2);border-radius:6px;font-size:0.85rem;font-family:inherit">
+            ${ws.accountId || '—'}
+          </div>
+          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">
+            Must be your connected wallet — allowance is signed by this account.
+          </p>
         </div>
 
         <div class="filter-divider"></div>
@@ -473,7 +477,6 @@ export class StakingTool {
     bind('stk-description',   'description')
     bind('stk-stake-token',   'stakeTokenId')
     bind('stk-reward-token',  'rewardTokenId')
-    bind('stk-treasury',      'treasuryAccountId')
     bind('stk-rate',          'rewardRatePerDay')
     bind('stk-min-stake',     'minStakeAmount')
     bind('stk-frequency',     'frequency')
@@ -489,15 +492,6 @@ export class StakingTool {
     // Fetch reward token info on blur
     document.getElementById('stk-reward-token')?.addEventListener('blur', () => {
       if (this.rewardTokenId.trim()) this.fetchRewardTokenInfo(this.rewardTokenId.trim())
-    })
-
-    // Use connected wallet as treasury
-    document.getElementById('stk-use-wallet')?.addEventListener('click', () => {
-      if (ws.connected && ws.accountId) {
-        this.treasuryAccountId = ws.accountId
-        const el = document.getElementById('stk-treasury') as HTMLInputElement
-        if (el) el.value = ws.accountId
-      }
     })
 
     // Allowance step
@@ -551,7 +545,8 @@ export class StakingTool {
     if (!this.programName.trim()) { this.error = 'Program name is required.'; this.refresh(); return }
     if (!this.stakeTokenId.trim()) { this.error = 'Stake Token ID is required.'; this.refresh(); return }
     if (!this.rewardTokenId.trim()) { this.error = 'Reward Token ID is required.'; this.refresh(); return }
-    if (!this.treasuryAccountId.trim()) { this.error = 'Treasury Account ID is required.'; this.refresh(); return }
+    // Always use the connected wallet as treasury
+    this.treasuryAccountId = ws.accountId!
     if (!this.rewardRatePerDay || parseFloat(this.rewardRatePerDay) <= 0) {
       this.error = 'Daily reward rate must be greater than 0.'; this.refresh(); return
     }
