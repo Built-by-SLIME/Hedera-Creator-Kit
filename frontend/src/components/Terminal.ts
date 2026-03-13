@@ -36,6 +36,7 @@ export class Terminal {
   private static _currentInput: string = ''
 
   private static walletSubscribed: boolean = false
+  private static connectingWallet: boolean = false
   private static walletData: WalletData = {
     connected: false,
     accountId: null,
@@ -66,8 +67,14 @@ export class Terminal {
 
   static render(): string {
     // Security: only inject tool HTML into the DOM after SLIME ownership is verified.
-    // If not verified, return ONLY the gate overlay — tools are never present in the DOM.
+    // If not verified, tools are NEVER present in the DOM — only the gate (or nothing).
     if (!this.isTokenGateVerified()) {
+      // While the WalletConnect modal is opening, suppress the overlay entirely so the
+      // modal can appear above it. This is safe: even with no overlay, the DOM contains
+      // NO tool HTML — so there is nothing to expose.
+      if (this.connectingWallet) {
+        return `<div id="token-gate-connecting"></div>`
+      }
       return this.renderTokenGateOverlay()
     }
 
@@ -419,16 +426,21 @@ export class Terminal {
       return
     }
 
-    // Security: The WalletConnect modal sits above the token-gate overlay via CSS
-    // z-index (99999 vs 10000), so we no longer need to manually hide the overlay.
-    // Removing the hide logic closes the bypass window where tools were briefly exposed.
+    // Set flag and re-render: this replaces the gate overlay with an invisible
+    // placeholder (<div id="token-gate-connecting">). The WalletConnect modal can
+    // then appear unobstructed. This is safe because tools are still NOT in the DOM
+    // — the placeholder contains no tool HTML whatsoever.
+    this.connectingWallet = true
+    this.refresh()
+
     try {
       await WalletConnectService.connect()
     } catch (error: any) {
       console.error('WalletConnect error:', error)
     }
 
-    // If still not verified, re-render the gate overlay
+    // Clear flag — if still not verified, restore the full gate overlay
+    this.connectingWallet = false
     if (!this.isTokenGateVerified()) {
       this.refresh()
     }
