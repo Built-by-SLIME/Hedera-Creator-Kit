@@ -389,9 +389,11 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
   if (prog.status !== 'active') throw new Error('Program is not active');
   if (!prog.allowance_granted) throw new Error('Allowance not yet granted by creator');
 
-  const decimals = await fetchTokenDecimals(prog.reward_token_id);
+  // Fetch decimals for BOTH tokens separately — they can differ
+  const rewardDecimals = await fetchTokenDecimals(prog.reward_token_id);
+  const stakeDecimals  = await fetchTokenDecimals(prog.stake_token_id);
   const days = frequencyDays(prog.frequency);
-  console.log(`[processDrip] reward_token=${prog.reward_token_id} decimals=${decimals} days=${days}`);
+  console.log(`[processDrip] reward_token=${prog.reward_token_id} rewardDecimals=${rewardDecimals} stake_token=${prog.stake_token_id} stakeDecimals=${stakeDecimals} days=${days}`);
 
   const participants = targetAccountId
     ? await pool.query(
@@ -421,8 +423,8 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         unitsHeld = await fetchNftCount(accountId, prog.stake_token_id);
       } else {
         const rawBalance = await fetchFtBalance(accountId, prog.stake_token_id);
-        // Express FT balance in whole tokens (matching ratePerDay which is in whole tokens)
-        unitsHeld = Number(rawBalance) / Math.pow(10, decimals);
+        // Use STAKE token decimals to convert raw balance to whole units
+        unitsHeld = Number(rawBalance) / Math.pow(10, stakeDecimals);
       }
 
       // 2. Skip if below minimum
@@ -433,9 +435,9 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
       }
 
       // 3. Calculate reward (plain number — NOT bigint; SDK's Long.fromValue rejects bigint)
-      const rewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, decimals);
+      const rewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals);
       if (rewardRaw <= 0) { skipped++; continue; }
-      console.log(`[drip] ${accountId} holds ${unitsHeld} units → rewardRaw=${rewardRaw} (decimals=${decimals})`);
+      console.log(`[drip] ${accountId} holds ${unitsHeld} units → rewardRaw=${rewardRaw} (rewardDecimals=${rewardDecimals})`);
 
       // 4. Build approved transfer: treasury → participant (operator uses creator's allowance)
       const recipientAcct = AccountId.fromString(accountId);
@@ -456,14 +458,14 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
       await pool.query(
         `INSERT INTO staking_distributions (program_id, account_id, amount, units_held, tx_id)
          VALUES ($1, $2, $3, $4, $5)`,
-        [programId, accountId, rewardRaw / Math.pow(10, decimals), unitsHeld, txId]
+        [programId, accountId, rewardRaw / Math.pow(10, rewardDecimals), unitsHeld, txId]
       );
       await pool.query(
         `UPDATE staking_participants SET last_distributed_at=NOW() WHERE program_id=$1 AND account_id=$2`,
         [programId, accountId]
       );
 
-      console.log(`[drip] Sent ${rewardRaw / Math.pow(10, decimals)} reward to ${accountId} (tx: ${txId})`);
+      console.log(`[drip] Sent ${rewardRaw / Math.pow(10, rewardDecimals)} reward to ${accountId} (tx: ${txId})`);
       distributed++;
     } catch (err: any) {
       failed++;
