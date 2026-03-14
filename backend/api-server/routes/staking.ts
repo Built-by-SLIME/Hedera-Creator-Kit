@@ -53,16 +53,20 @@ function frequencyDays(freq: string): number {
   return map[freq] ?? 7;
 }
 
-/** Returns raw reward amount (in smallest units) for a distribution. */
+/**
+ * Returns raw reward amount (in smallest units) as a plain JS number.
+ * NOTE: Must stay as `number` (not `bigint`) — the Hedera SDK's Long.fromValue()
+ * throws a TypeError on native bigint, causing the transfer to silently fail.
+ */
 function calcReward(
   unitsHeld: number,
   ratePerDay: number,
   days: number,
   decimals: number,
-): bigint {
+): number {
   // ratePerDay is expressed in whole reward tokens. Convert to raw units.
   const wholeReward = unitsHeld * ratePerDay * days;
-  return BigInt(Math.floor(wholeReward * Math.pow(10, decimals)));
+  return Math.floor(wholeReward * Math.pow(10, decimals));
 }
 
 /** Fetch total NFT count for an account on a given token (handles pagination). */
@@ -301,14 +305,24 @@ export async function registerParticipant(req: Request, res: Response): Promise<
     );
 
     // Trigger an immediate drip for this participant
+    let dripResult: { distributed: number; skipped: number; failed: number; errors: string[] } | null = null;
+    let dripError: string | null = null;
     try {
-      await processDrip(id, accountId);
+      console.log(`[register] Starting immediate drip for ${accountId} in program ${id}`);
+      dripResult = await processDrip(id, accountId);
+      console.log(`[register] Drip result for ${accountId}:`, JSON.stringify(dripResult));
     } catch (dripErr: any) {
-      // Log but don't fail the registration — participant is recorded regardless
-      console.error('registerParticipant: immediate drip failed:', dripErr.message);
+      dripError = dripErr.message;
+      console.error(`[register] Immediate drip FAILED for ${accountId}:`, dripErr);
     }
 
-    res.json({ success: true, participant: result.rows[0] });
+    res.json({
+      success: true,
+      participant: result.rows[0],
+      drip: dripResult
+        ? { success: dripResult.distributed > 0, ...dripResult }
+        : { success: false, error: dripError ?? 'unknown' },
+    });
   } catch (err: any) {
     console.error('registerParticipant error:', err);
     res.status(500).json({ success: false, error: err.message });
@@ -365,15 +379,19 @@ export async function listDistributions(req: Request, res: Response): Promise<vo
 async function processDrip(programId: string, targetAccountId?: string): Promise<{
   distributed: number; skipped: number; failed: number; errors: string[];
 }> {
+  console.log(`[processDrip] ENTER programId=${programId} targetAccountId=${targetAccountId ?? 'ALL'}`);
+
   const progResult = await pool.query(`SELECT * FROM staking_programs WHERE id=$1`, [programId]);
   if (progResult.rowCount === 0) throw new Error('Program not found');
 
   const prog = progResult.rows[0];
+  console.log(`[processDrip] program status=${prog.status} allowance_granted=${prog.allowance_granted} treasury=${prog.treasury_account_id}`);
   if (prog.status !== 'active') throw new Error('Program is not active');
   if (!prog.allowance_granted) throw new Error('Allowance not yet granted by creator');
 
   const decimals = await fetchTokenDecimals(prog.reward_token_id);
   const days = frequencyDays(prog.frequency);
+  console.log(`[processDrip] reward_token=${prog.reward_token_id} decimals=${decimals} days=${days}`);
 
   const participants = targetAccountId
     ? await pool.query(
@@ -409,13 +427,15 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
 
       // 2. Skip if below minimum
       if (unitsHeld <= 0 || unitsHeld < Number(prog.min_stake_amount)) {
+        console.log(`[drip] Skipping ${accountId}: holds ${unitsHeld}, min is ${prog.min_stake_amount}`);
         skipped++;
         continue;
       }
 
-      // 3. Calculate reward (raw units)
+      // 3. Calculate reward (plain number — NOT bigint; SDK's Long.fromValue rejects bigint)
       const rewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, decimals);
-      if (rewardRaw <= 0n) { skipped++; continue; }
+      if (rewardRaw <= 0) { skipped++; continue; }
+      console.log(`[drip] ${accountId} holds ${unitsHeld} units → rewardRaw=${rewardRaw} (decimals=${decimals})`);
 
       // 4. Build approved transfer: treasury → participant (operator uses creator's allowance)
       const recipientAcct = AccountId.fromString(accountId);
@@ -436,14 +456,14 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
       await pool.query(
         `INSERT INTO staking_distributions (program_id, account_id, amount, units_held, tx_id)
          VALUES ($1, $2, $3, $4, $5)`,
-        [programId, accountId, Number(rewardRaw) / Math.pow(10, decimals), unitsHeld, txId]
+        [programId, accountId, rewardRaw / Math.pow(10, decimals), unitsHeld, txId]
       );
       await pool.query(
         `UPDATE staking_participants SET last_distributed_at=NOW() WHERE program_id=$1 AND account_id=$2`,
         [programId, accountId]
       );
 
-      console.log(`[drip] Sent ${Number(rewardRaw) / Math.pow(10, decimals)} reward to ${accountId} (tx: ${txId})`);
+      console.log(`[drip] Sent ${rewardRaw / Math.pow(10, decimals)} reward to ${accountId} (tx: ${txId})`);
       distributed++;
     } catch (err: any) {
       failed++;
