@@ -207,8 +207,11 @@ export class SwapTool {
         </div>
 
         <div class="input-group">
-          <label for="swap-treasury">Treasury Account ID * <span style="opacity:0.5;font-size:0.75rem">(wallet holding the "to" tokens)</span></label>
-          <input type="text" id="swap-treasury" class="token-input" placeholder="0.0.xxxxxxx" value="${this.escapeHtml(this.treasuryAccountId)}" />
+          <label>Treasury Wallet <span style="opacity:0.5;font-size:0.75rem">(wallet holding the "to" tokens — must be connected wallet)</span></label>
+          <div style="padding:0.55rem 0.75rem;background:rgba(0,255,64,0.05);border:1px solid rgba(0,255,64,0.2);border-radius:6px;font-family:monospace;font-size:0.85rem;color:var(--accent-green,#00ff40)">
+            ${ws.accountId || '—'}
+          </div>
+          <p style="font-size:0.74rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">Your connected wallet is automatically used as the treasury. Grant the operator allowance in the next step.</p>
         </div>
 
         ${isFungible ? `
@@ -464,7 +467,6 @@ export class SwapTool {
     bind('swap-description', 'description')
     bind('swap-from-token', 'fromTokenId')
     bind('swap-to-token', 'toTokenId')
-    bind('swap-treasury', 'treasuryAccountId')
     bind('swap-rate-from', 'rateFrom')
     bind('swap-rate-to', 'rateTo')
     bind('swap-total-supply', 'totalSupply')
@@ -548,7 +550,9 @@ export class SwapTool {
     if (!this.programName.trim()) { this.error = 'Program name is required.'; this.refresh(); return }
     if (!this.fromTokenId.trim()) { this.error = 'From Token ID is required.'; this.refresh(); return }
     if (!this.toTokenId.trim()) { this.error = 'To Token ID is required.'; this.refresh(); return }
-    if (!this.treasuryAccountId.trim()) { this.error = 'Treasury Account ID is required.'; this.refresh(); return }
+
+    // Always use the connected wallet as the treasury — no manual prompt needed.
+    this.treasuryAccountId = ws.accountId!
 
     this.step = 'allowance'
     this.refresh()
