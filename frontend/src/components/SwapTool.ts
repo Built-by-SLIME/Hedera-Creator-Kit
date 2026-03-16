@@ -285,8 +285,12 @@ export class SwapTool {
         </div>` : `
         <div class="input-group">
           <label for="swap-allowance-serials">Serial Numbers to Allow * <span style="opacity:0.5;font-size:0.75rem">(comma-separated or range e.g. 1-500)</span></label>
+          <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem">
+            <button class="terminal-button secondary" id="swap-load-wallet-serials" style="white-space:nowrap;font-size:0.72rem;padding:0.4rem 0.7rem">USE WALLET NFTs</button>
+            <span id="swap-serials-loading" style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;display:none">Loading...</span>
+          </div>
           <input type="text" id="swap-allowance-serials" class="token-input" placeholder="e.g. 1-500 or 1,2,3,4,5" />
-          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">Serials of the "to" NFT collection that the operator can send to swappers.</p>
+          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">Serials of the "to" NFT collection that the operator can send to swappers. Use the button above to auto-fill from your connected wallet, or enter manually.</p>
         </div>`}
 
         <div class="filter-divider"></div>
@@ -499,6 +503,35 @@ export class SwapTool {
 
     // Submit form → move to allowance step
     document.getElementById('swap-submit')?.addEventListener('click', () => this.handleSubmitForm())
+
+    // Auto-fill serials from connected wallet's "to" token holdings
+    document.getElementById('swap-load-wallet-serials')?.addEventListener('click', async () => {
+      const ws = WalletConnectService.getState()
+      if (!ws.accountId || !this.toTokenId) return
+      const loadingEl = document.getElementById('swap-serials-loading')
+      const inputEl = document.getElementById('swap-allowance-serials') as HTMLInputElement
+      if (loadingEl) loadingEl.style.display = 'inline'
+      try {
+        const nfts: number[] = []
+        let path: string | null = `/api/v1/accounts/${ws.accountId}/nfts?token.id=${this.toTokenId.trim()}&limit=100`
+        while (path) {
+          const r = await fetch(`${MIRROR_NODE_URL}${path}`)
+          if (!r.ok) break
+          const d = await r.json()
+          ;(d.nfts || []).forEach((n: { serial_number: number }) => nfts.push(n.serial_number))
+          path = d.links?.next || null
+        }
+        if (nfts.length === 0) {
+          alert('No NFTs of the "to" token found in your connected wallet.')
+        } else {
+          inputEl.value = nfts.sort((a, b) => a - b).join(',')
+        }
+      } catch {
+        alert('Failed to fetch NFTs from Mirror Node. Please enter serials manually.')
+      } finally {
+        if (loadingEl) loadingEl.style.display = 'none'
+      }
+    })
 
     // Grant allowance
     document.getElementById('swap-grant-allowance')?.addEventListener('click', () => this.handleGrantAllowance())
