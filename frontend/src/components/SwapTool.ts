@@ -515,9 +515,9 @@ export class SwapTool {
         const nfts: number[] = []
         let path: string | null = `/api/v1/accounts/${ws.accountId}/nfts?token.id=${this.toTokenId.trim()}&limit=100`
         while (path) {
-          const r = await fetch(`${MIRROR_NODE_URL}${path}`)
+          const r: Response = await fetch(`${MIRROR_NODE_URL}${path}`)
           if (!r.ok) break
-          const d = await r.json()
+          const d: { nfts: { serial_number: number }[]; links?: { next?: string } } = await r.json()
           ;(d.nfts || []).forEach((n: { serial_number: number }) => nfts.push(n.serial_number))
           path = d.links?.next || null
         }
