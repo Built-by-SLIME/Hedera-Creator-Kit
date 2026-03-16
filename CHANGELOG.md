@@ -6,6 +6,110 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed — Swap Tool (Tool #10)
+
+#### 🐛 BUG FIX: MAX_ALLOWANCES_EXCEEDED — 63 NFT approvals in a single transaction (CRITICAL)
+**Date:** 2026-03-16
+**Files changed:**
+- `frontend/src/components/SwapTool.ts` — allowance mode toggle + batching logic
+- `backend/api-server/routes/swap.ts` — `getFallbackFees` helper + NFT branch in `/prepare` + `serialNumbers` support in `/submit`
+- `/Users/davidconklin/SLIME Website/slime-website/src/components/SwapPage.tsx` — NFT swap flow rewritten (outside toolkit repo — SLIME dApp)
+
+**Symptom:** Admin attempting to grant allowances for 63 NFT serials received `MAX_ALLOWANCES_EXCEEDED`. The program was saved to the database with no valid allowance behind it, making every user swap attempt fail silently.
+
+**Root cause:** `AccountAllowanceApproveTransaction` is hard-capped at **20 allowance operations** per transaction by Hedera protocol. The old code looped `approveTokenNftAllowance()` once per serial in a single transaction — 63 serials = 63 operations = instant on-chain rejection.
+
+**Revert instructions (if needed):**
+- `SwapTool.ts`: remove `allowanceMode` state, restore single `approveTokenNftAllowance` loop in `handleGrantAllowance`, remove toggle buttons from `renderAllowanceStep`, remove toggle listeners from `init`
+- `swap.ts`: restore the `if (program.swap_type !== 'fungible') { return 400 }` guard at the top of `prepareSwap`, remove `getFallbackFees` function, remove NFT branch, revert `submitSwap` to accept only `amount` (remove `serialNumbers` branch)
+- `SwapPage.tsx`: restore `NftId` import, replace the 3-step NFT flow with the original `approveTokenNftAllowance` loop + direct `/api/swap-execute` POST
+
+---
+
+#### ✨ FEATURE: Admin UI — All Serials / Specific Serials toggle
+**File:** `frontend/src/components/SwapTool.ts`
+
+Added `allowanceMode: 'all' | 'specific'` state (default `'all'`). The allowance step for NFT programs now shows a two-button toggle:
+
+- **ALL SERIALS (recommended):** Calls `approveTokenNftAllowanceAllSerials(tokenId, owner, operator)` — a single allowance operation regardless of collection size. Grants the operator permission to distribute any serial the treasury holds, revocable at any time.
+- **SPECIFIC SERIALS:** Shows the serial input and "USE WALLET NFTs" button. Serials are batched into groups of 20 (Hedera's hard limit per tx) and submitted sequentially — one wallet signature per batch. A warning is displayed upfront: *"20-operation limit — one signature per batch."*
+
+**Key SDK call:**
+```typescript
+// All mode — 1 operation, any collection size
+new AccountAllowanceApproveTransaction()
+  .approveTokenNftAllowanceAllSerials(TokenId.fromString(toTokenId), acctId, operatorId)
+
+// Specific mode — batched, max 20 per tx
+for (const serial of batch) {
+  approveTx.approveTokenNftAllowance(new NftId(TokenId.fromString(toTokenId), serial), acctId, operatorId)
+}
+// 2500ms pause between batches to avoid nonce collisions
+```
+
+---
+
+#### ✨ FEATURE: User-pays model — dynamic royalty fallback fee reimbursement
+**Files:** `backend/api-server/routes/swap.ts`, `SwapPage.tsx`
+
+**Problem:** The operator wallet was paying Hedera's auto-assessed royalty fallback fees on every NFT swap. These fees are charged by the protocol when an NFT changes hands with no fungible value exchanged. The operator had no way to recover this cost.
+
+**Solution — Prepare/Submit pattern with inline HBAR reimbursement:**
+
+The NFT swap flow is now:
+1. **User grants allowance** — `approveTokenNftAllowanceAllSerials` for their `from` token (covers all serials, one signature)
+2. **Backend prepares** — `POST /api/swap-programs/:id/prepare` with `{ userAccountId, serialNumbers[] }`
+3. **User signs** — their signature authorises only the HBAR debit from their account; the approved NFT transfers need no additional user signature
+4. **Backend submits** — `POST /api/swap-programs/:id/submit` with signed bytes; backend countersigns (authorising the approved NFT transfers as spender) and submits
+
+**`getFallbackFees(tokenId)` helper — dynamic Mirror Node query:**
+```typescript
+GET /api/v1/tokens/{tokenId}  →  custom_fees.royalty_fees[].fallback_fee
+```
+- Returns `{ collector: string, tinybars: bigint }[]` — one entry per royalty tier
+- Only HBAR-denominated fallbacks are returned (`denominator_token_id === null`)
+- Token-denominated fallbacks (rare) are logged as warnings and skipped
+- Network returns `[]` if no royalty fees exist — no HBAR legs added to tx
+
+**Prepared `TransferTransaction` structure (per swap):**
+```
+For each serial:
+  addApprovedNftTransfer(fromToken#serial, user → treasury)   // user's fromToken goes to treasury
+  addApprovedNftTransfer(toToken#serial,   treasury → user)   // treasury's toToken goes to user
+
+HBAR legs:
+  addHbarTransfer(userAcct,     -(networkFee + all fallbackFees × nftCount))
+  addHbarTransfer(operatorAcct, +(networkFee + all fallbackFees × nftCount))
+
+setTransactionId(TransactionId.generate(operatorAcct))  // operator is payer
+setNodeAccountIds([new AccountId(3)])                    // pin node so both signers sign same bytes
+```
+The operator nets zero — all fees it is charged by Hedera protocol are reimbursed inline in the same atomic transaction.
+
+**Fee response to frontend:**
+```json
+{
+  "fees": {
+    "networkFee": "0.2 ℏ",
+    "fallbackFees": [{ "collector": "0.0.xxxxx", "tinybars": "100000000" }],
+    "total": "1.2 ℏ",
+    "totalTinybars": "120000000"
+  }
+}
+```
+The UI displays the fee total in the step 3 wallet prompt so the user knows exactly what they are signing before the wallet opens.
+
+**`submitSwap` — NFT vs fungible DB insert:**
+```typescript
+// NFT: stores serial numbers
+INSERT INTO swap_transactions (swap_program_id, user_account_id, serial_numbers, tx_id, status)
+
+// Fungible: stores amount (unchanged)
+INSERT INTO swap_transactions (swap_program_id, user_account_id, amount, tx_id, status)
+```
+
+---
+
 ### Added — Staking Tool (Tool #12)
 
 #### ✨ FEATURE: Soft-staking reward distribution system — non-custodial, allowance-based

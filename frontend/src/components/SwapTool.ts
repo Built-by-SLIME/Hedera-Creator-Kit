@@ -62,6 +62,11 @@ export class SwapTool {
   private static toTokenTotalSupply: string | null = null
   private static toTokenName: string = ''
 
+  // ─── Allowance mode (NFT only) ─────────────────────────────
+  // 'all'      → approveTokenNftAllowanceAllSerials (1 operation, any count)
+  // 'specific' → approveTokenNftAllowance per serial, batched in groups of 20
+  private static allowanceMode: 'all' | 'specific' = 'all'
+
   // ─── Flow state ────────────────────────────────────────────
   private static loading = false
   private static error: string | null = null
@@ -284,13 +289,33 @@ export class SwapTool {
           <p style="font-size:0.73rem;color:var(--terminal-text);opacity:0.45;margin:0.2rem 0 0">Enter the number of whole tokens. Raw unit conversion shown above.</p>
         </div>` : `
         <div class="input-group">
-          <label for="swap-allowance-serials">Serial Numbers to Allow * <span style="opacity:0.5;font-size:0.75rem">(comma-separated or range e.g. 1-500)</span></label>
+          <label>Allowance Scope *</label>
+          <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem">
+            <button class="terminal-button ${this.allowanceMode === 'all' ? '' : 'secondary'}" id="swap-mode-all" style="flex:1;font-size:0.8rem">ALL SERIALS</button>
+            <button class="terminal-button ${this.allowanceMode === 'specific' ? '' : 'secondary'}" id="swap-mode-specific" style="flex:1;font-size:0.8rem">SPECIFIC SERIALS</button>
+          </div>
+          ${this.allowanceMode === 'all' ? `
+          <div style="padding:0.5rem 0.75rem;background:rgba(0,255,64,0.06);border:1px solid rgba(0,255,64,0.15);border-radius:6px">
+            <p style="font-size:0.77rem;color:var(--terminal-text);opacity:0.75;margin:0">
+              ✓ <strong style="color:var(--accent-green,#00ff40)">Recommended.</strong>
+              Grants the operator permission to distribute <em>any</em> serial of <strong>${this.escapeHtml(this.toTokenId)}</strong> that your treasury holds.
+              Requires <strong>1 wallet signature</strong>, regardless of collection size.
+              You can revoke this allowance at any time.
+            </p>
+          </div>` : `
+          <div style="padding:0.5rem 0.75rem;background:rgba(255,170,0,0.06);border:1px solid rgba(255,170,0,0.2);border-radius:6px;margin-bottom:0.5rem">
+            <p style="font-size:0.77rem;color:#ffaa00;margin:0">
+              ⚠ Hedera limits an allowance transaction to <strong>20 operations</strong>.
+              If you enter more than 20 serials they will be submitted in batches of 20 — <strong>one wallet signature per batch</strong>.
+            </p>
+          </div>
           <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem">
             <button class="terminal-button secondary" id="swap-load-wallet-serials" style="white-space:nowrap;font-size:0.72rem;padding:0.4rem 0.7rem">USE WALLET NFTs</button>
             <span id="swap-serials-loading" style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;display:none">Loading...</span>
           </div>
           <input type="text" id="swap-allowance-serials" class="token-input" placeholder="e.g. 1-500 or 1,2,3,4,5" />
-          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">Serials of the "to" NFT collection that the operator can send to swappers. Use the button above to auto-fill from your connected wallet, or enter manually.</p>
+          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">Serials of the "to" NFT collection the operator may distribute. Auto-fill from your wallet or enter manually.</p>
+          `}
         </div>`}
 
         <div class="filter-divider"></div>
@@ -429,6 +454,7 @@ export class SwapTool {
     this.toTokenDecimals = null
     this.toTokenTotalSupply = null
     this.toTokenName = ''
+    this.allowanceMode = 'all'
     this.programs = []
     this.loading = false
     this.error = null
@@ -459,6 +485,16 @@ export class SwapTool {
     })
     document.getElementById('swap-type-fungible')?.addEventListener('click', () => {
       this.swapType = 'fungible'
+      this.refresh()
+    })
+
+    // Allowance mode toggle (NFT only)
+    document.getElementById('swap-mode-all')?.addEventListener('click', () => {
+      this.allowanceMode = 'all'
+      this.refresh()
+    })
+    document.getElementById('swap-mode-specific')?.addEventListener('click', () => {
+      this.allowanceMode = 'specific'
       this.refresh()
     })
 
@@ -609,26 +645,52 @@ export class SwapTool {
       const operatorId = AccountId.fromString(BACKEND_MINTER_ACCOUNT)
 
       if (this.swapType === 'nft') {
-        // Parse serial numbers from input
-        const serialInput = allowanceSerialsEl?.value?.trim() || ''
-        if (!serialInput) throw new Error('Please enter serial numbers to allow.')
-        const serials = this.parseSerials(serialInput)
-        if (serials.length === 0) throw new Error('No valid serial numbers found.')
+        if (this.allowanceMode === 'all') {
+          // Single call — grants spender rights to ALL serials this owner holds.
+          // Counts as 1 allowance operation regardless of collection size.
+          this.statusMessage = 'Approving all serials — sign in wallet...'
+          this.refresh()
 
-        this.statusMessage = `Approving ${serials.length} NFT serial(s) — approve in wallet...`
-        this.refresh()
+          const approveTx = new AccountAllowanceApproveTransaction()
+            .approveTokenNftAllowanceAllSerials(TokenId.fromString(this.toTokenId), acctId, operatorId)
+            .setTransactionId(TransactionId.generate(acctId))
+          approveTx.freezeWith(client)
+          await approveTx.executeWithSigner(signer)
 
-        const approveTx = new AccountAllowanceApproveTransaction()
-        for (const serial of serials) {
-          approveTx.approveTokenNftAllowance(
-            new NftId(TokenId.fromString(this.toTokenId), serial),
-            acctId,
-            operatorId
-          )
+        } else {
+          // Specific serials — batch into groups of 20 (Hedera hard limit per tx)
+          const serialInput = allowanceSerialsEl?.value?.trim() || ''
+          if (!serialInput) throw new Error('Please enter serial numbers to allow.')
+          const serials = this.parseSerials(serialInput)
+          if (serials.length === 0) throw new Error('No valid serial numbers found.')
+
+          const BATCH_SIZE = 20
+          const batchCount = Math.ceil(serials.length / BATCH_SIZE)
+
+          for (let i = 0; i < serials.length; i += BATCH_SIZE) {
+            const batch = serials.slice(i, i + BATCH_SIZE)
+            const batchNum = Math.floor(i / BATCH_SIZE) + 1
+            this.statusMessage = `Approving batch ${batchNum} of ${batchCount} (${batch.length} serials) — sign in wallet...`
+            this.refresh()
+
+            const approveTx = new AccountAllowanceApproveTransaction()
+            for (const serial of batch) {
+              approveTx.approveTokenNftAllowance(
+                new NftId(TokenId.fromString(this.toTokenId), serial),
+                acctId,
+                operatorId
+              )
+            }
+            approveTx.setTransactionId(TransactionId.generate(acctId))
+            approveTx.freezeWith(client)
+            await approveTx.executeWithSigner(signer)
+
+            // Brief pause between batches to avoid nonce collisions
+            if (i + BATCH_SIZE < serials.length) {
+              await new Promise(r => setTimeout(r, 2500))
+            }
+          }
         }
-        approveTx.setTransactionId(TransactionId.generate(acctId))
-        approveTx.freezeWith(client)
-        await approveTx.executeWithSigner(signer)
 
       } else {
         // Fungible allowance — input is whole tokens, convert to raw units

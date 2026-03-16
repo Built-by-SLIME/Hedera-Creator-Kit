@@ -44,6 +44,65 @@ async function getNetworkFeeEstimate(): Promise<Hbar> {
   }
 }
 
+/**
+ * Queries the Mirror Node for HBAR-denominated royalty fallback fees on a token.
+ * These are auto-assessed by Hedera when no fungible value is exchanged in an NFT transfer.
+ * Only HBAR fallbacks are returned; token-denominated fallbacks are logged and skipped.
+ *
+ * Returns an array of { collector, amountTinybars } — one entry per royalty tier.
+ * Multiply each by the number of NFTs being swapped to get the total owed per tier.
+ */
+interface FallbackFee {
+  collector: string;   // collector account ID (e.g. "0.0.12345")
+  tinybars: bigint;    // fallback amount in tinybars
+}
+
+async function getFallbackFees(tokenId: string): Promise<FallbackFee[]> {
+  try {
+    const url = `${MIRROR_NODE_URL}/api/v1/tokens/${tokenId}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json() as {
+      custom_fees?: {
+        royalty_fees?: Array<{
+          collector_account_id: string;
+          fallback_fee?: {
+            amount: number;
+            denominator_token_id: string | null;
+          };
+        }>;
+      };
+    };
+
+    const fees: FallbackFee[] = [];
+    for (const royalty of (data.custom_fees?.royalty_fees ?? [])) {
+      const fb = royalty.fallback_fee;
+      if (!fb) continue;
+      if (fb.denominator_token_id !== null) {
+        // Token-denominated fallback (rare) — not supported, skip with warning.
+        // Would require a separate approval flow for the fungible token.
+        console.warn(`[getFallbackFees] Token-denominated fallback on ${tokenId} — skipped (unsupported)`);
+        continue;
+      }
+      fees.push({
+        collector: royalty.collector_account_id,
+        tinybars: BigInt(fb.amount),
+      });
+    }
+
+    if (fees.length > 0) {
+      console.log(`[getFallbackFees] ${tokenId}: ${fees.length} HBAR fallback fee(s)`,
+        fees.map(f => `${f.collector} = ${f.tinybars} tinybars`));
+    } else {
+      console.log(`[getFallbackFees] ${tokenId}: no HBAR fallback fees`);
+    }
+    return fees;
+  } catch (err) {
+    console.warn('[getFallbackFees] Mirror Node query failed, assuming no fallback fees:', err);
+    return [];
+  }
+}
+
 function getOperatorClient(): Client {
   if (!BACKEND_ACCOUNT_ID || !BACKEND_PRIVATE_KEY) {
     throw new Error('Backend operator account not configured');
@@ -283,15 +342,93 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
 
     const program = programResult.rows[0];
 
-    if (program.swap_type !== 'fungible') {
-      res.status(400).json({ success: false, error: '/prepare is only supported for fungible token swaps' });
-      return;
-    }
-
     const client = getOperatorClient();
 
     const userAcct = AccountId.fromString(userAccountId);
     const treasuryAcct = AccountId.fromString(program.treasury_account_id);
+
+    // ── NFT SWAP BRANCH ─────────────────────────────────────────────────────
+    if (program.swap_type === 'nft') {
+      const { serialNumbers } = req.body;
+      if (!serialNumbers || !Array.isArray(serialNumbers) || serialNumbers.length === 0) {
+        res.status(400).json({ success: false, error: 'serialNumbers array is required for NFT swaps' });
+        return;
+      }
+
+      const fromToken = TokenId.fromString(program.from_token_id);
+      const toToken   = TokenId.fromString(program.to_token_id);
+      const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
+
+      // Query fallback fees for the token the user RECEIVES (toToken).
+      // When the treasury sends toToken to the user with no fungible value exchanged,
+      // Hedera auto-assesses the fallback fee from the effective payer (operator).
+      // We include a matching HBAR transfer so the user reimburses the operator exactly.
+      const toFallbackFees  = await getFallbackFees(program.to_token_id);
+      const fromFallbackFees = await getFallbackFees(program.from_token_id);
+      const networkFee = await getNetworkFeeEstimate();
+
+      // Sum all fallback fees across both legs, multiplied by serial count.
+      const nftCount = BigInt(serialNumbers.length);
+      const totalFallbackTinybars = [...toFallbackFees, ...fromFallbackFees].reduce(
+        (sum, fee) => sum + fee.tinybars * nftCount,
+        BigInt(0)
+      );
+      const totalTinybars = totalFallbackTinybars + BigInt(networkFee.toTinybars().toString());
+      const totalHbar = Hbar.fromTinybars(totalTinybars);
+
+      console.log('[prepareSwap NFT]', {
+        serials: serialNumbers,
+        networkFee: networkFee.toString(),
+        totalFallbackTinybars: totalFallbackTinybars.toString(),
+        totalCharged: totalHbar.toString(),
+      });
+
+      const transferTx = new TransferTransaction();
+
+      for (const serial of serialNumbers) {
+        // Old NFT (fromToken): user → treasury using the user's pre-approved allowance
+        transferTx.addApprovedNftTransfer(new NftId(fromToken, serial), userAcct, treasuryAcct);
+        // New NFT (toToken): treasury → user using the treasury's pre-approved allowance
+        transferTx.addApprovedNftTransfer(new NftId(toToken, serial), treasuryAcct, userAcct);
+      }
+
+      // HBAR legs: user pays operator for the network fee + all auto-assessed fallback fees.
+      // Operator is the tx payer, so Hedera charges the operator these amounts automatically.
+      // The explicit HBAR transfer from user → operator makes the operator whole.
+      transferTx
+        .addHbarTransfer(userAcct, totalHbar.negated())
+        .addHbarTransfer(operatorAcct, totalHbar)
+        // Operator must be the payer (Hedera requirement for approved transfers)
+        .setTransactionId(TransactionId.generate(operatorAcct))
+        // Pin to a single node so wallet and backend sign the same bytes
+        .setNodeAccountIds([new AccountId(3)]);
+
+      const frozenTx = transferTx.freezeWith(client);
+      const txId = frozenTx.transactionId!.toString();
+      const txBytes = Buffer.from(frozenTx.toBytes()).toString('base64');
+
+      console.log('[prepareSwap NFT] built tx:', { txId, payer: operatorAcct.toString() });
+
+      res.json({
+        success: true,
+        txBytes,
+        txId,
+        serialNumbers,
+        fromToken: program.from_token_id,
+        toToken: program.to_token_id,
+        fees: {
+          networkFee: networkFee.toString(),
+          fallbackFees: [...toFallbackFees, ...fromFallbackFees].map(f => ({
+            collector: f.collector,
+            tinybars: f.tinybars.toString(),
+          })),
+          total: totalHbar.toString(),
+          totalTinybars: totalTinybars.toString(),
+        },
+      });
+      return;
+    }
+    // ── END NFT BRANCH ───────────────────────────────────────────────────────
 
     const fromToken = TokenId.fromString(program.from_token_id);
     const toToken = TokenId.fromString(program.to_token_id);
@@ -389,7 +526,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
 export async function submitSwap(req: Request, res: Response): Promise<void> {
   try {
     const { id } = req.params;
-    const { txBytes, userAccountId, amount } = req.body;
+    const { txBytes, userAccountId, amount, serialNumbers } = req.body;
 
     if (!txBytes || !userAccountId) {
       res.status(400).json({ success: false, error: 'txBytes and userAccountId are required' });
@@ -403,17 +540,28 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
     const operatorPk = getOperatorKey();
 
     // Operator signs last — user's signature is already in the bytes.
-    // This authorises the approved TO-token transfer using the creator's allowance.
+    // For NFT swaps: authorises the approved NFT transfers (uses stored allowances).
+    // For fungible swaps: authorises the approved TO-token transfer.
     const signedTx = await tx.sign(operatorPk);
     const txResponse = await signedTx.execute(client);
     await txResponse.getReceipt(client);
     const txId = txResponse.transactionId.toString();
 
-    await pool.query(
-      `INSERT INTO swap_transactions (swap_program_id, user_account_id, amount, tx_id, status)
-       VALUES ($1, $2, $3, $4, 'completed')`,
-      [id, userAccountId, amount || null, txId]
-    );
+    // Record to DB — NFT swaps store serials, fungible swaps store amount.
+    const isNft = Array.isArray(serialNumbers) && serialNumbers.length > 0;
+    if (isNft) {
+      await pool.query(
+        `INSERT INTO swap_transactions (swap_program_id, user_account_id, serial_numbers, tx_id, status)
+         VALUES ($1, $2, $3, $4, 'completed')`,
+        [id, userAccountId, serialNumbers, txId]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO swap_transactions (swap_program_id, user_account_id, amount, tx_id, status)
+         VALUES ($1, $2, $3, $4, 'completed')`,
+        [id, userAccountId, amount || null, txId]
+      );
+    }
 
     res.json({ success: true, txId });
   } catch (err: any) {
