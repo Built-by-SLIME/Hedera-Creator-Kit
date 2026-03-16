@@ -325,8 +325,8 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
     const { userAccountId, amount } = req.body;
 
-    if (!userAccountId || amount == null) {
-      res.status(400).json({ success: false, error: 'userAccountId and amount are required' });
+    if (!userAccountId) {
+      res.status(400).json({ success: false, error: 'userAccountId is required' });
       return;
     }
 
@@ -430,6 +430,12 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       return;
     }
     // ── END NFT BRANCH ───────────────────────────────────────────────────────
+
+    // Fungible swap requires amount
+    if (amount == null) {
+      res.status(400).json({ success: false, error: 'amount is required for fungible swaps' });
+      return;
+    }
 
     const fromToken = TokenId.fromString(program.from_token_id);
     const toToken = TokenId.fromString(program.to_token_id);
