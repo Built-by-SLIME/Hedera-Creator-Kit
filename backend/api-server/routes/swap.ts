@@ -383,13 +383,36 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
         totalCharged: totalHbar.toString(),
       });
 
+      // Fetch available V2 NFTs held by the treasury — we cannot assume serial parity.
+      // (V1 serial #1 ≠ V2 serial #1; the treasury holds whatever was minted/transferred there.)
+      const mirrorRes = await fetch(
+        `${MIRROR_NODE_URL}/api/v1/tokens/${program.to_token_id}/nfts?account.id=${program.treasury_account_id}&limit=100&order=asc`
+      );
+      const mirrorData = await mirrorRes.json() as { nfts?: Array<{ serial_number: number }> };
+      const availableSerials: number[] = (mirrorData.nfts ?? []).map((n) => n.serial_number);
+
+      if (availableSerials.length < serialNumbers.length) {
+        res.status(400).json({
+          success: false,
+          error: `Treasury only has ${availableSerials.length} V2 NFT(s) available, but ${serialNumbers.length} were requested.`,
+        });
+        return;
+      }
+
+      // Assign treasury V2 serials in order (FIFO) — one per user V1 serial
+      const assignedToSerials = availableSerials.slice(0, serialNumbers.length);
+
+      console.log('[prepareSwap NFT] serial mapping:', serialNumbers.map((from: number, i: number) => `V1#${from} → V2#${assignedToSerials[i]}`));
+
       const transferTx = new TransferTransaction();
 
-      for (const serial of serialNumbers) {
+      for (let i = 0; i < serialNumbers.length; i++) {
+        const fromSerial = serialNumbers[i];
+        const toSerial = assignedToSerials[i];
         // Old NFT (fromToken): user → treasury using the user's pre-approved allowance
-        transferTx.addApprovedNftTransfer(new NftId(fromToken, serial), userAcct, treasuryAcct);
+        transferTx.addApprovedNftTransfer(new NftId(fromToken, fromSerial), userAcct, treasuryAcct);
         // New NFT (toToken): treasury → user using the treasury's pre-approved allowance
-        transferTx.addApprovedNftTransfer(new NftId(toToken, serial), treasuryAcct, userAcct);
+        transferTx.addApprovedNftTransfer(new NftId(toToken, toSerial), treasuryAcct, userAcct);
       }
 
       // HBAR legs: user pays operator for the network fee + all auto-assessed fallback fees.
@@ -414,6 +437,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
         txBytes,
         txId,
         serialNumbers,
+        assignedToSerials,
         fromToken: program.from_token_id,
         toToken: program.to_token_id,
         fees: {
