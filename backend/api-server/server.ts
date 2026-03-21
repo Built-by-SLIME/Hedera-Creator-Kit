@@ -48,6 +48,7 @@ import {
   listDistributions,
   triggerDrip,
   runAllDrips,
+  resetDistributionClock,
 } from './routes/staking';
 import { initDb } from './db';
 
@@ -181,6 +182,7 @@ app.post('/api/staking-programs',                         (req, res, next) => cr
 app.get('/api/staking-programs',                          (req, res, next) => listStakingPrograms(req, res).catch(next));
 app.get('/api/staking-programs/public',                   (req, res, next) => listPublicStakingPrograms(req, res).catch(next));
 app.post('/api/staking-programs/run-all-drips',           (req, res, next) => runAllDrips(req, res).catch(next));
+app.post('/api/staking-programs/reset-distribution-clock',(req, res, next) => resetDistributionClock(req, res).catch(next));
 app.put('/api/staking-programs/:id/status',               (req, res, next) => updateStakingStatus(req, res).catch(next));
 app.put('/api/staking-programs/:id/allowance',            (req, res, next) => markAllowanceGranted(req, res).catch(next));
 app.delete('/api/staking-programs/:id',                   (req, res, next) => deleteStakingProgram(req, res).catch(next));

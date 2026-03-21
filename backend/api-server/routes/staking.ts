@@ -567,3 +567,27 @@ export async function runAllDrips(req: Request, res: Response): Promise<void> {
   }
 }
 
+/**
+ * POST /api/staking-programs/reset-distribution-clock
+ * ONE-TIME: Resets last_distributed_at to NULL for SLIME and Degen programs.
+ * Secured by DRIP_SECRET.
+ */
+export async function resetDistributionClock(req: Request, res: Response) {
+  const secret = process.env.DRIP_SECRET;
+  if (secret) {
+    const auth = req.headers['authorization'];
+    if (!auth || auth !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE staking_programs SET last_distributed_at = NULL WHERE id = ANY($1::uuid[]) RETURNING id, name, last_distributed_at`,
+      [['8345ebe8-978a-493d-8fbd-86ebcb4c7266', 'f92d3051-8325-416e-bbab-c78e98c5b4df']]
+    );
+    res.json({ success: true, updated: result.rows });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
