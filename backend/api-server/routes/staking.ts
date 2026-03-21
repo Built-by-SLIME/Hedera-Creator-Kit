@@ -475,11 +475,14 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
     }
   }
 
-  // Update program's last_distributed_at
-  await pool.query(
-    `UPDATE staking_programs SET last_distributed_at=NOW(), updated_at=NOW() WHERE id=$1`,
-    [programId]
-  );
+  // Only update program's last_distributed_at on a full run (not a single-participant registration drip)
+  // If we update it on every registration, the cron will never see the program as "due"
+  if (!targetAccountId) {
+    await pool.query(
+      `UPDATE staking_programs SET last_distributed_at=NOW(), updated_at=NOW() WHERE id=$1`,
+      [programId]
+    );
+  }
 
   return { distributed, skipped, failed, errors };
 }
