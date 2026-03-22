@@ -51,7 +51,7 @@ import {
   resetDistributionClock,
 } from './routes/staking';
 import { insertSnapshotCredits, clearAndReinsertSnapshotCredits } from '../scripts/insert-snapshot-credits-direct';
-import { initDb } from './db';
+import { initDb, pool } from './db';
 
 
 // Resolve the backend root directory regardless of ts-node vs compiled mode.
