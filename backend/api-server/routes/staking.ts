@@ -434,10 +434,13 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         const allSerials = await fetchNftSerials(accountId, prog.stake_token_id);
 
         // Check which serials have already been credited in this period
-        const periodStart = prog.last_distributed_at || new Date(0).toISOString();
+        // Use the DATE of last_distributed_at (not exact timestamp) as the period marker
+        const lastDist = prog.last_distributed_at ? new Date(prog.last_distributed_at) : new Date(0);
+        const periodStart = lastDist.toISOString().split('T')[0] + 'T00:00:00Z'; // Normalize to midnight UTC
+
         const alreadyCredited = await pool.query(
           `SELECT nft_serial FROM staking_nft_period_credits
-           WHERE program_id = $1 AND period_start = $2 AND nft_serial = ANY($3::int[])`,
+           WHERE program_id = $1 AND period_start >= $2 AND nft_serial = ANY($3::int[])`,
           [programId, periodStart, allSerials]
         );
 
@@ -445,7 +448,7 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         newSerials = allSerials.filter(s => !creditedSet.has(s));
         unitsHeld = newSerials.length;
 
-        console.log(`[drip] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited, ${newSerials.length} new`);
+        console.log(`[drip] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited this period (${periodStart}), ${newSerials.length} new`);
       } else {
         const rawBalance = await fetchFtBalance(accountId, prog.stake_token_id);
         // Use STAKE token decimals to convert raw balance to whole units
@@ -492,7 +495,9 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
 
       // 6. For NFT programs: record which serials were credited in this period
       if (prog.stake_token_type === 'NFT' && newSerials.length > 0) {
-        const periodStart = prog.last_distributed_at || new Date(0).toISOString();
+        const lastDist = prog.last_distributed_at ? new Date(prog.last_distributed_at) : new Date(0);
+        const periodStart = lastDist.toISOString().split('T')[0] + 'T00:00:00Z'; // Normalize to midnight UTC
+
         for (const serial of newSerials) {
           await pool.query(
             `INSERT INTO staking_nft_period_credits (program_id, nft_serial, period_start)

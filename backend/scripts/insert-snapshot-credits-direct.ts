@@ -10,8 +10,8 @@ import { Request, Response } from 'express';
 // Snapshot data
 const SNAPSHOT = require('./snapshot-data.json');
 
-// Period start timestamp = when the last drip ran (March 21, 2026 ~1:12 AM EDT = 5:12 UTC)
-const PERIOD_START = '2026-03-21T05:12:00Z';
+// Period start timestamp = normalized to midnight UTC of the day the last drip ran
+const PERIOD_START = '2026-03-21T00:00:00Z';
 
 export async function insertSnapshotCredits(req: Request, res: Response): Promise<void> {
   const secret = process.env.DRIP_SECRET;
