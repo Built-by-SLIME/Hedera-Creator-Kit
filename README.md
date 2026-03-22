@@ -11,10 +11,11 @@ A cyberpunk-themed dashboard for creating and managing NFT collections on Hedera
 - ✅ **Create Token** - Create a new fungible token
 - ✅ **Update Token** - Update fungible token Icon/Metadata
 - ✅ **Add Liquidity** - Create and add to liquidity pools
-- ✅ **Burn NFTs** - Permanently burn NFTs from collections
+- ✅ **Burn NFTs** - Permanently burn tokens from collections
 - ✅ **Airdrop Tool** - Distribute tokens & NFTs to multiple wallets
 - ✅ **Snapshot Tool** - Capture holder accounts for any token
 - ✅ **Token Swap** - Migrate holders between tokens
+- ✅ **Token Viewer** - Viewer details of any token on Hedera (keys, holders, etc.).
 - ✅ **Domain Registration** - Register .hedera, .slime, .gib, .tigers, & .buds domains
 
 ## 🚀 Quick Start
