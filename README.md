@@ -5,16 +5,17 @@ A cyberpunk-themed dashboard for creating and managing NFT collections on Hedera
 ## 🎨 Features
 
 ### Active Tools
+- ✅ **Art Generator** - Generate NFT collections with automatic IPFS upload
 - ✅ **Create Collection** - Create NFT collections with custom royalties
 - ✅ **Mint NFTs** - Batch mint up to 10 NFTs per transaction
+- ✅ **Create Token** - Create a new fungible token
+- ✅ **Update Token** - Update fungible token Icon/Metadata
+- ✅ **Add Liquidity** - Create and add to liquidity pools
 - ✅ **Burn NFTs** - Permanently burn NFTs from collections
-- ✅ **Art Generator** - Generate NFT collections with automatic IPFS upload
-
-### Coming Soon
-- ⚪ **Airdrop Tool** - Distribute tokens & NFTs to multiple wallets
-- ⚪ **Snapshot Tool** - Capture holder accounts for any token
-- ⚪ **Token Swap** - Migrate holders between tokens
-- ⚪ **Wipe/Delete** - Admin collection management
+- ✅ **Airdrop Tool** - Distribute tokens & NFTs to multiple wallets
+- ✅ **Snapshot Tool** - Capture holder accounts for any token
+- ✅ **Token Swap** - Migrate holders between tokens
+- ✅ **Domain Registration** - Register .hedera, .slime, .gib, .tigers, & .buds domains
 
 ## 🚀 Quick Start
 
