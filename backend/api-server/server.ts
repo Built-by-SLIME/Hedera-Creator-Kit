@@ -50,7 +50,7 @@ import {
   runAllDrips,
   resetDistributionClock,
 } from './routes/staking';
-import { insertSnapshotCredits } from '../scripts/insert-snapshot-credits-direct';
+import { insertSnapshotCredits, clearAndReinsertSnapshotCredits } from '../scripts/insert-snapshot-credits-direct';
 import { initDb } from './db';
 
 
@@ -185,6 +185,7 @@ app.get('/api/staking-programs/public',                   (req, res, next) => li
 app.post('/api/staking-programs/run-all-drips',           (req, res, next) => runAllDrips(req, res).catch(next));
 app.post('/api/staking-programs/reset-distribution-clock',(req, res, next) => resetDistributionClock(req, res).catch(next));
 app.post('/api/staking-programs/insert-snapshot-credits',(req, res, next) => insertSnapshotCredits(req, res).catch(next));
+app.post('/api/staking-programs/clear-and-reinsert-snapshot',(req, res, next) => clearAndReinsertSnapshotCredits(req, res).catch(next));
 app.put('/api/staking-programs/:id/status',               (req, res, next) => updateStakingStatus(req, res).catch(next));
 app.put('/api/staking-programs/:id/allowance',            (req, res, next) => markAllowanceGranted(req, res).catch(next));
 app.delete('/api/staking-programs/:id',                   (req, res, next) => deleteStakingProgram(req, res).catch(next));
