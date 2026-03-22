@@ -69,19 +69,27 @@ function calcReward(
   return Math.floor(wholeReward * Math.pow(10, decimals));
 }
 
-/** Fetch total NFT count for an account on a given token (handles pagination). */
-async function fetchNftCount(accountId: string, tokenId: string): Promise<number> {
-  let count = 0;
+/** Fetch NFT serial numbers for an account on a given token (handles pagination). */
+async function fetchNftSerials(accountId: string, tokenId: string): Promise<number[]> {
+  const serials: number[] = [];
   let url: string | null =
     `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/nfts?token.id=${tokenId}&limit=100`;
   while (url) {
     const res = await fetch(url);
     if (!res.ok) break;
-    const data = await res.json() as { nfts: unknown[]; links?: { next?: string } };
-    count += data.nfts?.length ?? 0;
+    const data = await res.json() as { nfts: Array<{ serial_number: number }>; links?: { next?: string } };
+    for (const nft of data.nfts || []) {
+      serials.push(nft.serial_number);
+    }
     url = data.links?.next ? `${MIRROR_NODE_URL}${data.links.next}` : null;
   }
-  return count;
+  return serials;
+}
+
+/** Fetch total NFT count for an account on a given token (handles pagination). */
+async function fetchNftCount(accountId: string, tokenId: string): Promise<number> {
+  const serials = await fetchNftSerials(accountId, tokenId);
+  return serials.length;
 }
 
 /** Fetch fungible token balance (raw units) for an account. */
@@ -419,8 +427,25 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
     try {
       // 1. Fetch holdings
       let unitsHeld: number;
+      let newSerials: number[] = [];
+
       if (prog.stake_token_type === 'NFT') {
-        unitsHeld = await fetchNftCount(accountId, prog.stake_token_id);
+        // Fetch all serials currently held
+        const allSerials = await fetchNftSerials(accountId, prog.stake_token_id);
+
+        // Check which serials have already been credited in this period
+        const periodStart = prog.last_distributed_at || new Date(0).toISOString();
+        const alreadyCredited = await pool.query(
+          `SELECT nft_serial FROM staking_nft_period_credits
+           WHERE program_id = $1 AND period_start = $2 AND nft_serial = ANY($3::int[])`,
+          [programId, periodStart, allSerials]
+        );
+
+        const creditedSet = new Set(alreadyCredited.rows.map(r => r.nft_serial));
+        newSerials = allSerials.filter(s => !creditedSet.has(s));
+        unitsHeld = newSerials.length;
+
+        console.log(`[drip] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited, ${newSerials.length} new`);
       } else {
         const rawBalance = await fetchFtBalance(accountId, prog.stake_token_id);
         // Use STAKE token decimals to convert raw balance to whole units
@@ -464,6 +489,19 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         `UPDATE staking_participants SET last_distributed_at=NOW() WHERE program_id=$1 AND account_id=$2`,
         [programId, accountId]
       );
+
+      // 6. For NFT programs: record which serials were credited in this period
+      if (prog.stake_token_type === 'NFT' && newSerials.length > 0) {
+        const periodStart = prog.last_distributed_at || new Date(0).toISOString();
+        for (const serial of newSerials) {
+          await pool.query(
+            `INSERT INTO staking_nft_period_credits (program_id, nft_serial, period_start)
+             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+            [programId, serial, periodStart]
+          );
+        }
+        console.log(`[drip] Recorded ${newSerials.length} serials as credited for period starting ${periodStart}`);
+      }
 
       console.log(`[drip] Sent ${rewardRaw / Math.pow(10, rewardDecimals)} reward to ${accountId} (tx: ${txId})`);
       distributed++;
