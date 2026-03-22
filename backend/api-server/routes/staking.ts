@@ -438,11 +438,16 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         const lastDist = prog.last_distributed_at ? new Date(prog.last_distributed_at) : new Date(0);
         const periodStart = lastDist.toISOString().split('T')[0] + 'T00:00:00Z'; // Normalize to midnight UTC
 
+        console.log(`[drip] ${accountId}: Checking serials against period ${periodStart}, program ${programId}`);
+        console.log(`[drip] ${accountId}: Serials held: ${JSON.stringify(allSerials)}`);
+
         const alreadyCredited = await pool.query(
           `SELECT nft_serial FROM staking_nft_period_credits
-           WHERE program_id = $1 AND period_start >= $2 AND nft_serial = ANY($3::int[])`,
+           WHERE program_id = $1 AND period_start = $2 AND nft_serial = ANY($3::int[])`,
           [programId, periodStart, allSerials]
         );
+
+        console.log(`[drip] ${accountId}: Found ${alreadyCredited.rowCount} serials already credited: ${JSON.stringify(alreadyCredited.rows.map(r => r.nft_serial))}`);
 
         const creditedSet = new Set(alreadyCredited.rows.map(r => r.nft_serial));
         newSerials = allSerials.filter(s => !creditedSet.has(s));
