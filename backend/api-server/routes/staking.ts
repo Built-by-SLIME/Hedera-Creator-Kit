@@ -295,12 +295,52 @@ export async function registerParticipant(req: Request, res: Response): Promise<
     }
 
     // Verify program exists and is active
-    const prog = await pool.query(
-      `SELECT id FROM staking_programs WHERE id=$1 AND status='active'`, [id]
+    const progCheck = await pool.query(
+      `SELECT id, stake_token_type, stake_token_id, last_distributed_at FROM staking_programs WHERE id=$1 AND status='active'`, [id]
     );
-    if (prog.rowCount === 0) {
+    if (progCheck.rowCount === 0) {
       res.status(404).json({ success: false, error: 'Staking program not found or not active' });
       return;
+    }
+    const prog = progCheck.rows[0];
+
+    // PRE-CHECK: For NFT programs, verify user has at least one NEW serial (not already credited)
+    if (prog.stake_token_type === 'NFT') {
+      const allSerials = await fetchNftSerials(accountId, prog.stake_token_id);
+
+      if (allSerials.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'You do not hold any NFTs from this collection. Please acquire at least one NFT to participate.'
+        });
+        return;
+      }
+
+      // Check which serials have already been credited in this period
+      const lastDist = prog.last_distributed_at ? new Date(prog.last_distributed_at) : new Date(0);
+      const periodStart = lastDist.toISOString().split('T')[0] + 'T00:00:00Z';
+
+      const alreadyCredited = await pool.query(
+        `SELECT nft_serial FROM staking_nft_period_credits
+         WHERE program_id = $1 AND period_start = $2 AND nft_serial = ANY($3::int[])`,
+        [id, periodStart, allSerials]
+      );
+
+      const creditedSet = new Set(alreadyCredited.rows.map(r => r.nft_serial));
+      const newSerials = allSerials.filter(s => !creditedSet.has(s));
+
+      console.log(`[register PRE-CHECK] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited, ${newSerials.length} new`);
+
+      if (newSerials.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: `All your NFTs have already received rewards for this period. Next distribution: ${new Date(lastDist.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}`,
+          serials_held: allSerials,
+          serials_already_credited: Array.from(creditedSet),
+          next_eligible_date: new Date(lastDist.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+        });
+        return;
+      }
     }
 
     // Upsert participant — idempotent
