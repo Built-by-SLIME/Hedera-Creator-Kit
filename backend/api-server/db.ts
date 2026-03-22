@@ -79,6 +79,18 @@ export async function initDb(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_staking_distributions_account
       ON staking_distributions (account_id);
 
+    CREATE TABLE IF NOT EXISTS staking_nft_period_credits (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      program_id       UUID         NOT NULL REFERENCES staking_programs(id) ON DELETE CASCADE,
+      nft_serial       BIGINT       NOT NULL,
+      period_start     TIMESTAMPTZ  NOT NULL,
+      credited_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      UNIQUE (program_id, nft_serial, period_start)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_nft_period_credits_program_period
+      ON staking_nft_period_credits (program_id, period_start);
+
     CREATE TABLE IF NOT EXISTS swap_transactions (
       id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       swap_program_id UUID         REFERENCES swap_programs(id) ON DELETE SET NULL,
