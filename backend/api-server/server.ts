@@ -186,6 +186,29 @@ app.post('/api/staking-programs/run-all-drips',           (req, res, next) => ru
 app.post('/api/staking-programs/reset-distribution-clock',(req, res, next) => resetDistributionClock(req, res).catch(next));
 app.post('/api/staking-programs/insert-snapshot-credits',(req, res, next) => insertSnapshotCredits(req, res).catch(next));
 app.post('/api/staking-programs/clear-and-reinsert-snapshot',(req, res, next) => clearAndReinsertSnapshotCredits(req, res).catch(next));
+
+// Diagnostic endpoint to check serial credits
+app.get('/api/staking-programs/:id/check-serial/:serial', async (req, res) => {
+  try {
+    const { id, serial } = req.params;
+    const result = await pool.query(
+      `SELECT * FROM staking_nft_period_credits WHERE program_id = $1 AND nft_serial = $2`,
+      [id, parseInt(serial)]
+    );
+    const programInfo = await pool.query(
+      `SELECT last_distributed_at FROM staking_programs WHERE id = $1`,
+      [id]
+    );
+    res.json({
+      serial: parseInt(serial),
+      found: result.rowCount > 0,
+      credits: result.rows,
+      program_last_distributed_at: programInfo.rows[0]?.last_distributed_at
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.put('/api/staking-programs/:id/status',               (req, res, next) => updateStakingStatus(req, res).catch(next));
 app.put('/api/staking-programs/:id/allowance',            (req, res, next) => markAllowanceGranted(req, res).catch(next));
 app.delete('/api/staking-programs/:id',                   (req, res, next) => deleteStakingProgram(req, res).catch(next));
