@@ -147,5 +147,14 @@ export async function initDb(): Promise<void> {
       ADD COLUMN IF NOT EXISTS last_distributed_at TIMESTAMPTZ;
   `);
 
+  // Data correction: SLIME program was created with stake_token_type='FT' but it is an NFT program.
+  // This UPDATE is idempotent — it only fires when the wrong value is present.
+  await pool.query(`
+    UPDATE staking_programs
+       SET stake_token_type = 'NFT'
+     WHERE id = '8345ebe8-978a-493d-8fbd-86ebcb4c7266'
+       AND stake_token_type = 'FT';
+  `);
+
   console.log('Database tables initialized');
 }

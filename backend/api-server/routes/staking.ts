@@ -296,7 +296,7 @@ export async function registerParticipant(req: Request, res: Response): Promise<
 
     // Verify program exists and is active
     const progCheck = await pool.query(
-      `SELECT id, stake_token_type, stake_token_id, last_distributed_at FROM staking_programs WHERE id=$1 AND status='active'`, [id]
+      `SELECT id, stake_token_type, stake_token_id, frequency, last_distributed_at FROM staking_programs WHERE id=$1 AND status='active'`, [id]
     );
     if (progCheck.rowCount === 0) {
       res.status(404).json({ success: false, error: 'Staking program not found or not active' });
@@ -316,28 +316,32 @@ export async function registerParticipant(req: Request, res: Response): Promise<
         return;
       }
 
-      // Check which serials have already been credited in this period
-      const lastDist = prog.last_distributed_at ? new Date(prog.last_distributed_at) : new Date(0);
-      const periodStart = lastDist.toISOString().split('T')[0] + 'T00:00:00Z';
+      // Check which serials have already been credited within the current frequency window.
+      // Uses credited_at instead of period_start so the check is always accurate regardless
+      // of when last_distributed_at was last set.
+      const freqDays = frequencyDays(prog.frequency);
 
       const alreadyCredited = await pool.query(
         `SELECT nft_serial FROM staking_nft_period_credits
-         WHERE program_id = $1 AND period_start = $2 AND nft_serial = ANY($3::int[])`,
-        [id, periodStart, allSerials]
+         WHERE program_id = $1
+           AND credited_at > NOW() - ($2 || ' days')::interval
+           AND nft_serial = ANY($3::int[])`,
+        [id, freqDays, allSerials]
       );
 
-      const creditedSet = new Set(alreadyCredited.rows.map(r => r.nft_serial));
+      const creditedSet = new Set(alreadyCredited.rows.map(r => Number(r.nft_serial)));
       const newSerials = allSerials.filter(s => !creditedSet.has(s));
 
-      console.log(`[register PRE-CHECK] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited, ${newSerials.length} new`);
+      console.log(`[register PRE-CHECK] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited in last ${freqDays}d, ${newSerials.length} new`);
 
       if (newSerials.length === 0) {
+        const nextEligible = new Date(Date.now() + freqDays * 24 * 60 * 60 * 1000);
         res.status(400).json({
           success: false,
-          error: `All your NFTs have already received rewards for this period. Next distribution: ${new Date(lastDist.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}`,
+          error: `All your NFTs have already received rewards for this period. Next distribution: ${nextEligible.toISOString().split('T')[0]}`,
           serials_held: allSerials,
           serials_already_credited: Array.from(creditedSet),
-          next_eligible_date: new Date(lastDist.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString()
+          next_eligible_date: nextEligible.toISOString()
         });
         return;
       }
@@ -473,27 +477,27 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         // Fetch all serials currently held
         const allSerials = await fetchNftSerials(accountId, prog.stake_token_id);
 
-        // Check which serials have already been credited in this period
-        // Use the DATE of last_distributed_at (not exact timestamp) as the period marker
-        const lastDist = prog.last_distributed_at ? new Date(prog.last_distributed_at) : new Date(0);
-        const periodStart = lastDist.toISOString().split('T')[0] + 'T00:00:00Z'; // Normalize to midnight UTC
-
-        console.log(`[drip] ${accountId}: Checking serials against period ${periodStart}, program ${programId}`);
+        // Check which serials have already been credited within the current frequency window.
+        // Uses credited_at for a robust time-window check instead of period_start derived
+        // from last_distributed_at (which could shift if the cron clock resets).
+        console.log(`[drip] ${accountId}: Checking serials against ${days}d window, program ${programId}`);
         console.log(`[drip] ${accountId}: Serials held: ${JSON.stringify(allSerials)}`);
 
         const alreadyCredited = await pool.query(
           `SELECT nft_serial FROM staking_nft_period_credits
-           WHERE program_id = $1 AND period_start = $2 AND nft_serial = ANY($3::int[])`,
-          [programId, periodStart, allSerials]
+           WHERE program_id = $1
+             AND credited_at > NOW() - ($2 || ' days')::interval
+             AND nft_serial = ANY($3::int[])`,
+          [programId, days, allSerials]
         );
 
         console.log(`[drip] ${accountId}: Found ${alreadyCredited.rowCount} serials already credited: ${JSON.stringify(alreadyCredited.rows.map(r => r.nft_serial))}`);
 
-        const creditedSet = new Set(alreadyCredited.rows.map(r => r.nft_serial));
+        const creditedSet = new Set(alreadyCredited.rows.map(r => Number(r.nft_serial)));
         newSerials = allSerials.filter(s => !creditedSet.has(s));
         unitsHeld = newSerials.length;
 
-        console.log(`[drip] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited this period (${periodStart}), ${newSerials.length} new`);
+        console.log(`[drip] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited in last ${days}d, ${newSerials.length} new`);
       } else {
         const rawBalance = await fetchFtBalance(accountId, prog.stake_token_id);
         // Use STAKE token decimals to convert raw balance to whole units
@@ -538,19 +542,19 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         [programId, accountId]
       );
 
-      // 6. For NFT programs: record which serials were credited in this period
+      // 6. For NFT programs: record which serials were credited now.
+      // period_start is normalized to today's UTC midnight so the UNIQUE constraint
+      // (program_id, nft_serial, period_start) prevents double-inserts within a day.
       if (prog.stake_token_type === 'NFT' && newSerials.length > 0) {
-        const lastDist = prog.last_distributed_at ? new Date(prog.last_distributed_at) : new Date(0);
-        const periodStart = lastDist.toISOString().split('T')[0] + 'T00:00:00Z'; // Normalize to midnight UTC
-
+        const todayUtc = new Date().toISOString().split('T')[0] + 'T00:00:00Z';
         for (const serial of newSerials) {
           await pool.query(
             `INSERT INTO staking_nft_period_credits (program_id, nft_serial, period_start)
              VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-            [programId, serial, periodStart]
+            [programId, serial, todayUtc]
           );
         }
-        console.log(`[drip] Recorded ${newSerials.length} serials as credited for period starting ${periodStart}`);
+        console.log(`[drip] Recorded ${newSerials.length} serials as credited (period_start ${todayUtc})`);
       }
 
       console.log(`[drip] Sent ${rewardRaw / Math.pow(10, rewardDecimals)} reward to ${accountId} (tx: ${txId})`);
