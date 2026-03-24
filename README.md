@@ -140,4 +140,4 @@ MIT License — open source, free to use, fork, and build upon.
 
 ---
 
-**Built on Hedera. Built for creators. 🚀**
+**Shape the future of Hedera. Join SLIME**
