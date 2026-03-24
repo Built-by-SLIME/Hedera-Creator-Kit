@@ -22,693 +22,122 @@ A cyberpunk-themed dashboard for creating and managing NFT collections on Hedera
 
 ```
 hedera-creator-toolkit/
-├── frontend/              # TypeScript + Vite UI
+├── frontend/                        # TypeScript + Vite admin dashboard
 │   ├── src/
-│   │   ├── components/   # UI components
-│   │   ├── styles/       # Cyberpunk theme
-│   │   └── main.ts       # Entry point
+│   │   ├── components/              # All tool UI components
+│   │   │   ├── ArtGenerator.ts      # NFT art generation tool
+│   │   │   ├── CreateCollection.ts  # NFT collection creation
+│   │   │   ├── MintNFTs.ts          # Batch NFT minting
+│   │   │   ├── CreateToken.ts       # Fungible token creation
+│   │   │   ├── UpdateTokenIcon.ts   # Token icon/metadata update
+│   │   │   ├── AddLiquidity.ts      # Liquidity pool management
+│   │   │   ├── BurnTool.ts          # NFT burning
+│   │   │   ├── AirdropTool.ts       # Token & NFT airdrop
+│   │   │   ├── SnapshotTool.ts      # Holder snapshot capture
+│   │   │   ├── SwapTool.ts          # Token swap / migration
+│   │   │   ├── TokenViewer.ts       # Token detail viewer
+│   │   │   ├── StakingTool.ts       # Soft-staking program manager
+│   │   │   └── DomainTool.ts        # Hedera domain registration
+│   │   ├── services/
+│   │   │   └── WalletConnectService.ts  # WalletConnect v2 integration
+│   │   ├── styles/
+│   │   │   └── main.css             # Cyberpunk/terminal theme
+│   │   ├── config.ts                # API endpoints & network config
+│   │   └── main.ts                  # App entry point & router
+│   ├── index.html
 │   └── package.json
-├── backend/              # Node.js scripts
-│   ├── 1-collection-management/
-│   ├── 2-nft-minting/
-│   ├── 3-metadata-tools/
-│   ├── 4-utilities/
+├── backend/
+│   ├── api-server/                  # Express API (deployed on Railway)
+│   │   ├── server.ts                # Express app & route registration
+│   │   ├── db.ts                    # PostgreSQL pool & schema migrations
+│   │   └── routes/
+│   │       ├── staking.ts           # Soft-staking programs & drip engine
+│   │       ├── swap.ts              # Token swap programs
+│   │       ├── domains.ts           # Domain registration (.hedera, .slime, etc.)
+│   │       ├── generate.ts          # AI art generation
+│   │       ├── mint-nfts.ts         # Server-side NFT minting
+│   │       ├── pin-nft-metadata.ts  # Pinata IPFS pinning
+│   │       └── ...                  # Additional route handlers
+│   ├── 1-collection-management/     # Standalone collection scripts
+│   ├── 2-nft-minting/               # Standalone minting scripts
+│   ├── 3-metadata-tools/            # Metadata cleaning & IPFS upload scripts
+│   ├── 4-utilities/                 # Mirror Node query utilities
+│   ├── 5-art-generator/             # Art generation utilities
 │   └── package.json
-└── package.json          # Root workspace
+├── fees/
+│   └── staking.md                   # Staking fee documentation
+└── package.json                     # Root workspace
 ```
 
-## 🎨 Theme
+## 🎯 Mission
 
-- **Brand Color:** `#00ff40` (Slime Green)
-- **Aesthetic:** Cyberpunk/Hacker Terminal
-- **Font:** JetBrains Mono
+The Hedera Creator Toolkit exists to remove every technical barrier between a creator and the Hedera network. Today, launching an NFT collection, distributing rewards to holders, registering an on-chain domain, or running a token swap requires deep SDK knowledge, custom scripting, and significant development time. This toolkit consolidates all of that into a single, polished, open-source dashboard — free to use, self-hostable, and built entirely on Hedera's native token service.
 
-## 🔧 Tech Stack
-
-- **Frontend:** TypeScript + Vite
-- **Backend:** Node.js + Hedera SDK
-- **Deployment:** Railway/Render ready
+The goal is to grow the Hedera creator ecosystem by giving artists, project founders, and community builders the same capabilities that previously required a dedicated developer.
 
 ---
 
-## 📖 Backend Scripts Documentation
+## 🔧 Tech Stack & Architecture
 
-### Collection Management
-- Create NFT collections with custom royalties
-- Update collection names and metadata
-- Delete collections and burn NFTs
-- Query token information
-- Dissociate tokens from wallets
+| Layer | Technology |
+|---|---|
+| Frontend | TypeScript, Vite, WalletConnect v2 |
+| Backend API | Node.js, Express, Hedera SDK |
+| Database | PostgreSQL (Railway) |
+| IPFS | Pinata |
+| Wallet | HashPack, Blade, MetaMask (via WalletConnect) |
+| Deployment | Railway (API), Vercel/static host (frontend) |
+| Network | Hedera Mainnet |
 
-### NFT Minting
-- Batch mint NFTs (up to 10 per transaction)
-- Resume minting from specific NFT if interrupted
-- Configurable delays to avoid rate limiting
-- Progress tracking and error handling
-
-### Metadata Tools
-- Clean Solana/Metaplex metadata for Hedera compatibility
-- Upload images and metadata to Pinata IPFS
-- Generate CID CSV files for minting
-- Support for both individual and directory CIDs
-
-### Utilities
-- Query Hedera Mirror Node REST API
-- Check latest minted NFTs
-- Verify collection status
+The frontend is a fully client-side TypeScript application — wallets connect via WalletConnect v2 and all transactions are signed locally by the user. The backend API handles computationally heavy operations (art generation, batch minting, staking drip distribution) and maintains program state in PostgreSQL. No private keys are ever transmitted to or stored by the server.
 
 ---
 
-## 📦 Prerequisites
+## 🚀 Live Deployment
 
-### Required
-- **Node.js** v16 or higher
-- **npm** or **yarn**
-- **Hedera Account** (testnet or mainnet)
-  - Get testnet account: https://portal.hedera.com/
-  - Get mainnet account: Create via wallet (HashPack, Blade, etc.)
-- **Pinata Account** (for IPFS uploads)
-  - Sign up: https://pinata.cloud
-  - Get API keys from dashboard
+The toolkit is actively deployed and in production use on Hedera Mainnet:
 
-### Optional
-- **Python 3.7+** (for Python-based IPFS upload scripts)
-- **python-dotenv** package: `pip install python-dotenv requests`
+- **Admin Dashboard** — Used by project creators to configure collections, staking programs, token swaps, and domain registrations
+- **Staking API** — Live at Railway, processing automated reward distributions via scheduled cron drips for multiple active NFT projects
+- **Domain Registry** — On-chain domain registration operational for `.hedera`, `.slime`, `.gib`, `.tigers`, and `.buds` TLDs
 
 ---
 
-## 🚀 Installation
+## 🌐 Ecosystem Impact
 
-1. **Clone or download this toolkit**
-   ```bash
-   cd hedera-toolkit
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your credentials
-   ```
-
-4. **Verify installation**
-   ```bash
-   npm run get-info
-   # Should show usage instructions
-   ```
+- **Lowers the barrier to entry** for Hedera creators who have no Solidity or SDK experience
+- **Drives HTS adoption** — every tool (collections, tokens, swaps, staking, airdrops) is built exclusively on Hedera Token Service
+- **Supports cross-project infrastructure** — the staking and swap APIs are multi-tenant; any Hedera project can create and manage programs through the same backend
+- **On-chain domain system** — brings human-readable identity to Hedera wallets without requiring a separate protocol
+- **Open source** — fully available for the community to fork, self-host, or build upon
 
 ---
 
-## ⚙️ Configuration
-
-### 1. Create `.env` file
-
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-
-### 2. Set Required Variables
-
-**Minimum configuration:**
-```env
-NETWORK=testnet
-TREASURY_ID=0.0.YOUR_ACCOUNT_ID
-TREASURY_PK=YOUR_PRIVATE_KEY_HERE
-```
-
-### 3. Add Pinata Credentials (for IPFS uploads)
-
-```env
-PINATA_API_KEY=your_api_key
-PINATA_API_SECRET=your_secret_key
-```
-
-### 4. Configure Collection Settings (for creating collections)
-
-```env
-TOKEN_NAME=My NFT Collection
-TOKEN_SYMBOL=MYNFT
-MAX_SUPPLY=10000
-ROYALTY_ENABLED=true
-ROYALTY_PERCENTAGE=5
-```
-
-See `.env.example` for all available options.
-
----
-
-## 📚 Scripts Reference
-
-### 1. Collection Management
-
-#### `create_collection.js`
-Creates a new NFT collection on Hedera.
-
-**Usage:**
-```bash
-npm run create-collection
-```
-
-**Required .env variables:**
-- `TREASURY_ID`
-- `TREASURY_PK`
-- `TOKEN_NAME`
-- `TOKEN_SYMBOL`
-- `MAX_SUPPLY`
-
-**Optional .env variables:**
-- `ROYALTY_ENABLED` (true/false)
-- `ROYALTY_PERCENTAGE` (1-100)
-- `ROYALTY_RECIPIENT`
-- `FALLBACK_FEE_HBAR`
-
-**Output:**
-- Token ID of created collection
-- HashScan link for verification
-
----
-
-#### `update_collection_name.js`
-Updates the name of an existing collection.
-
-**Usage:**
-```bash
-npm run update-name
-```
-
-**Required .env variables:**
-- `TOKEN_ID`
-- `ADMIN_PRIVATE_KEY`
-- `NEW_TOKEN_NAME`
-
-**Important:** Requires admin key to sign the transaction.
-
----
-
-#### `delete_collection.js`
-Permanently deletes a token collection.
-
-**Usage:**
-```bash
-npm run delete-collection
-```
-
-**Required .env variables:**
-- `TOKEN_ID_TO_DELETE`
-- `TREASURY_PK`
-
-**Warning:** This action cannot be undone!
-
----
-
-#### `get_token_info.js`
-Queries detailed information about a token/collection.
-
-**Usage:**
-```bash
-npm run get-info
-```
-
-**Required .env variables:**
-- `TOKEN_ID`
-
-**Output:**
-- Token name, symbol, supply
-- Keys configuration
-- Custom fees/royalties
-- Sample NFT metadata
-
----
-
-#### `dissociate_token.js`
-Removes a token association from an account (removes from wallet view).
-
-**Usage:**
-```bash
-npm run dissociate
-```
-
-**Required .env variables:**
-- `TOKEN_ID_TO_DISSOCIATE`
-- `ACCOUNT_ID` (or `TREASURY_ID`)
-- `ACCOUNT_PK` (or `TREASURY_PK`)
-
-**Note:** Account must have 0 balance of the token.
-
----
-
-### 2. NFT Minting & Burning
-
-#### `mint_nfts.js`
-Batch mints NFTs using metadata CIDs from a CSV file.
-
-**Usage:**
-```bash
-npm run mint
-```
-
-**Required .env variables:**
-- `TOKEN_ID`
-- `TREASURY_PK`
-- `CIDS_FILE` (path to CSV file)
-
-**Optional .env variables:**
-- `BATCH_SIZE` (default: 10)
-- `DELAY_MS` (default: 2000)
-- `START_FROM` (default: 0)
-
-**CSV Format:**
-```csv
-serial,metadata
-1,ipfs://QmXXX...
-2,ipfs://QmYYY...
-```
-
-**Resume minting:**
-```bash
-START_FROM=1500 npm run mint
-```
-
----
-
-#### `burn_nfts.js`
-Burns all NFTs from a collection in batches.
-
-**Usage:**
-```bash
-npm run burn
-```
-
-**Required .env variables:**
-- `TOKEN_ID_TO_BURN`
-- `TREASURY_PK`
-
-**Optional .env variables:**
-- `BURN_BATCH_SIZE` (default: 10)
-
-**Warning:** This permanently destroys NFTs!
-
----
-
-### 3. Metadata Tools
-
-#### `clean_and_upload_metadata.js`
-Cleans metadata (removes Solana-specific fields) and uploads to Pinata.
-
-**Usage:**
-```bash
-npm run clean-upload
-```
-
-**Required .env variables:**
-- `PINATA_API_KEY`
-- `PINATA_API_SECRET`
-- `METADATA_DIR` (directory containing JSON files)
-
-**Optional .env variables:**
-- `OUTPUT_CSV` (default: cids.csv)
-- `UPLOAD_DELAY_MS` (default: 500)
-
-**What it does:**
-1. Reads all JSON files from `METADATA_DIR`
-2. Removes Solana-specific fields:
-   - `compiler`
-   - `properties` (including `files` array)
-   - `type`
-3. Uploads each cleaned file to Pinata
-4. Generates CSV with serial numbers and CIDs
-
-**Output:**
-- CSV file with format: `serial,metadata`
-- Ready to use with `mint_nfts.js`
-
----
-
-#### `generate_cids.js`
-Generates a CSV file from a directory CID.
-
-**Usage:**
-```bash
-npm run generate-cids
-```
-
-**Required .env variables:**
-- `BASE_IPFS_CID` (directory CID from IPFS)
-- `TOTAL_NFTS`
-
-**Optional .env variables:**
-- `OUTPUT_FILE` (default: cids.csv)
-- `USE_IPFS_PREFIX` (true/false)
-
-**Example:**
-```bash
-BASE_IPFS_CID=bafybeiabc123... TOTAL_NFTS=5000 npm run generate-cids
-```
-
-**Output:**
-- CSV file with paths: `{base_cid}/1.json`, `{base_cid}/2.json`, etc.
-
----
-
-#### `upload_images_to_pinata.py`
-Python script to upload images to Pinata.
-
-**Usage:**
-```bash
-python3 3-metadata-tools/upload_images_to_pinata.py
-```
-
-**Required .env variables:**
-- `PINATA_API_KEY`
-- `PINATA_API_SECRET`
-- `IMAGE_DIR` (default: images)
-
-**Supported formats:** PNG, JPG, JPEG, GIF, SVG
-
----
-
-#### `upload_metadata_to_pinata.py`
-Python script to upload metadata JSON files to Pinata.
-
-**Usage:**
-```bash
-python3 3-metadata-tools/upload_metadata_to_pinata.py
-```
-
-**Required .env variables:**
-- `PINATA_API_KEY`
-- `PINATA_API_SECRET`
-- `METADATA_DIR` (default: metadata)
-
----
-
-### 4. Utilities
-
-#### `query_mirror_node.js`
-Queries the Hedera Mirror Node REST API.
-
-**Usage:**
-```bash
-npm run query-mirror
-```
-
-**Required .env variables:**
-- `TOKEN_ID`
-
-**Output:**
-- Token information
-- Latest minted NFT
-- HashScan link
-
-**Useful for:**
-- Checking how many NFTs have been minted
-- Verifying metadata CIDs
-- Debugging minting issues
-
----
-
-## 🔄 Common Workflows
-
-### Workflow 1: Create and Mint a New Collection
-
-**Step 1: Prepare your assets**
-```bash
-# Organize your files
-mkdir images metadata
-# Add your images to images/
-# Add your metadata JSON files to metadata/
-```
-
-**Step 2: Upload images to IPFS**
-```bash
-# Using Python script
-python3 3-metadata-tools/upload_images_to_pinata.py
-# Note the directory CID
-```
-
-**Step 3: Update metadata with image CIDs**
-```bash
-# Edit your metadata JSON files to include:
-# "image": "ipfs://YOUR_IMAGE_CID/1.png"
-```
-
-**Step 4: Upload metadata to IPFS**
-```bash
-# Using JavaScript (cleans Solana fields automatically)
-npm run clean-upload
-
-# OR using Python
-python3 3-metadata-tools/upload_metadata_to_pinata.py
-```
-
-**Step 5: Create the collection**
-```bash
-# Configure .env
-TOKEN_NAME="My NFT Collection"
-TOKEN_SYMBOL="MYNFT"
-MAX_SUPPLY=5000
-ROYALTY_ENABLED=true
-ROYALTY_PERCENTAGE=5
-
-# Create collection
-npm run create-collection
-# Save the TOKEN_ID from output
-```
-
-**Step 6: Mint NFTs**
-```bash
-# Add TOKEN_ID to .env
-TOKEN_ID=0.0.YOUR_TOKEN_ID
-
-# Mint all NFTs
-npm run mint
-```
-
-**Step 7: Verify**
-```bash
-# Check collection status
-npm run get-info
-
-# Or query mirror node
-npm run query-mirror
-```
-
----
-
-### Workflow 2: Resume Interrupted Minting
-
-If minting stops (network issue, rate limit, etc.):
-
-**Step 1: Check how many were minted**
-```bash
-npm run query-mirror
-# Look at "Total Supply"
-```
-
-**Step 2: Resume from that point**
-```bash
-START_FROM=1500 npm run mint
-```
-
-The script will skip already-minted NFTs and continue from #1501.
-
----
-
-### Workflow 3: Clean Up Test Collections
-
-**Step 1: Burn all NFTs**
-```bash
-TOKEN_ID_TO_BURN=0.0.TEST_TOKEN npm run burn
-```
-
-**Step 2: Delete the collection**
-```bash
-TOKEN_ID_TO_DELETE=0.0.TEST_TOKEN npm run delete-collection
-```
-
-**Step 3: Remove from wallet**
-```bash
-TOKEN_ID_TO_DISSOCIATE=0.0.TEST_TOKEN npm run dissociate
-```
-
----
-
-### Workflow 4: Update Collection Name
-
-```bash
-# Set variables in .env
-TOKEN_ID=0.0.YOUR_TOKEN
-NEW_TOKEN_NAME="Updated Name"
-ADMIN_PRIVATE_KEY=YOUR_ADMIN_KEY
-
-# Update name
-npm run update-name
-```
-
----
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-#### 1. "Missing required environment variables"
-**Solution:** Check your `.env` file has all required variables for that script.
-
-#### 2. "INVALID_SIGNATURE"
-**Solution:**
-- Verify your private key is correct
-- Make sure you're using the admin key for update operations
-- Check that the key has permission for the operation
-
-#### 3. "INSUFFICIENT_TX_FEE" or "INSUFFICIENT_ACCOUNT_BALANCE"
-**Solution:**
-- Add more HBAR to your account
-- Minting costs ~0.15 HBAR per NFT
-- Collection creation costs ~1-2 HBAR
-
-#### 4. "TOKEN_NOT_ASSOCIATED_TO_ACCOUNT"
-**Solution:**
-- Associate the token with your account first
-- Or use the treasury account that created the token
-
-#### 5. Minting shows `{object object}` in wallets
-**Solution:**
-- Use `clean_and_upload_metadata.js` to remove Solana-specific fields
-- Ensure metadata doesn't have `properties.files` array
-
-#### 6. NFTs show "files" category in wallet
-**Solution:**
-- Remove the `properties` object from metadata
-- Use individual file CIDs, not directory CIDs with paths
-
-#### 7. Rate limiting errors from Pinata
-**Solution:**
-- Increase `UPLOAD_DELAY_MS` in .env (try 1000 or 2000)
-- Upgrade your Pinata plan for higher limits
-
----
-
-## 💡 Best Practices
-
-### Hedera Best Practices
-
-1. **Test on testnet first**
-   - Always test your full workflow on testnet
-   - Verify metadata displays correctly in wallets
-   - Check royalties are configured properly
-
-2. **Use batch minting**
-   - Mint 10 NFTs per transaction (Hedera maximum)
-   - Add 2-second delays between batches
-   - This is most cost-effective
-
-3. **Set appropriate keys**
-   - **Admin Key**: Allows updating token properties
-   - **Supply Key**: Required for minting/burning
-   - **Metadata Key**: Allows updating NFT metadata
-   - **Wipe Key**: Only if you need to remove NFTs from accounts
-   - **Freeze/Pause**: Usually not needed for NFT collections
-
-4. **Royalty fees**
-   - Hedera REQUIRES a fallback fee when setting royalties
-   - Fallback fee only triggers in edge cases (non-HBAR trades)
-   - Normal marketplace sales only use the percentage royalty
-
-### Metadata Best Practices
-
-1. **Use individual file CIDs**
-   - Upload each metadata file separately to get unique CIDs
-   - Don't use directory CIDs with paths (causes wallet issues)
-
-2. **Clean metadata for Hedera**
-   - Remove Solana-specific fields (`properties`, `files`, `compiler`)
-   - Keep only: `name`, `description`, `image`, `attributes`
-
-3. **Image CIDs**
-   - Can use directory CID for images: `ipfs://CID/1.png`
-   - Or individual CIDs: `ipfs://CID_FOR_IMAGE_1`
-
-4. **Metadata format**
-   ```json
-   {
-     "name": "NFT #1",
-     "description": "Collection description",
-     "image": "ipfs://QmXXX.../1.png",
-     "attributes": [
-       {"trait_type": "Background", "value": "Blue"},
-       {"trait_type": "Rarity", "value": "Common"}
-     ]
-   }
-   ```
-
-### IPFS/Pinata Best Practices
-
-1. **Pin your content**
-   - Pinata automatically pins uploaded content
-   - Verify pins in Pinata dashboard
-   - Consider pinning to multiple services for redundancy
-
-2. **Organize your uploads**
-   - Use consistent naming: `1.json`, `2.json`, etc.
-   - Match serial numbers to metadata files
-   - Keep backups of all CIDs
-
-3. **Rate limiting**
-   - Free Pinata tier: ~1 request/second
-   - Add delays between uploads
-   - Monitor your usage in dashboard
-
-### Cost Estimates (Hedera Mainnet)
-
-- **Collection creation**: ~1-2 HBAR
-- **NFT minting**: ~0.15 HBAR per NFT
-- **Token updates**: ~0.001 HBAR
-- **Token deletion**: ~0.001 HBAR
-
-**Example:** Minting 5000 NFTs = ~750 HBAR (~$97 at $0.13/HBAR)
+## 🗺️ Roadmap
+
+- [ ] **Staking Analytics Dashboard** — Holder earnings history, distribution charts, per-program stats
+- [ ] **Frictionless Airdrop (HIP-904)** — Eliminate the token association requirement for airdrops using Hedera's pending airdrop standard
+- [ ] **Mobile-responsive UI** — Full dashboard experience on mobile wallets
+- [ ] **Multi-sig Treasury Support** — Allow staking/swap programs to be governed by threshold keys
+- [ ] **Public Creator Profiles** — Discoverable project pages linked to on-chain domain registrations
+- [ ] **Scheduled Minting** — Queue and schedule NFT mints with time-based release
 
 ---
 
 ## 📖 Additional Resources
 
-### Hedera Documentation
-- **Hedera Docs**: https://docs.hedera.com
-- **Token Service (HTS)**: https://docs.hedera.com/hedera/sdks-and-apis/sdks/token-service
-- **Mirror Node API**: https://docs.hedera.com/hedera/sdks-and-apis/rest-api
-- **HashScan Explorer**: https://hashscan.io
-
-### IPFS/Pinata
-- **Pinata Docs**: https://docs.pinata.cloud
-- **IPFS Docs**: https://docs.ipfs.tech
-
-### Community
-- **Hedera Discord**: https://hedera.com/discord
-- **Hedera Forum**: https://hedera.com/forum
-
----
-
-## 🤝 Support
-
-If you encounter issues:
-
-1. Check the [Troubleshooting](#troubleshooting) section
-2. Verify your `.env` configuration
-3. Test on testnet first
-4. Check Hedera status: https://status.hedera.com
+- **Hedera Docs:** https://docs.hedera.com
+- **Hedera Token Service:** https://docs.hedera.com/hedera/sdks-and-apis/sdks/token-service
+- **Mirror Node API:** https://docs.hedera.com/hedera/sdks-and-apis/rest-api
+- **HashScan Explorer:** https://hashscan.io
+- **Pinata IPFS:** https://docs.pinata.cloud
 
 ---
 
 ## 📝 License
 
-MIT License - Feel free to use and modify for your projects.
+MIT License — open source, free to use, fork, and build upon.
 
 ---
 
-**Happy minting! 🚀**
-
-
+**Built on Hedera. Built for creators. 🚀**
