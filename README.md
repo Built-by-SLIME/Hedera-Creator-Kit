@@ -1,6 +1,6 @@
 # Hedera Creator Toolkit
 
-A cyberpunk-themed dashboard for creating and managing NFT collections on Hedera Hashgraph.
+An all-in-one tool kit for creators on Hedera Hashgraph.
 
 ## 🎨 Features
 
