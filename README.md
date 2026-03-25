@@ -109,7 +109,6 @@ The toolkit is actively deployed and in production use on Hedera Mainnet:
 - **Drives HTS adoption** — every tool (collections, tokens, swaps, staking, airdrops) is built exclusively on Hedera Token Service
 - **Supports cross-project infrastructure** — the staking and swap APIs are multi-tenant; any Hedera project can create and manage programs through the same backend
 - **On-chain domain system** — brings human-readable identity to Hedera wallets without requiring a separate protocol
-- **Open source** — fully available for the community to fork, self-host, or build upon
 
 ---
 
