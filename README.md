@@ -133,10 +133,4 @@ The toolkit is actively deployed and in production use on Hedera Mainnet:
 
 ---
 
-## 📝 License
-
-MIT License — open source, free to use, fork, and build upon.
-
----
-
 **Shape the future of Hedera. Join SLIME**
