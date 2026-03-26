@@ -6,6 +6,26 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed — Domain Registration: WalletConnect `nodeAccountId` Error (SLIME dApp)
+
+#### 🐛 BUG FIX: `nodeAccountId must be set or client must be provided with freezeWith` on Register click
+**Date:** 2026-03-26
+**Files changed:**
+- `/Users/davidconklin/SLIME Website/slime-website/src/components/DomainsPage.tsx` — 3 surgical changes
+
+**Symptom:** Clicking "Register" immediately threw `nodeAccountId must be set or client must be provided with freezeWith`, preventing any wallet prompt from appearing.
+
+**Root cause:** Both `TokenAssociateTransaction` and `TransferTransaction` were calling `freezeWithSigner(signer)`. This method requires the `DAppSigner` (HashPack via WalletConnect) to expose network/node information via `getNetwork()`. The WalletConnect `DAppSigner` implementation does not provide this, so the SDK throws immediately.
+
+**Fix (3 changes to `DomainsPage.tsx`):**
+1. Added `TransactionId` to the `@hashgraph/sdk` import.
+2. `TokenAssociateTransaction`: removed `freezeWithSigner()` — `signer.call()` handles freezing internally.
+3. `TransferTransaction`: replaced `freezeWithSigner()` with `TransactionId.generate(AccountId.fromString(accountId))` + `.setTransactionId(txIdObj)`. The pre-generated ID is stable and passed to the backend as `paymentTxId`.
+
+**Revert:** `git revert d6ebea6` in the `slime-website` repo.
+
+---
+
 ### Fixed — Domain Registration (SLIME dApp + Backend)
 
 #### 🐛 BUG FIX: Domain registrations fail silently after HBAR payment — NFTs never minted (CRITICAL)
