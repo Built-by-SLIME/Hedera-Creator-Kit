@@ -6,6 +6,30 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed — Domain Registration: Reverted Bad T3 Fixes, Kept T2 Only (SLIME dApp)
+
+#### 🐛 BUG FIX: Payment verification 404 — wrong txId sent to backend (caused by our own T3 changes)
+**Date:** 2026-03-26
+**Files changed:**
+- `/Users/davidconklin/SLIME Website/slime-website/src/components/DomainsPage.tsx` — 2 changes
+
+**Symptom:** HBAR left the wallet, but backend returned 400 / "Payment verification failed: Mirror Node returned HTTP 404 after 5 attempts". NFT never minted.
+
+**Root cause:** Our T3 fix (both versions) was wrong:
+- v1 (`freezeWithSigner`): crashed immediately — `nodeAccountId` error
+- v2 (`TransactionId.generate + setTransactionId`): WalletConnect/HashPack **ignores** the pre-set txId and submits with its own, so the ID we sent the backend didn't match the actual on-chain transaction
+
+**The original code was correct all along:** `const response = await signer.call(payTx)` → `response.transactionId` returns the actual txId the wallet used. We never needed T3.
+
+**Fix:** Reverted T3 entirely. Kept T2 (association check) untouched.
+- Removed `TransactionId` from imports
+- Removed `txIdObj`, `setTransactionId()`, and pre-generation logic
+- Restored `const response = await signer.call(payTx)` + `const txId = response.transactionId?.toString() ?? ''`
+
+**Revert:** `git revert 003f6aa` in `slime-website` repo.
+
+---
+
 ### Fixed — Domain Registration: WalletConnect `nodeAccountId` Error (SLIME dApp)
 
 #### 🐛 BUG FIX: `nodeAccountId must be set or client must be provided with freezeWith` on Register click
