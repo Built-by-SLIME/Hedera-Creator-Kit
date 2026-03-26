@@ -6,6 +6,48 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed — Domain Registration (SLIME dApp + Backend)
+
+#### 🐛 BUG FIX: Domain registrations fail silently after HBAR payment — NFTs never minted (CRITICAL)
+**Date:** 2026-03-26
+**Files changed:**
+- `/Users/davidconklin/SLIME Website/slime-website/src/components/DomainsPage.tsx` — 4 surgical changes (outside toolkit repo — SLIME dApp)
+- `backend/api-server/routes/domains.ts` — **no change required** (already returns `nftTokenId`)
+
+**Symptom:** Users paid HBAR successfully (confirmed on Hashscan) but received no domain NFT, no HCS record was written, and no DB row was created. The registration appeared to complete from the user's perspective but nothing was recorded on-chain.
+
+**Root cause (two compounding bugs):**
+
+1. **Missing token association (T2 — primary cause):** Hedera requires a wallet to be explicitly associated with a token collection before it can receive NFTs from that collection. The SLIME website never checked or performed this association step. When the backend attempted to transfer the minted NFT to the buyer, the transfer failed with `TOKEN_NOT_ASSOCIATED_TO_ACCOUNT`. The backend exits on NFT transfer failure (`routes/domains.ts` lines 572–575), so no HCS message was ever written and no DB record was ever created.
+
+2. **Unstable transaction ID (T3 — contributing cause):** The payment `TransferTransaction` was passed directly to `signer.call()` without first calling `freezeWithSigner()`. The transaction ID was read from the call *response* rather than from the transaction object itself, which is unreliable across different wallet implementations. This could cause payment verification to fail even when the payment succeeded.
+
+**Forensic evidence:**
+- Account `0.0.2151958` (Sam): associated with token `0.0.10356088` (balance 0), holds 0 NFTs — payment went through, registration never completed.
+- NFT serials 17, 18, 19, 21 are stuck in operator wallet `0.0.9348822` — all `futuritygalaxies.hedera`, 4 failed mint-and-transfer attempts from prior registrations for the same name.
+- `bacon.slime` (self-registration, same wallet as backend operator = self-association automatic) worked perfectly, confirming the backend pipeline is correct.
+
+**Changes made to `DomainsPage.tsx`:**
+
+| # | Change | Lines affected |
+|---|--------|----------------|
+| 1 | Added `TokenAssociateTransaction, TokenId` to `@hashgraph/sdk` import | Line 2 |
+| 2 | Added `nftTokenId: string \| null` field to `CheckResult` interface | Interface block |
+| 3 | Captured `nftTokenId` from `/api/domains/check` response into state | `setCheckResult()` call |
+| 4 | Rewrote `handleRegister` to: (a) query Mirror Node for token association, (b) send `TokenAssociateTransaction` if not associated, (c) freeze payment tx before `signer.call()`, (d) read `txId` from frozen tx object | `handleRegister` function |
+
+**Revert instructions (if needed):**
+- Line 2: remove `TokenAssociateTransaction, TokenId,` from the import
+- `CheckResult` interface: remove `nftTokenId: string | null`
+- `setCheckResult()` block: remove `nftTokenId: data.nftTokenId ?? null,`
+- `handleRegister`: restore the original version — remove the `// [FIX T2]` block entirely, change `await payTx.freezeWithSigner(signer)` back to nothing (delete that line), change `const txId = payTx.transactionId?.toString() ?? ''` + `await signer.call(payTx)` back to `const response = await signer.call(payTx)` + `const txId = response.transactionId?.toString() ?? ''`
+
+**Remaining manual action required:**
+- Serials 17, 18, 19, 21 — burn manually from operator wallet `0.0.9348822` (non-urgent)
+- Sam (`0.0.2151958`) needs to re-register `sam.hedera` — the name is still available (no HCS record was ever written for it)
+
+---
+
 ### Fixed — Swap Tool (Tool #10)
 
 #### 🐛 BUG FIX: MAX_ALLOWANCES_EXCEEDED — 63 NFT approvals in a single transaction (CRITICAL)
