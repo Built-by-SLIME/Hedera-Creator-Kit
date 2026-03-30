@@ -29,6 +29,9 @@ const BACKEND_ACCOUNT_ID  = process.env.BACKEND_ACCOUNT_ID || process.env.TREASU
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
 const MIRROR_NODE_URL     = 'https://mainnet-public.mirrornode.hedera.com';
 
+// Global mutex to prevent concurrent drip runs
+let dripRunning = false;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getOperatorClient(): Client {
@@ -623,6 +626,19 @@ export async function runAllDrips(req: Request, res: Response): Promise<void> {
     }
   }
 
+  // Prevent concurrent drip runs (race condition protection)
+  if (dripRunning) {
+    console.log('[runAllDrips] Another drip run is already in progress — skipping');
+    res.status(409).json({
+      success: false,
+      error: 'Another drip run is already in progress. Please wait for it to complete.'
+    });
+    return;
+  }
+
+  dripRunning = true;
+  console.log('[runAllDrips] Starting drip run...');
+
   try {
     // Find active programs that are due for a drip
     const due = await pool.query(`
@@ -643,19 +659,26 @@ export async function runAllDrips(req: Request, res: Response): Promise<void> {
         )
     `);
 
+    console.log(`[runAllDrips] Found ${due.rowCount} programs due for drip`);
+
     const results: Record<string, unknown> = {};
     for (const row of due.rows) {
       try {
+        console.log(`[runAllDrips] Processing program ${row.id}...`);
         results[row.id] = await processDrip(row.id);
       } catch (err: any) {
+        console.error(`[runAllDrips] Error processing program ${row.id}:`, err.message);
         results[row.id] = { error: err.message };
       }
     }
 
+    console.log('[runAllDrips] Drip run complete');
     res.json({ success: true, processed: due.rowCount, results });
   } catch (err: any) {
-    console.error('runAllDrips error:', err);
+    console.error('[runAllDrips] Fatal error:', err);
     res.status(500).json({ success: false, error: err.message });
+  } finally {
+    dripRunning = false;
   }
 }
 
