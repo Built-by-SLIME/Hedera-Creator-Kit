@@ -619,11 +619,36 @@ export class AddLiquidity {
         this.hbarAmount = tokenBAmount > 0 ? tokenBAmount.toFixed(Math.min(decimalsB, 8)) : '';
         if (hbarAmtInput) hbarAmtInput.value = this.hbarAmount;
       }
+      // For new pools: calculate Token B amount based on USD value ratio (1:1 value)
+      else if (!this.selectedPool && this.tokenInfo && this.tokenBInfo) {
+        const tokenAAmount = parseFloat(this.tokenAmount) || 0;
+        if (tokenAAmount > 0 && this.tokenInfo.priceUsd && this.tokenBInfo.priceUsd) {
+          const tokenAValueUsd = tokenAAmount * this.tokenInfo.priceUsd;
+          const tokenBAmount = tokenAValueUsd / this.tokenBInfo.priceUsd;
+          this.hbarAmount = tokenBAmount.toFixed(Math.min(this.tokenBInfo.decimals, 8));
+          if (hbarAmtInput) hbarAmtInput.value = this.hbarAmount;
+        }
+      }
     });
     tokenAmtInput?.addEventListener('change', () => { this.refresh(); });
 
     // Token B: read-only for existing pools (ratio-derived), free entry for new pools only
-    hbarAmtInput?.addEventListener('input', () => { if (!this.selectedPool) this.hbarAmount = hbarAmtInput.value; });
+    hbarAmtInput?.addEventListener('input', () => {
+      if (!this.selectedPool) {
+        this.hbarAmount = hbarAmtInput.value;
+
+        // For new pools: calculate Token A amount based on USD value ratio (1:1 value)
+        if (this.tokenInfo && this.tokenBInfo) {
+          const tokenBAmount = parseFloat(this.hbarAmount) || 0;
+          if (tokenBAmount > 0 && this.tokenInfo.priceUsd && this.tokenBInfo.priceUsd) {
+            const tokenBValueUsd = tokenBAmount * this.tokenBInfo.priceUsd;
+            const tokenAAmount = tokenBValueUsd / this.tokenInfo.priceUsd;
+            this.tokenAmount = tokenAAmount.toFixed(Math.min(this.tokenInfo.decimals, 8));
+            if (tokenAmtInput) tokenAmtInput.value = this.tokenAmount;
+          }
+        }
+      }
+    });
     hbarAmtInput?.addEventListener('change', () => { if (!this.selectedPool) this.refresh(); });
 
     const slippageInput = document.getElementById('al-slippage') as HTMLInputElement;
