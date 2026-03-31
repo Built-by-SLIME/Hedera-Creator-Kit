@@ -275,8 +275,8 @@ export class AddLiquidity {
           <input type="number" id="al-token-amount" class="token-input" placeholder="Amount of tokens" value="${this.escapeHtml(this.tokenAmount)}" step="any" min="0" />
         </div>
         <div class="input-group">
-          <label for="al-hbar-amount">${tokenB.symbol} Amount${isExistingPool ? ' (auto-calculated from pool ratio)' : ' *'}</label>
-          <input type="number" id="al-hbar-amount" class="token-input" placeholder="${isExistingPool ? 'Calculated from pool ratio' : 'Amount of tokens'}" value="${this.escapeHtml(this.hbarAmount)}" step="any" min="0" ${isExistingPool ? 'readonly style="opacity:0.6;cursor:not-allowed"' : ''} />
+          <label for="al-hbar-amount">${tokenB.symbol} Amount *</label>
+          <input type="number" id="al-hbar-amount" class="token-input" placeholder="Amount of tokens" value="${this.escapeHtml(this.hbarAmount)}" step="any" min="0" />
         </div>
         <div class="input-group">
           <label for="al-slippage">Slippage Tolerance (%)</label>
@@ -632,24 +632,36 @@ export class AddLiquidity {
     });
     tokenAmtInput?.addEventListener('change', () => { this.refresh(); });
 
-    // Token B: read-only for existing pools (ratio-derived), free entry for new pools only
+    // Token B: bidirectional calculation for both existing and new pools
     hbarAmtInput?.addEventListener('input', () => {
-      if (!this.selectedPool) {
-        this.hbarAmount = hbarAmtInput.value;
+      this.hbarAmount = hbarAmtInput.value;
 
-        // For new pools: calculate Token A amount based on USD value ratio (1:1 value)
-        if (this.tokenInfo && this.tokenBInfo) {
-          const tokenBAmount = parseFloat(this.hbarAmount) || 0;
-          if (tokenBAmount > 0 && this.tokenInfo.priceUsd && this.tokenBInfo.priceUsd) {
-            const tokenBValueUsd = tokenBAmount * this.tokenBInfo.priceUsd;
-            const tokenAAmount = tokenBValueUsd / this.tokenInfo.priceUsd;
-            this.tokenAmount = tokenAAmount.toFixed(Math.min(this.tokenInfo.decimals, 8));
-            if (tokenAmtInput) tokenAmtInput.value = this.tokenAmount;
-          }
+      // For existing pools: calculate Token A from Token B using pool ratio
+      if (this.selectedPool && this.tokenInfo) {
+        const isTokenAinPoolA = this.selectedPool.tokenA.id === this.tokenInfo.tokenId;
+        const rawReserveA = parseFloat(isTokenAinPoolA ? this.selectedPool.tokenReserveA : this.selectedPool.tokenReserveB);
+        const rawReserveB = parseFloat(isTokenAinPoolA ? this.selectedPool.tokenReserveB : this.selectedPool.tokenReserveA);
+        const decimalsA = isTokenAinPoolA ? this.selectedPool.tokenA.decimals : this.selectedPool.tokenB.decimals;
+        const decimalsB = isTokenAinPoolA ? this.selectedPool.tokenB.decimals : this.selectedPool.tokenA.decimals;
+        const reserveAHuman = rawReserveA / Math.pow(10, decimalsA);
+        const reserveBHuman = rawReserveB / Math.pow(10, decimalsB);
+        const tokenBAmount = parseFloat(this.hbarAmount) || 0;
+        const tokenAAmount = reserveBHuman > 0 ? tokenBAmount * (reserveAHuman / reserveBHuman) : 0;
+        this.tokenAmount = tokenAAmount > 0 ? tokenAAmount.toFixed(Math.min(decimalsA, 8)) : '';
+        if (tokenAmtInput) tokenAmtInput.value = this.tokenAmount;
+      }
+      // For new pools: calculate Token A amount based on USD value ratio (1:1 value)
+      else if (!this.selectedPool && this.tokenInfo && this.tokenBInfo) {
+        const tokenBAmount = parseFloat(this.hbarAmount) || 0;
+        if (tokenBAmount > 0 && this.tokenInfo.priceUsd && this.tokenBInfo.priceUsd) {
+          const tokenBValueUsd = tokenBAmount * this.tokenBInfo.priceUsd;
+          const tokenAAmount = tokenBValueUsd / this.tokenInfo.priceUsd;
+          this.tokenAmount = tokenAAmount.toFixed(Math.min(this.tokenInfo.decimals, 8));
+          if (tokenAmtInput) tokenAmtInput.value = this.tokenAmount;
         }
       }
     });
-    hbarAmtInput?.addEventListener('change', () => { if (!this.selectedPool) this.refresh(); });
+    hbarAmtInput?.addEventListener('change', () => { this.refresh(); });
 
     const slippageInput = document.getElementById('al-slippage') as HTMLInputElement;
     slippageInput?.addEventListener('input', () => { this.slippage = parseFloat(slippageInput.value) || 1.5; });
