@@ -15,9 +15,11 @@ const axios = require('axios');
 const NETWORK = process.env.NETWORK || 'testnet';
 const TOKEN_ID = process.env.TOKEN_ID;
 
-const MIRROR_NODE_URL = NETWORK.toLowerCase() === 'mainnet'
-    ? 'https://mainnet.hedera.validationcloud.io/v1/REDACTED_API_KEY'
-    : 'https://testnet.mirrornode.hedera.com';
+// Use ValidationCloud URL from env var if available, otherwise fall back to public mirror nodes
+const MIRROR_NODE_URL = process.env.VALIDATION_CLOUD_MIRROR_URL
+    || (NETWORK.toLowerCase() === 'mainnet'
+        ? 'https://mainnet-public.mirrornode.hedera.com'
+        : 'https://testnet.mirrornode.hedera.com');
 
 // ============================================================================
 // HELPER FUNCTIONS
