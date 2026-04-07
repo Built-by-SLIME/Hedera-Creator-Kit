@@ -45,8 +45,9 @@ fetch(url, {
   }
 })
 .then(response => {
-  console.log(`[CRON] HTTP Response: ${response.status} ${response.statusText}`);
-  
+  console.log(`[CRON] HTTP Response: ${response.status}`);
+  console.log('───────────────────────────────────────────────────────────');
+
   if (!response.ok) {
     console.error(`[CRON ERROR] API returned error status: ${response.status}`);
     return response.text().then(text => {
@@ -54,18 +55,14 @@ fetch(url, {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     });
   }
-  
-  return response.json();
-})
-.then(data => {
-  console.log('───────────────────────────────────────────────────────────');
+
+  // Backend confirmed it received the request and started processing
   console.log('[CRON] ✓ Drip Triggered Successfully');
-  console.log('───────────────────────────────────────────────────────────');
-  console.log('[CRON] Response Data:');
-  console.log(JSON.stringify(data, null, 2));
+  console.log('[CRON] Backend is now processing distributions...');
   console.log('═══════════════════════════════════════════════════════════');
-  
-  // Exit with success
+
+  // Exit immediately - don't wait for response body
+  // Backend will continue processing independently
   process.exit(0);
 })
 .catch(error => {
@@ -77,7 +74,7 @@ fetch(url, {
   console.error('[CRON ERROR] Stack Trace:');
   console.error(error.stack);
   console.error('═══════════════════════════════════════════════════════════');
-  
+
   // Exit with failure
   process.exit(1);
 });
