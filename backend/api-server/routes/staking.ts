@@ -573,9 +573,15 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
   // Only update program's last_distributed_at on a full run (not a single-participant registration drip)
   // If we update it on every registration, the cron will never see the program as "due"
   if (!targetAccountId) {
+    // Set last_distributed_at to the cron schedule time (05:12 UTC) to prevent timing drift
+    // This ensures the program is always "due" at the same time each cycle, regardless of
+    // how long the drip processing takes (which can vary from 5 minutes to 1.5+ hours)
+    const cronScheduleTime = new Date();
+    cronScheduleTime.setUTCHours(5, 12, 0, 0);
+
     await pool.query(
-      `UPDATE staking_programs SET last_distributed_at=NOW(), updated_at=NOW() WHERE id=$1`,
-      [programId]
+      `UPDATE staking_programs SET last_distributed_at=$1, updated_at=NOW() WHERE id=$2`,
+      [cronScheduleTime, programId]
     );
   }
 
