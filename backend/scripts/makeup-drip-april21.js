@@ -99,8 +99,12 @@ async function main() {
     process.exit(1);
   }
 
+  let operatorKey;
+  try { operatorKey = PrivateKey.fromStringECDSA(OPERATOR_KEY); }
+  catch { operatorKey = PrivateKey.fromStringED25519(OPERATOR_KEY); }
+
   const client = Client.forMainnet();
-  client.setOperator(AccountId.fromString(OPERATOR_ID), PrivateKey.fromString(OPERATOR_KEY));
+  client.setOperator(AccountId.fromString(OPERATOR_ID), operatorKey);
 
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -124,7 +128,7 @@ async function main() {
         .setTransactionMemo('makeup-drip-2026-04-21');
 
       const frozen  = tx.freezeWith(client);
-      const signed  = await frozen.sign(PrivateKey.fromString(OPERATOR_KEY));
+      const signed  = await frozen.sign(operatorKey);
       const resp    = await signed.execute(client);
       await resp.getReceipt(client);
       const txId = resp.transactionId.toString();
