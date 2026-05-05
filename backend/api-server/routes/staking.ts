@@ -546,18 +546,22 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
       );
 
       // 6. For NFT programs: record which serials were credited now.
-      // period_start is normalized to today's UTC midnight so the UNIQUE constraint
-      // (program_id, nft_serial, period_start) prevents double-inserts within a day.
+      // credited_at is normalized to 05:12 UTC (cron schedule time) so the 7-day dedup
+      // check `credited_at > NOW() - 7 days` always opens exactly on the next cron tick.
+      // Without this, actual tx time (~05:22) causes serials to still be "within 7 days"
+      // when the cron fires at 05:12 the following week.
       if (prog.stake_token_type === 'NFT' && newSerials.length > 0) {
         const todayUtc = new Date().toISOString().split('T')[0] + 'T00:00:00Z';
+        const normalizedCreditedAt = new Date();
+        normalizedCreditedAt.setUTCHours(5, 12, 0, 0);
         for (const serial of newSerials) {
           await pool.query(
-            `INSERT INTO staking_nft_period_credits (program_id, nft_serial, period_start)
-             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-            [programId, serial, todayUtc]
+            `INSERT INTO staking_nft_period_credits (program_id, nft_serial, period_start, credited_at)
+             VALUES ($1, $2, $3, $4) ON CONFLICT (program_id, nft_serial, period_start) DO UPDATE SET credited_at = EXCLUDED.credited_at`,
+            [programId, serial, todayUtc, normalizedCreditedAt]
           );
         }
-        console.log(`[drip] Recorded ${newSerials.length} serials as credited (period_start ${todayUtc})`);
+        console.log(`[drip] Recorded ${newSerials.length} serials as credited (period_start ${todayUtc}, credited_at ${normalizedCreditedAt.toISOString()})`);
       }
 
       console.log(`[drip] Sent ${rewardRaw / Math.pow(10, rewardDecimals)} reward to ${accountId} (tx: ${txId})`);
