@@ -328,7 +328,7 @@ export async function registerParticipant(req: Request, res: Response): Promise<
         `SELECT nft_serial FROM staking_nft_period_credits
          WHERE program_id = $1
            AND credited_at > NOW() - INTERVAL '6 days'
-           AND nft_serial = ANY($3::int[])`,
+           AND nft_serial = ANY($2::int[])`,
         [id, allSerials]
       );
 
@@ -490,7 +490,7 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
           `SELECT nft_serial FROM staking_nft_period_credits
            WHERE program_id = $1
              AND credited_at > NOW() - INTERVAL '6 days'
-             AND nft_serial = ANY($3::int[])`,
+             AND nft_serial = ANY($2::int[])`,
           [programId, allSerials]
         );
 
