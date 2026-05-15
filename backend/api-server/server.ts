@@ -154,7 +154,32 @@ app.post('/api/pin-collection-metadata', imageUpload.fields([
   pinCollectionMetadata(req, res).catch(next);
 });
 
-app.post('/api/pin-nft-metadata', imageUpload.fields([
+// Multer for NFT media uploads — accepts images OR MP4 video (for HIP-412 video NFTs)
+const nftMediaUpload = multer({
+  storage: multer.diskStorage({
+    destination: async (req, file, cb) => {
+      const uploadDir = path.join(BACKEND_ROOT, 'temp-uploads');
+      await fs.ensureDir(uploadDir);
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueName = `${uuidv4()}-${file.originalname}`;
+      cb(null, uniqueName);
+    }
+  }),
+  limits: {
+    fileSize: 500 * 1024 * 1024 // 500MB — accommodates MP4s
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'video/mp4') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files or MP4 video files are allowed'));
+    }
+  }
+});
+
+app.post('/api/pin-nft-metadata', nftMediaUpload.fields([
   { name: 'image', maxCount: 1 },
 ]), (req, res, next) => {
   pinNftMetadata(req, res).catch(next);
