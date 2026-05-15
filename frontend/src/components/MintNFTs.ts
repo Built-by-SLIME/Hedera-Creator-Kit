@@ -1049,32 +1049,32 @@ export class MintNFTs {
 
     try {
       const zip = await JSZip.loadAsync(zipFile);
-      const imageFiles: File[] = [];
-      const IMAGE_EXTS = /\.(png|jpe?g|gif|webp|svg|bmp|tiff?)$/i;
+      const mediaFiles: File[] = [];
+      const MEDIA_EXTS = /\.(png|jpe?g|gif|webp|svg|bmp|tiff?|mp4)$/i;
+      const mimeMap: Record<string, string> = {
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+        bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff',
+        mp4: 'video/mp4',
+      };
 
       const entries = Object.entries(zip.files).filter(
-        ([name, entry]) => !entry.dir && IMAGE_EXTS.test(name) && !name.startsWith('__MACOSX')
+        ([name, entry]) => !entry.dir && MEDIA_EXTS.test(name) && !name.startsWith('__MACOSX')
       );
 
       for (const [name, entry] of entries) {
         const blob = await entry.async('blob');
-        // Derive MIME type from extension
         const ext = name.split('.').pop()?.toLowerCase() || 'png';
-        const mimeMap: Record<string, string> = {
-          png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-          gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-          bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff',
-        };
         const mime = mimeMap[ext] || 'image/png';
         const baseName = name.split('/').pop() || name;
-        imageFiles.push(new File([blob], baseName, { type: mime }));
+        mediaFiles.push(new File([blob], baseName, { type: mime }));
       }
 
-      if (imageFiles.length === 0) {
-        this.error = 'No image files found in the zip';
+      if (mediaFiles.length === 0) {
+        this.error = 'No supported files found in the zip (PNG, JPG, GIF, WEBP, MP4)';
       } else {
-        this.addImages(imageFiles);
-        this.statusMessage = `Extracted ${imageFiles.length} file(s) from zip`;
+        this.addImages(mediaFiles);
+        this.statusMessage = `Extracted ${mediaFiles.length} file(s) from zip`;
       }
     } catch (err: any) {
       this.error = `Failed to extract zip: ${err.message}`;
