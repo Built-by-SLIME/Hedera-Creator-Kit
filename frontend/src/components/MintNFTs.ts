@@ -287,11 +287,11 @@ export class MintNFTs {
 
         ${!allPinned && pendingCount > 0 ? `
           <button class="terminal-button secondary" id="mint-pin-all" style="margin-top:0.75rem" ${this.loading || this.isPinning ? 'disabled' : ''}>
-            ${this.isPinning ? `PINNING... (${this.pinProgress}/${this.uploadedImages.length})` : `PIN ${pendingCount} IMAGE(S) TO IPFS`}
+            ${this.isPinning ? `PINNING... (${this.pinProgress}/${this.uploadedImages.length})` : `PIN ${pendingCount} FILE(S) TO IPFS`}
           </button>
         ` : ''}
         ${allPinned ? `
-          <p style="color:var(--accent-green);font-size:0.85rem;margin-top:0.75rem">✓ All ${this.uploadedImages.length} image(s) pinned and queued</p>
+          <p style="color:var(--accent-green);font-size:0.85rem;margin-top:0.75rem">✓ All ${this.uploadedImages.length} file(s) pinned and queued</p>
         ` : ''}
       ` : ''}
 
@@ -408,7 +408,7 @@ export class MintNFTs {
 
         ${this.mode === 'direct' && this.uploadedImages.length > 0 ? `
           <div class="filter-divider"></div>
-          <h4 class="section-title" style="font-size:0.9rem">Images (${this.uploadedImages.length})</h4>
+          <h4 class="section-title" style="font-size:0.9rem">Media (${this.uploadedImages.length})</h4>
           <div class="mint-queue-grid">
             ${this.uploadedImages.slice(0, 50).map((img) => `
               <div class="mint-queue-card ${img.status}" title="${this.escapeHtml(img.name)}">
@@ -859,7 +859,7 @@ export class MintNFTs {
       }
 
       if (unmatched.length > 0) {
-        this.directCsvError = `${unmatched.length} image(s) not found in CSV: ${unmatched.slice(0, 5).join(', ')}${unmatched.length > 5 ? '...' : ''}`;
+        this.directCsvError = `${unmatched.length} file(s) not found in CSV: ${unmatched.slice(0, 5).join(', ')}${unmatched.length > 5 ? '...' : ''}`;
         this.directCsvFile = file;
         this.directCsvFileName = file.name;
         this.directCsvMatched = false;
@@ -944,13 +944,13 @@ export class MintNFTs {
     this.isPinning = true;
     this.pinProgress = 0;
     this.error = null;
-    this.statusMessage = `Pinning ${pendingImages.length} image(s) to IPFS...`;
+    this.statusMessage = `Pinning ${pendingImages.length} file(s) to IPFS...`;
     this.refresh();
 
     for (const img of pendingImages) {
       img.status = 'pinning';
       this.pinProgress++;
-      this.statusMessage = `Pinning image ${this.pinProgress}/${pendingImages.length}: ${img.name}`;
+      this.statusMessage = `Pinning file ${this.pinProgress}/${pendingImages.length}: ${img.name}`;
       this.refresh();
 
       try {
@@ -1013,7 +1013,7 @@ export class MintNFTs {
 
     this.isPinning = false;
     const totalQueued = this.directEntries.length;
-    this.statusMessage = `All ${pendingImages.length} image(s) pinned — ${totalQueued} NFT(s) queued for minting`;
+    this.statusMessage = `All ${pendingImages.length} file(s) pinned — ${totalQueued} NFT(s) queued for minting`;
     this.refresh();
   }
 
@@ -1074,7 +1074,7 @@ export class MintNFTs {
         this.error = 'No image files found in the zip';
       } else {
         this.addImages(imageFiles);
-        this.statusMessage = `Extracted ${imageFiles.length} image(s) from zip`;
+        this.statusMessage = `Extracted ${imageFiles.length} file(s) from zip`;
       }
     } catch (err: any) {
       this.error = `Failed to extract zip: ${err.message}`;
