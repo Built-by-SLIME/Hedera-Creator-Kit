@@ -234,13 +234,13 @@ export class MintNFTs {
       <div class="upload-zone" id="mint-zip-drop">
         <p style="margin:0;color:var(--terminal-text-dim);font-size:0.85rem">
           ${hasImages
-            ? `✓ <span style="color:var(--accent-green)">${this.uploadedImages.length} image(s) loaded</span> — drop more to add`
-            : 'Drop .zip file or images here, or click to browse'}
+            ? `✓ <span style="color:var(--accent-green)">${this.uploadedImages.length} file(s) loaded</span> — drop more to add`
+            : 'Drop .zip file, images, or MP4 here, or click to browse'}
         </p>
         <p style="margin:0.25rem 0 0;color:var(--terminal-text-dim);font-size:0.75rem;opacity:0.7">
-          For collections, compress your images folder into a .zip file
+          Supports images (PNG, JPG, GIF, WEBP) and MP4 video. For collections, compress into a .zip file.
         </p>
-        <input type="file" id="mint-zip-input" accept=".zip,image/*" multiple style="display:none" />
+        <input type="file" id="mint-zip-input" accept=".zip,image/*,video/mp4" multiple style="display:none" />
       </div>
 
       ${hasImages ? `
@@ -412,7 +412,10 @@ export class MintNFTs {
           <div class="mint-queue-grid">
             ${this.uploadedImages.slice(0, 50).map((img) => `
               <div class="mint-queue-card ${img.status}" title="${this.escapeHtml(img.name)}">
-                <img src="${img.preview}" class="mint-queue-thumb" />
+                ${img.file.type === 'video/mp4'
+                  ? `<video src="${img.preview}" class="mint-queue-thumb" muted autoplay loop playsinline style="object-fit:cover"></video>`
+                  : `<img src="${img.preview}" class="mint-queue-thumb" />`
+                }
                 <div class="mint-queue-card-info">
                   <span class="mint-queue-card-num">${this.escapeHtml(img.name)}</span>
                   <span class="mint-queue-card-status">${
@@ -705,8 +708,8 @@ export class MintNFTs {
       if (files[0].name.toLowerCase().endsWith('.zip')) {
         this.extractZip(files[0]);
       } else {
-        const images = Array.from(files).filter(f => f.type.startsWith('image/'));
-        if (images.length > 0) this.addImages(images);
+        const media = Array.from(files).filter(f => f.type.startsWith('image/') || f.type === 'video/mp4');
+        if (media.length > 0) this.addImages(media);
       }
     });
     fileInput.addEventListener('change', () => {
@@ -715,8 +718,8 @@ export class MintNFTs {
       if (files[0].name.toLowerCase().endsWith('.zip')) {
         this.extractZip(files[0]);
       } else {
-        const images = Array.from(files).filter(f => f.type.startsWith('image/'));
-        if (images.length > 0) this.addImages(images);
+        const media = Array.from(files).filter(f => f.type.startsWith('image/') || f.type === 'video/mp4');
+        if (media.length > 0) this.addImages(media);
       }
     });
   }
@@ -1021,7 +1024,7 @@ export class MintNFTs {
 
     // Sort by filename so numbered images (1.png, 2.png, …) come in order
     const sorted = Array.from(files)
-      .filter(f => f.type.startsWith('image/'))
+      .filter(f => f.type.startsWith('image/') || f.type === 'video/mp4')
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
     sorted.forEach((file, i) => {
