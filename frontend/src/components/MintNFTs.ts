@@ -995,7 +995,7 @@ export class MintNFTs {
             metadataCID: data.metadataCID,
             tokenURI: data.tokenURI,
             imageCID: data.imageCID,
-            previewUrl: img.preview,
+            previewUrl: img.file.type === 'video/mp4' ? undefined : img.preview,
             status: 'pending',
           });
         }
