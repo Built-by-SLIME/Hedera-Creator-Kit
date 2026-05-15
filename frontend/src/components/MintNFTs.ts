@@ -235,12 +235,14 @@ export class MintNFTs {
         <p style="margin:0;color:var(--terminal-text-dim);font-size:0.85rem">
           ${hasImages
             ? `✓ <span style="color:var(--accent-green)">${this.uploadedImages.length} file(s) loaded</span> — drop more to add`
-            : 'Drop .zip file, images, or MP4 here, or click to browse'}
+            : 'Drop a folder, .zip, images, or MP4 here, or click to browse'}
         </p>
         <p style="margin:0.25rem 0 0;color:var(--terminal-text-dim);font-size:0.75rem;opacity:0.7">
-          Supports images (PNG, JPG, GIF, WEBP) and MP4 video. For collections, compress into a .zip file.
+          Supports images (PNG, JPG, GIF, WEBP) and MP4 video.
         </p>
+        <button class="terminal-button small" id="mint-folder-btn" style="margin-top:0.6rem;font-size:0.75rem;padding:0.3rem 0.7rem" onclick="event.stopPropagation()">📁 SELECT FOLDER</button>
         <input type="file" id="mint-zip-input" accept=".zip,image/*,video/mp4" multiple style="display:none" />
+        <input type="file" id="mint-folder-input" webkitdirectory multiple style="display:none" />
       </div>
 
       ${hasImages ? `
@@ -695,7 +697,19 @@ export class MintNFTs {
   private static initZipZone(dropId: string, inputId: string): void {
     const dropZone = document.getElementById(dropId);
     const fileInput = document.getElementById(inputId) as HTMLInputElement | null;
+    const folderInput = document.getElementById('mint-folder-input') as HTMLInputElement | null;
     if (!dropZone || !fileInput) return;
+
+    // Folder button opens the folder picker
+    document.getElementById('mint-folder-btn')?.addEventListener('click', () => folderInput?.click());
+
+    // Folder selection — files come back as individual File objects, addImages handles them
+    folderInput?.addEventListener('change', () => {
+      const files = folderInput.files;
+      if (!files || files.length === 0) return;
+      const media = Array.from(files).filter(f => f.type.startsWith('image/') || f.type === 'video/mp4');
+      if (media.length > 0) this.addImages(media);
+    });
 
     dropZone.addEventListener('click', (e) => { if (e.target !== fileInput) fileInput.click(); });
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
