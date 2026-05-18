@@ -359,15 +359,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       const toToken   = TokenId.fromString(program.to_token_id);
       const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
 
-      // Flat 1 HBAR service fee covers the network gas for this swap transaction.
-      // Hedera auto-assesses any royalty fallback fees directly from the receiving
-      // account — we do not pre-collect or estimate those here to avoid double-charging.
-      const totalHbar = new Hbar(1);
-
-      console.log('[prepareSwap NFT]', {
-        serials: serialNumbers,
-        totalCharged: totalHbar.toString(),
-      });
+      console.log('[prepareSwap NFT]', { serials: serialNumbers });
 
       const transferTx = new TransferTransaction();
 
@@ -379,10 +371,12 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
         transferTx.addApprovedNftTransfer(new NftId(toToken, serial), treasuryAcct, userAcct);
       }
 
-      // HBAR leg: user pays operator a flat 1 HBAR service fee to cover network gas.
+      // No explicit HBAR leg — both NFT transfers use pre-approved operator allowances.
+      // The operator (BACKEND_ACCOUNT_ID) is the transaction payer and absorbs the
+      // negligible network fee. Hedera auto-assesses any royalty fallback fee directly
+      // from the user as the NFT receiver; we must not add our own HBAR transfer on top
+      // or the combined obligation causes INSUFFICIENT_SENDER_ACCOUNT_BALANCE_FOR_CUSTOM_FEE.
       transferTx
-        .addHbarTransfer(userAcct, totalHbar.negated())
-        .addHbarTransfer(operatorAcct, totalHbar)
         // Operator must be the payer (Hedera requirement for approved transfers)
         .setTransactionId(TransactionId.generate(operatorAcct))
         // Pin to a single node so wallet and backend sign the same bytes
@@ -401,9 +395,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
         serialNumbers,
         fromToken: program.from_token_id,
         toToken: program.to_token_id,
-        fees: {
-          total: totalHbar.toString(),
-        },
+        fees: {},
       });
       return;
     }
