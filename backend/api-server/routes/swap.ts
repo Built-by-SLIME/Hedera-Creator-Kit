@@ -359,27 +359,13 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       const toToken   = TokenId.fromString(program.to_token_id);
       const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
 
-      // Query fallback fees for the token the user RECEIVES (toToken).
-      // When the treasury sends toToken to the user with no fungible value exchanged,
-      // Hedera auto-assesses the fallback fee from the effective payer (operator).
-      // We include a matching HBAR transfer so the user reimburses the operator exactly.
-      const toFallbackFees  = await getFallbackFees(program.to_token_id);
-      const fromFallbackFees = await getFallbackFees(program.from_token_id);
-      const networkFee = await getNetworkFeeEstimate();
-
-      // Sum all fallback fees across both legs, multiplied by serial count.
-      const nftCount = BigInt(serialNumbers.length);
-      const totalFallbackTinybars = [...toFallbackFees, ...fromFallbackFees].reduce(
-        (sum, fee) => sum + fee.tinybars * nftCount,
-        BigInt(0)
-      );
-      const totalTinybars = totalFallbackTinybars + BigInt(networkFee.toTinybars().toString());
-      const totalHbar = Hbar.fromTinybars(totalTinybars);
+      // Flat 1 HBAR service fee covers the network gas for this swap transaction.
+      // Hedera auto-assesses any royalty fallback fees directly from the receiving
+      // account — we do not pre-collect or estimate those here to avoid double-charging.
+      const totalHbar = new Hbar(1);
 
       console.log('[prepareSwap NFT]', {
         serials: serialNumbers,
-        networkFee: networkFee.toString(),
-        totalFallbackTinybars: totalFallbackTinybars.toString(),
         totalCharged: totalHbar.toString(),
       });
 
@@ -393,9 +379,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
         transferTx.addApprovedNftTransfer(new NftId(toToken, serial), treasuryAcct, userAcct);
       }
 
-      // HBAR legs: user pays operator for the network fee + all auto-assessed fallback fees.
-      // Operator is the tx payer, so Hedera charges the operator these amounts automatically.
-      // The explicit HBAR transfer from user → operator makes the operator whole.
+      // HBAR leg: user pays operator a flat 1 HBAR service fee to cover network gas.
       transferTx
         .addHbarTransfer(userAcct, totalHbar.negated())
         .addHbarTransfer(operatorAcct, totalHbar)
@@ -418,13 +402,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
         fromToken: program.from_token_id,
         toToken: program.to_token_id,
         fees: {
-          networkFee: networkFee.toString(),
-          fallbackFees: [...toFallbackFees, ...fromFallbackFees].map(f => ({
-            collector: f.collector,
-            tinybars: f.tinybars.toString(),
-          })),
           total: totalHbar.toString(),
-          totalTinybars: totalTinybars.toString(),
         },
       });
       return;

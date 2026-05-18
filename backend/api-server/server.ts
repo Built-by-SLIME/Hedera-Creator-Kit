@@ -226,7 +226,7 @@ app.get('/api/staking-programs/:id/check-serial/:serial', async (req, res) => {
     );
     res.json({
       serial: parseInt(serial),
-      found: result.rowCount > 0,
+      found: (result.rowCount ?? 0) > 0,
       credits: result.rows,
       program_last_distributed_at: programInfo.rows[0]?.last_distributed_at
     });
