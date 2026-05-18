@@ -371,12 +371,15 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
         transferTx.addApprovedNftTransfer(new NftId(toToken, serial), treasuryAcct, userAcct);
       }
 
-      // No explicit HBAR leg — both NFT transfers use pre-approved operator allowances.
-      // The operator (BACKEND_ACCOUNT_ID) is the transaction payer and absorbs the
-      // negligible network fee. Hedera auto-assesses any royalty fallback fee directly
-      // from the user as the NFT receiver; we must not add our own HBAR transfer on top
-      // or the combined obligation causes INSUFFICIENT_SENDER_ACCOUNT_BALANCE_FOR_CUSTOM_FEE.
+      // Route 1 HBAR from the swapper directly to the treasury (the toToken NFT sender).
+      // Hedera interprets this as fungible value exchanged from the NFT receiver (user)
+      // to the NFT sender (treasury), which satisfies the royalty condition — the 5%
+      // royalty (~0.05 ℏ) is applied and the fallback fee is NOT triggered.
+      // This means: user pays exactly 1 ℏ, operator does NOT absorb the 1 ℏ fallback.
+      const swapFee = new Hbar(1);
       transferTx
+        .addHbarTransfer(userAcct, swapFee.negated())   // swapper pays
+        .addHbarTransfer(treasuryAcct, swapFee)         // treasury receives (royalty deducted by Hedera)
         // Operator must be the payer (Hedera requirement for approved transfers)
         .setTransactionId(TransactionId.generate(operatorAcct))
         // Pin to a single node so wallet and backend sign the same bytes
