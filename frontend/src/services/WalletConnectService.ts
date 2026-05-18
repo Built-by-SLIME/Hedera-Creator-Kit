@@ -121,9 +121,18 @@ class WalletConnectService {
   private updateWalletState(): void {
     if (!this.dAppConnector) return
 
-    const sessions = this.dAppConnector.walletConnectClient?.session.getAll()
-    
-    if (sessions && sessions.length > 0) {
+    const allSessions = this.dAppConnector.walletConnectClient?.session.getAll() ?? []
+    const now = Math.floor(Date.now() / 1000)
+    // Filter out expired sessions — WalletConnect persists these to localStorage
+    // indefinitely; without this check the app appears connected after expiry.
+    const sessions = allSessions.filter(s => s.expiry > now)
+
+    if (allSessions.length > 0 && sessions.length === 0) {
+      // Had sessions but all are expired — clean them up silently
+      this.dAppConnector.disconnectAll().catch(() => {})
+    }
+
+    if (sessions.length > 0) {
       const session = sessions[0]
       const namespaces = session.namespaces
       

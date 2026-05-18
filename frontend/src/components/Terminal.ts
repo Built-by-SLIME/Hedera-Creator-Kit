@@ -381,6 +381,9 @@ export class Terminal {
       case 'help':
         this.navigateToTool('help')
         return
+      case 'disconnect':
+        this.disconnectWallet()
+        return
       case 'tools':
       case 'list':
       case 'wallet':
@@ -444,6 +447,18 @@ export class Terminal {
     if (!this.isTokenGateVerified()) {
       this.refresh()
     }
+  }
+
+  private static async disconnectWallet(): Promise<void> {
+    if (!this.walletData.connected) {
+      this.history.push({ type: 'warning', content: 'No wallet is currently connected.' })
+      this.refresh()
+      return
+    }
+    this.history.push({ type: 'output', content: `Disconnecting ${this.walletData.accountId}...` })
+    this.refresh()
+    await WalletConnectService.disconnect()
+    window.location.reload()
   }
 
   // @ts-expect-error reserved for future use
