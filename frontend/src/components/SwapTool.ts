@@ -35,6 +35,7 @@ interface SwapProgram {
   rate_from: number
   rate_to: number
   total_supply: number | null
+  serial_mode: '1:1' | 'random'
   status: 'active' | 'paused' | 'completed'
   created_by: string
   created_at: string
@@ -52,6 +53,7 @@ export class SwapTool {
   private static rateFrom = '1'
   private static rateTo = '1'
   private static totalSupply = ''
+  private static serialMode: '1:1' | 'random' = '1:1'
 
   // ─── Program list state ────────────────────────────────────
   private static programs: SwapProgram[] = []
@@ -177,9 +179,23 @@ export class SwapTool {
             <button class="terminal-button ${this.swapType === 'fungible' ? '' : 'secondary'}" id="swap-type-fungible" style="flex:1">Fungible Token</button>
           </div>
           <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">
-            ${isFungible ? 'Exchange one fungible token for another at a configured rate.' : 'Swap old NFT serials for new collection NFTs (1:1 by serial).'}
+            ${isFungible ? 'Exchange one fungible token for another at a configured rate.' : 'Swap old NFT serials for new collection NFTs.'}
           </p>
         </div>
+
+        ${!isFungible ? `
+        <div class="input-group">
+          <label>Serial Distribution *</label>
+          <div style="display:flex;gap:0.5rem">
+            <button class="terminal-button ${this.serialMode === '1:1' ? '' : 'secondary'}" id="swap-serial-1-1" style="flex:1">1:1 Matching</button>
+            <button class="terminal-button ${this.serialMode === 'random' ? '' : 'secondary'}" id="swap-serial-random" style="flex:1">Random from Treasury</button>
+          </div>
+          <p style="font-size:0.75rem;color:var(--terminal-text);opacity:0.5;margin:0.3rem 0 0">
+            ${this.serialMode === '1:1'
+              ? 'Users receive the same serial number they send (e.g. serial #42 → serial #42).'
+              : 'Users receive a randomly selected serial from whatever the treasury currently holds.'}
+          </p>
+        </div>` : ''}
 
         <div class="input-group">
           <label for="swap-name">Program Name *</label>
@@ -274,7 +290,7 @@ export class SwapTool {
           <div class="info-row"><span>From Token</span><span class="status-value">${this.escapeHtml(this.fromTokenId)}</span></div>
           <div class="info-row"><span>To Token</span><span class="status-value">${this.escapeHtml(this.toTokenId)}</span></div>
           <div class="info-row"><span>Treasury</span><span class="status-value">${this.escapeHtml(this.treasuryAccountId)}</span></div>
-          ${!isFungible ? '' : `<div class="info-row"><span>Rate</span><span class="status-value">${this.rateFrom} → ${this.rateTo}</span></div>`}
+          ${!isFungible ? `<div class="info-row"><span>Serial Mode</span><span class="status-value">${this.serialMode === 'random' ? 'Random' : '1:1 Matching'}</span></div>` : `<div class="info-row"><span>Rate</span><span class="status-value">${this.rateFrom} → ${this.rateTo}</span></div>`}
           <div class="info-row"><span>Operator</span><span class="status-value">${BACKEND_MINTER_ACCOUNT}</span></div>
         </div>
 
@@ -339,6 +355,7 @@ export class SwapTool {
           <div class="info-row"><span>Type</span><span class="status-value">${this.swapType === 'nft' ? 'NFT Swap' : 'Fungible Token Swap'}</span></div>
           <div class="info-row"><span>From</span><span class="status-value">${this.escapeHtml(this.fromTokenId)}</span></div>
           <div class="info-row"><span>To</span><span class="status-value">${this.escapeHtml(this.toTokenId)}</span></div>
+          ${this.swapType === 'nft' ? `<div class="info-row"><span>Serial Mode</span><span class="status-value">${this.serialMode === 'random' ? 'Random from Treasury' : '1:1 Matching'}</span></div>` : ''}
           <div class="info-row"><span>Status</span><span class="status-value" style="color:var(--accent-green,#00ff40)">Active</span></div>
         </div>
         <div class="filter-divider"></div>
@@ -393,7 +410,7 @@ export class SwapTool {
           <span style="font-size:0.72rem;color:${statusColor};text-transform:uppercase">${p.status}</span>
         </div>
         <div style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin-bottom:0.5rem">
-          ${p.swap_type === 'nft' ? 'NFT Swap' : 'Fungible'} · ${this.escapeHtml(p.from_token_id)} → ${this.escapeHtml(p.to_token_id)}
+          ${p.swap_type === 'nft' ? `NFT Swap · ${p.serial_mode === 'random' ? 'Random' : '1:1'}` : 'Fungible'} · ${this.escapeHtml(p.from_token_id)} → ${this.escapeHtml(p.to_token_id)}
         </div>
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
           <button class="terminal-button secondary" data-action="toggle-status" data-id="${p.id}" data-status="${isActive ? 'paused' : 'active'}" style="font-size:0.72rem;padding:0.25rem 0.6rem">
@@ -451,6 +468,7 @@ export class SwapTool {
     this.rateFrom = '1'
     this.rateTo = '1'
     this.totalSupply = ''
+    this.serialMode = '1:1'
     this.toTokenDecimals = null
     this.toTokenTotalSupply = null
     this.toTokenName = ''
@@ -485,6 +503,16 @@ export class SwapTool {
     })
     document.getElementById('swap-type-fungible')?.addEventListener('click', () => {
       this.swapType = 'fungible'
+      this.refresh()
+    })
+
+    // Serial distribution mode toggle (NFT only)
+    document.getElementById('swap-serial-1-1')?.addEventListener('click', () => {
+      this.serialMode = '1:1'
+      this.refresh()
+    })
+    document.getElementById('swap-serial-random')?.addEventListener('click', () => {
+      this.serialMode = 'random'
       this.refresh()
     })
 
@@ -728,6 +756,7 @@ export class SwapTool {
           rateFrom: parseFloat(this.rateFrom) || 1,
           rateTo: parseFloat(this.rateTo) || 1,
           totalSupply: this.totalSupply ? parseInt(this.totalSupply) : null,
+          serialMode: this.swapType === 'nft' ? this.serialMode : undefined,
         }),
       })
 

@@ -145,6 +145,10 @@ export async function initDb(): Promise<void> {
       ADD COLUMN IF NOT EXISTS frequency           VARCHAR(6)  DEFAULT '7d',
       ADD COLUMN IF NOT EXISTS allowance_granted   BOOLEAN     DEFAULT false,
       ADD COLUMN IF NOT EXISTS last_distributed_at TIMESTAMPTZ;
+
+    ALTER TABLE swap_programs
+      ADD COLUMN IF NOT EXISTS serial_mode VARCHAR(10) DEFAULT '1:1'
+        CHECK (serial_mode IN ('1:1', 'random'));
   `);
 
   // Data correction: SLIME program was created with stake_token_type='FT' but it is an NFT program.

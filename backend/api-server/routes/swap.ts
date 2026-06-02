@@ -21,6 +21,26 @@ const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
 // Based on observed mainnet fees for multi-token CryptoTransfers (~0.015-0.02 HBAR).
 const FALLBACK_REIMBURSEMENT = new Hbar(0.05);
 
+/** Fetch NFT serial numbers held by the treasury for a given token (handles pagination). */
+async function fetchTreasuryNftSerials(accountId: string, tokenId: string): Promise<number[]> {
+  const serials: number[] = [];
+  let url: string | null =
+    `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/nfts?token.id=${tokenId}&limit=100`;
+  while (url) {
+    const res = await fetch(url);
+    if (!res.ok) break;
+    const data = await res.json() as {
+      nfts?: Array<{ serial_number: number }>;
+      links?: { next?: string };
+    };
+    for (const nft of (data.nfts || [])) {
+      serials.push(nft.serial_number);
+    }
+    url = data.links?.next || null;
+  }
+  return serials;
+}
+
 /**
  * Queries the Mirror Node for the most recent CRYPTOTRANSFER fee paid by the operator.
  * Adds a 20% buffer to ensure full coverage. Falls back to FALLBACK_REIMBURSEMENT
@@ -146,6 +166,7 @@ export async function createSwapProgram(req: Request, res: Response): Promise<vo
       rateFrom,
       rateTo,
       totalSupply,
+      serialMode,
     } = req.body;
 
     if (!createdBy || !name || !swapType || !fromTokenId || !toTokenId || !treasuryAccountId) {
@@ -158,11 +179,17 @@ export async function createSwapProgram(req: Request, res: Response): Promise<vo
       return;
     }
 
+    const resolvedSerialMode = serialMode || '1:1';
+    if (!['1:1', 'random'].includes(resolvedSerialMode)) {
+      res.status(400).json({ success: false, error: 'serialMode must be "1:1" or "random"' });
+      return;
+    }
+
     const result = await pool.query(
       `INSERT INTO swap_programs
          (created_by, name, description, swap_type, from_token_id, to_token_id,
-          treasury_account_id, rate_from, rate_to, total_supply)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          treasury_account_id, rate_from, rate_to, total_supply, serial_mode)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         createdBy,
@@ -175,6 +202,7 @@ export async function createSwapProgram(req: Request, res: Response): Promise<vo
         rateFrom || 1,
         rateTo || 1,
         totalSupply || null,
+        resolvedSerialMode,
       ]
     );
 
@@ -220,7 +248,7 @@ export async function listPublicSwapPrograms(_req: Request, res: Response): Prom
   try {
     const result = await pool.query(
       `SELECT id, name, description, swap_type, from_token_id, to_token_id,
-              treasury_account_id, rate_from, rate_to, total_supply, status, created_at
+              treasury_account_id, rate_from, rate_to, total_supply, serial_mode, status, created_at
        FROM swap_programs WHERE status = 'active' ORDER BY created_at DESC`
     );
     res.json({ success: true, programs: result.rows });
@@ -363,12 +391,33 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
 
       const transferTx = new TransferTransaction();
 
-      for (const serial of serialNumbers) {
+      // Determine which toToken serials to send back.
+      let treasurySerials: number[];
+      if (program.serial_mode === 'random') {
+        const available = await fetchTreasuryNftSerials(program.treasury_account_id, program.to_token_id);
+        if (available.length < serialNumbers.length) {
+          res.status(400).json({
+            success: false,
+            error: `Treasury only holds ${available.length} serials of ${program.to_token_id} but ${serialNumbers.length} were requested.`,
+          });
+          return;
+        }
+        // Randomly shuffle and pick exactly as many as the user is handing in.
+        treasurySerials = available.sort(() => Math.random() - 0.5).slice(0, serialNumbers.length);
+        console.log('[prepareSwap NFT] random mode — treasury serials assigned:', treasurySerials);
+      } else {
+        // 1:1 mode — match the same serial number from the to collection
+        treasurySerials = serialNumbers;
+        console.log('[prepareSwap NFT] 1:1 mode — treasury serials:', treasurySerials);
+      }
+
+      for (let i = 0; i < serialNumbers.length; i++) {
+        const userSerial = serialNumbers[i];
+        const treasurySerial = treasurySerials[i];
         // Old NFT (fromToken): user → treasury using the user's pre-approved allowance
-        transferTx.addApprovedNftTransfer(new NftId(fromToken, serial), userAcct, treasuryAcct);
+        transferTx.addApprovedNftTransfer(new NftId(fromToken, userSerial), userAcct, treasuryAcct);
         // New NFT (toToken): treasury → user using the treasury's pre-approved allowance
-        // Serial matching is intentional: V1 #1 → V2 #1, V1 #2 → V2 #2, etc.
-        transferTx.addApprovedNftTransfer(new NftId(toToken, serial), treasuryAcct, userAcct);
+        transferTx.addApprovedNftTransfer(new NftId(toToken, treasurySerial), treasuryAcct, userAcct);
       }
 
       // Route 1 HBAR from the swapper directly to the treasury (the toToken NFT sender).
