@@ -279,10 +279,39 @@ app.use('/api/v1/external', stakingExternal);
 // Admin — API key generation (protected by DRIP_SECRET)
 app.post('/api/admin/api-keys', (req, res, next) => generateApiKey(req, res).catch(next));
 
-// Swagger docs (raw JSON — projects can paste into swagger.io or any Swagger UI viewer)
+// Swagger JSON spec (for programmatic consumption)
+app.get('/api-docs.json', (req: Request, res: Response) => {
+  res.json(swaggerDocument);
+});
+
+// Swagger UI — self-contained HTML loading from CDN. Zero npm dependencies.
 app.get('/api-docs', (req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.send(swaggerDocument);
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SLIME Tools API — Swagger UI</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.20.0/swagger-ui.css">
+  <style>body{margin:0;background:#1a1a2e;}</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5.20.0/swagger-ui-bundle.js"></script>
+  <script src="https://unpkg.com/swagger-ui-dist@5.20.0/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: '/api-docs.json',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+      layout: 'StandaloneLayout',
+      validatorUrl: null,
+    });
+  </script>
+</body>
+</html>`);
 });
 
 // Health check endpoint

@@ -8,17 +8,22 @@ import { pool } from '../db';
  * Body: { accountId, name?, scopes? }
  * Response: { success, apiKey: '<raw-key-one-time-only>', account_id, name }
  */
+const ADMIN_WALLET = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
+
 export async function generateApiKey(req: Request, res: Response): Promise<void> {
   const secret = process.env.DRIP_SECRET;
-  if (secret) {
-    const auth = req.headers.authorization;
-    if (!auth || auth !== `Bearer ${secret}`) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
+  const authHeader = req.headers.authorization;
+  const { accountId, name, scopes, createdBy } = req.body;
+
+  // Auth: either DRIP_SECRET bearer token, or admin wallet
+  const isSecretAuth = secret && authHeader === `Bearer ${secret}`;
+  const isWalletAuth = ADMIN_WALLET && createdBy === ADMIN_WALLET;
+
+  if (!isSecretAuth && !isWalletAuth) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
   }
 
-  const { accountId, name, scopes } = req.body;
   if (!accountId) {
     res.status(400).json({ success: false, error: 'accountId is required' });
     return;
