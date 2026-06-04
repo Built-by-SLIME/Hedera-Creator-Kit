@@ -68,8 +68,8 @@ export async function requireApiKey(
 }
 
 /**
- * Validates API key AND verifies the key holder owns the program.
- * Program ID is read from req.params.id.
+ * Validates API key AND verifies the key holder owns the program (req.params.id).
+ * Attaches req.programOwner = true on success.
  */
 export async function requireProgramOwnership(
   req: Request,
@@ -106,5 +106,47 @@ export async function requireProgramOwnership(
     next();
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+/**
+ * Returns true if the key holder owns the program. Returns false (with 404/403) if not.
+ * Used inside route handlers for manual ownership checks.
+ */
+export async function assertProgramOwnership(
+  req: Request,
+  res: Response,
+): Promise<boolean> {
+  if (!req.apiKey) {
+    res.status(401).json({ success: false, error: 'API key required' });
+    return false;
+  }
+
+  const programId = req.params.id;
+  if (!programId) {
+    res.status(400).json({ success: false, error: 'Program ID required' });
+    return false;
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT created_by FROM staking_programs WHERE id = $1',
+      [programId]
+    );
+
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Program not found' });
+      return false;
+    }
+
+    if (result.rows[0].created_by !== req.apiKey.account_id) {
+      res.status(403).json({ success: false, error: 'Not authorized for this program' });
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+    return false;
   }
 }

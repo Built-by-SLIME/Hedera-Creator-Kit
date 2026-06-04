@@ -52,7 +52,7 @@ import {
   resetDistributionClock,
 } from './routes/staking';
 import {
-  externalListPublicPrograms,
+  externalListPrograms,
   externalGetProgram,
   externalGetPosition,
   externalGetEligibility,
@@ -265,15 +265,15 @@ app.get('/api/domains/owned/:accountId',              (req, res, next) => listDo
 app.post('/api/domains/admin/purge-registrations',    (req, res, next) => purgeRegistrations(req, res).catch(next));
 
 // ─── External API (v1) ────────────────────────────────────────────────────
-// Staking — external endpoints for third-party integrations (API key required)
+// Staking — external endpoints for third-party integrations (API key + program ownership required)
 const stakingExternal = express.Router();
-stakingExternal.get('/staking-programs/public',              (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalListPublicPrograms(req, res).catch(next));
+stakingExternal.get('/staking-programs',                    (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalListPrograms(req, res).catch(next));
 stakingExternal.get('/staking-programs/:id',                 (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalGetProgram(req, res).catch(next));
 stakingExternal.get('/staking-programs/:id/position/:accountId', (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalGetPosition(req, res).catch(next));
 stakingExternal.get('/staking-programs/:id/eligibility/:accountId', (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalGetEligibility(req, res).catch(next));
 stakingExternal.post('/staking-programs/:id/register',       (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalRegister(req, res).catch(next));
-stakingExternal.get('/staking-programs/:id/participants',     (req, res, next) => requireApiKey(req, res, next), (req, res, next) => requireProgramOwnership(req, res, next), (req, res, next) => externalListParticipants(req, res).catch(next));
-stakingExternal.get('/staking-programs/:id/distributions',   (req, res, next) => requireApiKey(req, res, next), (req, res, next) => requireProgramOwnership(req, res, next), (req, res, next) => externalListDistributions(req, res).catch(next));
+stakingExternal.get('/staking-programs/:id/participants',     (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalListParticipants(req, res).catch(next));
+stakingExternal.get('/staking-programs/:id/distributions',   (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalListDistributions(req, res).catch(next));
 app.use('/api/v1/external', stakingExternal);
 
 // Admin — API key generation (protected by DRIP_SECRET)
@@ -284,26 +284,85 @@ app.get('/api-docs.json', (req: Request, res: Response) => {
   res.json(swaggerDocument);
 });
 
-// Swagger UI — self-contained HTML loading from CDN. Zero npm dependencies.
+// Swagger UI — self-contained HTML, dark theme, SLIME branded. Zero npm dependencies.
 app.get('/api-docs', (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/html');
   res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SLIME Tools API — Swagger UI</title>
+  <title>SLIME Tools — External API Docs</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.20.0/swagger-ui.css">
   <style>
-    body { margin: 0; background: #fafafa; }
+    body { margin: 0; background: #0b0f19; }
+    .swagger-ui { color: #e2e8f0; }
     .swagger-ui .topbar { display: none; }
-    .swagger-ui .info .title { color: #111; }
-    .swagger-ui .scheme-container { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-    .swagger-ui .opblock { border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    .swagger-ui .opblock .opblock-summary-method { border-radius: 4px; font-weight: 600; }
-    .swagger-ui .opblock-tag { color: #333; font-size: 1.1rem; font-weight: 600; }
+    .swagger-ui .info { margin: 20px 0; }
+    .swagger-ui .info .title { color: #fff; font-size: 1.8rem; font-weight: 700; }
+    .swagger-ui .info .title small { background: #00ff40; color: #000; font-weight: 700; }
+    .swagger-ui .info p, .swagger-ui .info li { color: #94a3b8; }
+    .swagger-ui .info a { color: #00ff40; }
+    .swagger-ui .scheme-container { background: #111827; box-shadow: none; border: 1px solid #1e293b; }
+    .swagger-ui .schemes > .schemes-server-container > .servers > label { color: #94a3b8; }
+    .swagger-ui .opblock { background: #111827; border: 1px solid #1e293b; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+    .swagger-ui .opblock .opblock-summary { border-bottom: 1px solid #1e293b; }
+    .swagger-ui .opblock .opblock-summary-method { border-radius: 4px; font-weight: 700; }
+    .swagger-ui .opblock .opblock-summary-path { color: #e2e8f0; }
+    .swagger-ui .opblock .opblock-summary-description { color: #94a3b8; }
+    .swagger-ui .opblock-tag { color: #fff; font-size: 1.1rem; font-weight: 600; border-bottom: 1px solid #1e293b; }
+    .swagger-ui .opblock-tag-section .operations-container { padding-top: 8px; }
+    .swagger-ui .tab li { color: #94a3b8; }
+    .swagger-ui .tab li.active { color: #fff; }
+    .swagger-ui .opblock-body { background: #0f172a; }
+    .swagger-ui .execute-wrapper { padding: 16px; }
+    .swagger-ui .responses-wrapper { padding: 16px; }
+    .swagger-ui .responses-inner h4, .swagger-ui .responses-inner h5 { color: #e2e8f0; }
+    .swagger-ui table thead tr td, .swagger-ui table thead tr th { color: #94a3b8; border-bottom: 1px solid #1e293b; }
+    .swagger-ui table tbody tr td { color: #e2e8f0; border-bottom: 1px solid #1e293b; }
+    .swagger-ui .parameter__name { color: #e2e8f0; }
+    .swagger-ui .parameter__type { color: #00ff40; }
+    .swagger-ui .markdown, .swagger-ui .renderedMarkdown { color: #94a3b8; }
+    .swagger-ui .markdown p, .swagger-ui .renderedMarkdown p { color: #94a3b8; }
+    .swagger-ui .model { color: #e2e8f0; }
+    .swagger-ui .model-title { color: #fff; }
+    .swagger-ui .prop-type { color: #00ff40; }
+    .swagger-ui .prop-format { color: #64748b; }
+    .swagger-ui .response-col_status { color: #e2e8f0; font-weight: 700; }
+    .swagger-ui .response-col_description { color: #94a3b8; }
+    .swagger-ui .highlight-code .microlight { background: #0f172a !important; color: #e2e8f0 !important; }
+    .swagger-ui .download-contents { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; }
+    .swagger-ui .auth-container { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; }
+    .swagger-ui .auth-container .wrapper { color: #e2e8f0; }
+    .swagger-ui .auth-container input[type=text] { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; }
+    .swagger-ui .btn.authorize { background: transparent; border-color: #00ff40; color: #00ff40; }
+    .swagger-ui .btn.authorize svg { fill: #00ff40; }
+    .swagger-ui .btn.execute { background: #00ff40; color: #000; font-weight: 700; border: none; }
+    .swagger-ui .btn.execute:hover { background: #00cc33; }
+    .swagger-ui .curl-command { background: #0f172a; color: #e2e8f0; }
+    /* Custom SLIME header */
+    .slime-header { display: flex; align-items: center; gap: 12px; padding: 20px 40px; background: #0b0f19; border-bottom: 1px solid #1e293b; }
+    .slime-header svg { width: 40px; height: 40px; flex-shrink: 0; }
+    .slime-header h1 { margin: 0; color: #fff; font-size: 1.4rem; font-weight: 700; }
+    .slime-header span { color: #94a3b8; font-size: 0.85rem; }
   </style>
 </head>
 <body>
+  <div class="slime-header">
+    <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+      <rect width="48" height="48" rx="10" fill="#00ff40"/>
+      <ellipse cx="14" cy="18" rx="7" ry="10" fill="#111"/>
+      <ellipse cx="34" cy="18" rx="7" ry="10" fill="#111"/>
+      <ellipse cx="14" cy="16" rx="4" ry="5" fill="#fff"/>
+      <ellipse cx="34" cy="16" rx="4" ry="5" fill="#fff"/>
+      <circle cx="14" cy="15" r="1.5" fill="#111"/>
+      <circle cx="34" cy="15" r="1.5" fill="#111"/>
+      <path d="M18 34 Q24 40 30 34" stroke="#111" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    </svg>
+    <div>
+      <h1>SLIME Tools External API</h1>
+      <span>Third-party integrations · Program-scoped access</span>
+    </div>
+  </div>
   <div id="swagger-ui"></div>
   <script src="https://unpkg.com/swagger-ui-dist@5.20.0/swagger-ui-bundle.js"></script>
   <script src="https://unpkg.com/swagger-ui-dist@5.20.0/swagger-ui-standalone-preset.js"></script>

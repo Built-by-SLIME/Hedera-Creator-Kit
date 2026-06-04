@@ -3,10 +3,10 @@
   "info": {
     "title": "SLIME Tools External API",
     "version": "1.0.0",
-    "description": "External API for third-party project integrations. Requires an API key. Contact SLIME Tools to request access."
+    "description": "External API for third-party project integrations. All endpoints are scoped to programs created by the API key holder. Contact SLIME Tools to request an API key."
   },
   "servers": [
-    { "url": "https://your-railway-app.railway.app/api/v1/external" }
+    { "url": "https://api.slime.tools/api/v1/external" }
   ],
   "components": {
     "securitySchemes": {
@@ -19,13 +19,14 @@
   },
   "security": [{ "bearerAuth": [] }],
   "paths": {
-    "/staking-programs/public": {
+    "/staking-programs": {
       "get": {
-        "summary": "List all active staking programs",
-        "operationId": "listPublicStakingPrograms",
+        "summary": "List your staking programs",
+        "operationId": "listPrograms",
+        "description": "Returns all active staking programs created by the API key holder.",
         "responses": {
           "200": {
-            "description": "Active staking programs",
+            "description": "Active staking programs belonging to the key holder",
             "content": {
               "application/json": {
                 "schema": {
@@ -45,6 +46,7 @@
       "get": {
         "summary": "Get staking program details + stats",
         "operationId": "getStakingProgram",
+        "description": "Returns details for a single program. Must be owned by the API key holder.",
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
@@ -70,6 +72,7 @@
               }
             }
           },
+          "403": { "description": "Not authorized for this program" },
           "404": { "description": "Program not found" }
         }
       }
@@ -78,6 +81,7 @@
       "get": {
         "summary": "Get a wallet's staking position",
         "operationId": "getStakingPosition",
+        "description": "Live snapshot of a wallet's staking position in one of your programs.",
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
           { "name": "accountId", "in": "path", "required": true, "schema": { "type": "string", "example": "0.0.12345" } }
@@ -108,7 +112,8 @@
                 }
               }
             }
-          }
+          },
+          "403": { "description": "Not authorized for this program" }
         }
       }
     },
@@ -116,6 +121,7 @@
       "get": {
         "summary": "Check eligibility without registering",
         "operationId": "checkEligibility",
+        "description": "Lightweight eligibility check for a wallet in one of your programs.",
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
           { "name": "accountId", "in": "path", "required": true, "schema": { "type": "string", "example": "0.0.12345" } }
@@ -138,7 +144,8 @@
                 }
               }
             }
-          }
+          },
+          "403": { "description": "Not authorized for this program" }
         }
       }
     },
@@ -146,6 +153,7 @@
       "post": {
         "summary": "Register a wallet and trigger immediate drip",
         "operationId": "registerParticipant",
+        "description": "Registers a wallet and triggers an immediate reward drip in one of your programs.",
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
@@ -166,14 +174,16 @@
         "responses": {
           "200": { "description": "Registration result" },
           "400": { "description": "Not eligible or already registered" },
+          "403": { "description": "Not authorized for this program" },
           "404": { "description": "Program not found" }
         }
       }
     },
     "/staking-programs/{id}/participants": {
       "get": {
-        "summary": "List participants (creator-scoped)",
+        "summary": "List participants",
         "operationId": "listParticipants",
+        "description": "Returns all participants for one of your programs.",
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],
@@ -199,8 +209,9 @@
     },
     "/staking-programs/{id}/distributions": {
       "get": {
-        "summary": "List distribution history (creator-scoped)",
+        "summary": "List distribution history",
         "operationId": "listDistributions",
+        "description": "Returns reward distribution history for one of your programs.",
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
         ],

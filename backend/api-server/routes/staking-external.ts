@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { pool } from '../db';
+import { assertProgramOwnership } from '../middleware/auth';
 import {
   registerParticipant,
-  listPublicStakingPrograms,
   fetchNftSerials,
   fetchFtBalance,
   fetchTokenDecimals,
@@ -13,19 +13,34 @@ import {
 // ─── External staking API for third-party integrations ──────────────────────
 
 /**
- * GET /api/v1/external/staking-programs/public
- * Lists all active staking programs. Any valid API key grants access.
- * Thin wrapper around the existing listPublicStakingPrograms handler.
+ * GET /api/v1/external/staking-programs
+ * Lists all active staking programs belonging to the API key holder.
  */
-export async function externalListPublicPrograms(req: Request, res: Response): Promise<void> {
-  await listPublicStakingPrograms(req, res);
+export async function externalListPrograms(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.apiKey) {
+      res.status(401).json({ success: false, error: 'API key required' });
+      return;
+    }
+    const result = await pool.query(
+      `SELECT id, name, description, stake_token_id, stake_token_type, reward_token_id,
+              treasury_account_id, reward_rate_per_day, min_stake_amount, frequency,
+              total_reward_supply, last_distributed_at, status, created_at
+       FROM staking_programs WHERE created_by = $1 AND status = 'active' ORDER BY created_at DESC`,
+      [req.apiKey.account_id]
+    );
+    res.json({ success: true, programs: result.rows });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 }
 
 /**
  * GET /api/v1/external/staking-programs/:id
- * Single program details + live stats (participant count, total distributed).
+ * Single program details + live stats. Scoped to API key holder's programs.
  */
 export async function externalGetProgram(req: Request, res: Response): Promise<void> {
+  if (!(await assertProgramOwnership(req, res))) return;
   try {
     const { id } = req.params;
     const progResult = await pool.query(
@@ -35,11 +50,6 @@ export async function externalGetProgram(req: Request, res: Response): Promise<v
        FROM staking_programs WHERE id = $1`,
       [id]
     );
-    if (progResult.rowCount === 0) {
-      res.status(404).json({ success: false, error: 'Program not found' });
-      return;
-    }
-
     const [participantCount, totalDistributed] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM staking_participants WHERE program_id = $1', [id]),
       pool.query(
@@ -47,7 +57,6 @@ export async function externalGetProgram(req: Request, res: Response): Promise<v
         [id]
       ),
     ]);
-
     res.json({
       success: true,
       program: progResult.rows[0],
@@ -63,44 +72,32 @@ export async function externalGetProgram(req: Request, res: Response): Promise<v
 
 /**
  * GET /api/v1/external/staking-programs/:id/position/:accountId
- * Returns a wallet's live staking position: holdings, total earned,
- * registration status, next drip date, and estimated next reward.
+ * Wallet staking position. Scoped to API key holder's programs.
  */
 export async function externalGetPosition(req: Request, res: Response): Promise<void> {
+  if (!(await assertProgramOwnership(req, res))) return;
   try {
     const { id, accountId } = req.params;
-
     const progResult = await pool.query(
       `SELECT stake_token_id, stake_token_type, reward_token_id, reward_rate_per_day,
-              frequency, min_stake_amount, status
+              frequency, min_stake_amount, last_distributed_at, status
        FROM staking_programs WHERE id = $1`,
       [id]
     );
-    if (progResult.rowCount === 0) {
-      res.status(404).json({ success: false, error: 'Program not found' });
-      return;
-    }
     const prog = progResult.rows[0];
-    if (prog.status !== 'active') {
-      res.status(400).json({ success: false, error: 'Program is not active' });
-      return;
-    }
 
-    // Registration status
     const regResult = await pool.query(
       'SELECT registered_at, last_distributed_at FROM staking_participants WHERE program_id = $1 AND account_id = $2',
       [id, accountId]
     );
     const isRegistered = regResult.rowCount !== null && regResult.rowCount > 0;
 
-    // Total earned
     const distResult = await pool.query(
       'SELECT COALESCE(SUM(amount), 0) as total FROM staking_distributions WHERE program_id = $1 AND account_id = $2',
       [id, accountId]
     );
     const totalEarned = parseFloat(distResult.rows[0].total);
 
-    // Live holdings
     let unitsHeld = 0;
     let serialsHeld: number[] | undefined;
     if (prog.stake_token_type === 'NFT') {
@@ -112,14 +109,12 @@ export async function externalGetPosition(req: Request, res: Response): Promise<
       unitsHeld = Number(rawBalance) / Math.pow(10, stakeDecimals);
     }
 
-    // Next drip date
     const lastDist = regResult.rows[0]?.last_distributed_at || prog.last_distributed_at;
     const days = frequencyDays(prog.frequency);
     const nextDrip = lastDist
       ? new Date(new Date(lastDist).getTime() + days * 86400000)
       : new Date();
 
-    // Estimated next reward
     const rewardDecimals = await fetchTokenDecimals(prog.reward_token_id);
     const estRewardRaw = unitsHeld > 0 && unitsHeld >= Number(prog.min_stake_amount)
       ? calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals)
@@ -154,36 +149,26 @@ export async function externalGetPosition(req: Request, res: Response): Promise<
 
 /**
  * GET /api/v1/external/staking-programs/:id/eligibility/:accountId
- * Lightweight eligibility check for a wallet. No registration required.
+ * Eligibility check. Scoped to API key holder's programs.
  */
 export async function externalGetEligibility(req: Request, res: Response): Promise<void> {
+  if (!(await assertProgramOwnership(req, res))) return;
   try {
     const { id, accountId } = req.params;
-
     const progResult = await pool.query(
       `SELECT stake_token_id, stake_token_type, reward_token_id, reward_rate_per_day,
               frequency, min_stake_amount, status
        FROM staking_programs WHERE id = $1`,
       [id]
     );
-    if (progResult.rowCount === 0) {
-      res.status(404).json({ success: false, error: 'Program not found' });
-      return;
-    }
     const prog = progResult.rows[0];
-    if (prog.status !== 'active') {
-      res.status(400).json({ success: false, error: 'Program is not active' });
-      return;
-    }
 
-    // Is registered?
     const regResult = await pool.query(
       'SELECT 1 FROM staking_participants WHERE program_id = $1 AND account_id = $2',
       [id, accountId]
     );
     const isRegistered = regResult.rowCount !== null && regResult.rowCount > 0;
 
-    // Live holdings
     let unitsHeld = 0;
     if (prog.stake_token_type === 'NFT') {
       unitsHeld = (await fetchNftSerials(accountId, prog.stake_token_id)).length;
@@ -218,18 +203,19 @@ export async function externalGetEligibility(req: Request, res: Response): Promi
 
 /**
  * POST /api/v1/external/staking-programs/:id/register
- * Community member registers + immediate drip.
- * Validates API key, then delegates to the existing registerParticipant handler.
+ * Register a wallet and trigger immediate drip. Scoped to API key holder's programs.
  */
 export async function externalRegister(req: Request, res: Response): Promise<void> {
+  if (!(await assertProgramOwnership(req, res))) return;
   await registerParticipant(req, res);
 }
 
 /**
  * GET /api/v1/external/staking-programs/:id/participants
- * Creator-scoped: only the program owner (matching API key account) can access.
+ * Participant list. Scoped to API key holder's programs.
  */
 export async function externalListParticipants(req: Request, res: Response): Promise<void> {
+  if (!(await assertProgramOwnership(req, res))) return;
   try {
     const { id } = req.params;
     const result = await pool.query(
@@ -245,9 +231,10 @@ export async function externalListParticipants(req: Request, res: Response): Pro
 
 /**
  * GET /api/v1/external/staking-programs/:id/distributions
- * Creator-scoped: only the program owner can access.
+ * Distribution history. Scoped to API key holder's programs.
  */
 export async function externalListDistributions(req: Request, res: Response): Promise<void> {
+  if (!(await assertProgramOwnership(req, res))) return;
   try {
     const { id } = req.params;
     const result = await pool.query(
