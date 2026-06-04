@@ -307,7 +307,7 @@ app.get('/api-docs', (req: Request, res: Response) => {
     .swagger-ui .topbar { display: none; }
     .swagger-ui .info { margin: 20px 0; }
     .swagger-ui .info .title { color: #fff; font-size: 1.8rem; font-weight: 700; }
-    .swagger-ui .info .title small { background: #00ff40; color: #000; font-weight: 700; }
+    .swagger-ui .info .title small { display: none; }
     .swagger-ui .info p, .swagger-ui .info li { color: #94a3b8; }
     .swagger-ui .info a { color: #00ff40; }
     .swagger-ui .scheme-container { background: #15202B; box-shadow: none; border: 1px solid #1e293b; }
