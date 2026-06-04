@@ -6,6 +6,8 @@ import path from 'path';
 import fs from 'fs-extra';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
+import swaggerUi from 'swagger-ui-express';
+import swaggerDocument from './swagger.json';
 import { previewCollection } from './routes/preview';
 import { generateCollection } from './routes/generate';
 import { uploadLayers } from './routes/upload-layers';
@@ -50,6 +52,17 @@ import {
   runAllDrips,
   resetDistributionClock,
 } from './routes/staking';
+import {
+  externalListPublicPrograms,
+  externalGetProgram,
+  externalGetPosition,
+  externalGetEligibility,
+  externalRegister,
+  externalListParticipants,
+  externalListDistributions,
+} from './routes/staking-external';
+import { generateApiKey } from './routes/admin';
+import { requireApiKey, requireProgramOwnership } from './middleware/auth';
 import { insertSnapshotCredits, clearAndReinsertSnapshotCredits } from '../scripts/insert-snapshot-credits-direct';
 import { initDb, pool } from './db';
 
@@ -251,6 +264,24 @@ app.get('/api/domains/resolve/:name/:tld',            (req, res, next) => resolv
 app.get('/api/domains/list/:tld',                     (req, res, next) => listDomainsByTld(req, res).catch(next));
 app.get('/api/domains/owned/:accountId',              (req, res, next) => listDomainsByOwner(req, res).catch(next));
 app.post('/api/domains/admin/purge-registrations',    (req, res, next) => purgeRegistrations(req, res).catch(next));
+
+// ─── External API (v1) ────────────────────────────────────────────────────
+// Staking — external endpoints for third-party integrations (API key required)
+const stakingExternal = express.Router();
+stakingExternal.get('/staking-programs/public',              (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalListPublicPrograms(req, res).catch(next));
+stakingExternal.get('/staking-programs/:id',                 (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalGetProgram(req, res).catch(next));
+stakingExternal.get('/staking-programs/:id/position/:accountId', (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalGetPosition(req, res).catch(next));
+stakingExternal.get('/staking-programs/:id/eligibility/:accountId', (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalGetEligibility(req, res).catch(next));
+stakingExternal.post('/staking-programs/:id/register',       (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalRegister(req, res).catch(next));
+stakingExternal.get('/staking-programs/:id/participants',     (req, res, next) => requireApiKey(req, res, next), (req, res, next) => requireProgramOwnership(req, res, next), (req, res, next) => externalListParticipants(req, res).catch(next));
+stakingExternal.get('/staking-programs/:id/distributions',   (req, res, next) => requireApiKey(req, res, next), (req, res, next) => requireProgramOwnership(req, res, next), (req, res, next) => externalListDistributions(req, res).catch(next));
+app.use('/api/v1/external', stakingExternal);
+
+// Admin — API key generation (protected by DRIP_SECRET)
+app.post('/api/admin/api-keys', (req, res, next) => generateApiKey(req, res).catch(next));
+
+// Swagger docs
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

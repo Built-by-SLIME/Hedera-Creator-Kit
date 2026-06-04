@@ -1,0 +1,227 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "SLIME Tools External API",
+    "version": "1.0.0",
+    "description": "External API for third-party project integrations. Requires an API key. Contact SLIME Tools to request access."
+  },
+  "servers": [
+    { "url": "https://your-railway-app.railway.app/api/v1/external" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API key"
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/staking-programs/public": {
+      "get": {
+        "summary": "List all active staking programs",
+        "operationId": "listPublicStakingPrograms",
+        "responses": {
+          "200": {
+            "description": "Active staking programs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "programs": { "type": "array" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/staking-programs/{id}": {
+      "get": {
+        "summary": "Get staking program details + stats",
+        "operationId": "getStakingProgram",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Program details with participant count and total distributed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "program": { "type": "object" },
+                    "stats": {
+                      "type": "object",
+                      "properties": {
+                        "participantCount": { "type": "integer" },
+                        "totalDistributed": { "type": "number" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Program not found" }
+        }
+      }
+    },
+    "/staking-programs/{id}/position/{accountId}": {
+      "get": {
+        "summary": "Get a wallet's staking position",
+        "operationId": "getStakingPosition",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "accountId", "in": "path", "required": true, "schema": { "type": "string", "example": "0.0.12345" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Wallet staking position",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "accountId": { "type": "string" },
+                    "programId": { "type": "string" },
+                    "isRegistered": { "type": "boolean" },
+                    "holdings": {
+                      "type": "object",
+                      "properties": {
+                        "unitsHeld": { "type": "number" },
+                        "meetsMinimum": { "type": "boolean" }
+                      }
+                    },
+                    "totalEarned": { "type": "number" },
+                    "nextDripAt": { "type": "string", "format": "date-time" },
+                    "estimatedNextReward": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/staking-programs/{id}/eligibility/{accountId}": {
+      "get": {
+        "summary": "Check eligibility without registering",
+        "operationId": "checkEligibility",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "accountId", "in": "path", "required": true, "schema": { "type": "string", "example": "0.0.12345" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eligibility result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "isRegistered": { "type": "boolean" },
+                    "isEligible": { "type": "boolean" },
+                    "holdings": { "type": "number" },
+                    "estimatedReward": { "type": "number" },
+                    "currency": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/staking-programs/{id}/register": {
+      "post": {
+        "summary": "Register a wallet and trigger immediate drip",
+        "operationId": "registerParticipant",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "accountId": { "type": "string", "example": "0.0.12345" }
+                },
+                "required": ["accountId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Registration result" },
+          "400": { "description": "Not eligible or already registered" },
+          "404": { "description": "Program not found" }
+        }
+      }
+    },
+    "/staking-programs/{id}/participants": {
+      "get": {
+        "summary": "List participants (creator-scoped)",
+        "operationId": "listParticipants",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Participant list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "participants": { "type": "array" },
+                    "count": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "403": { "description": "Not authorized for this program" }
+        }
+      }
+    },
+    "/staking-programs/{id}/distributions": {
+      "get": {
+        "summary": "List distribution history (creator-scoped)",
+        "operationId": "listDistributions",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Distribution history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "distributions": { "type": "array" }
+                  }
+                }
+              }
+            }
+          },
+          "403": { "description": "Not authorized for this program" }
+        }
+      }
+    }
+  }
+}

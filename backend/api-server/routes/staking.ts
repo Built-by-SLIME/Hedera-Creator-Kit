@@ -51,7 +51,7 @@ function getOperatorKey(): PrivateKey {
 }
 
 /** Returns the number of days represented by a frequency string. */
-function frequencyDays(freq: string): number {
+export function frequencyDays(freq: string): number {
   const map: Record<string, number> = { '1d': 1, '7d': 7, '30d': 30, '90d': 90, '180d': 180, '365d': 365 };
   return map[freq] ?? 7;
 }
@@ -61,7 +61,7 @@ function frequencyDays(freq: string): number {
  * NOTE: Must stay as `number` (not `bigint`) — the Hedera SDK's Long.fromValue()
  * throws a TypeError on native bigint, causing the transfer to silently fail.
  */
-function calcReward(
+export function calcReward(
   unitsHeld: number,
   ratePerDay: number,
   days: number,
@@ -73,7 +73,7 @@ function calcReward(
 }
 
 /** Fetch NFT serial numbers for an account on a given token (handles pagination). */
-async function fetchNftSerials(accountId: string, tokenId: string): Promise<number[]> {
+export async function fetchNftSerials(accountId: string, tokenId: string): Promise<number[]> {
   const serials: number[] = [];
   let url: string | null =
     `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/nfts?token.id=${tokenId}&limit=100`;
@@ -96,7 +96,7 @@ async function fetchNftCount(accountId: string, tokenId: string): Promise<number
 }
 
 /** Fetch fungible token balance (raw units) for an account. */
-async function fetchFtBalance(accountId: string, tokenId: string): Promise<bigint> {
+export async function fetchFtBalance(accountId: string, tokenId: string): Promise<bigint> {
   const url = `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/tokens?token.id=${tokenId}&limit=1`;
   const res = await fetch(url);
   if (!res.ok) return 0n;
@@ -105,7 +105,7 @@ async function fetchFtBalance(accountId: string, tokenId: string): Promise<bigin
 }
 
 /** Fetch reward token decimals from Mirror Node. */
-async function fetchTokenDecimals(tokenId: string): Promise<number> {
+export async function fetchTokenDecimals(tokenId: string): Promise<number> {
   const res = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${tokenId}`);
   if (!res.ok) return 0;
   const data = await res.json() as { decimals?: string };
