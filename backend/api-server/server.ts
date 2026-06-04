@@ -6,7 +6,6 @@ import path from 'path';
 import fs from 'fs-extra';
 import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
-import swaggerUi from 'swagger-ui-express';
 import swaggerDocument from './swagger.json';
 import { previewCollection } from './routes/preview';
 import { generateCollection } from './routes/generate';
@@ -280,8 +279,11 @@ app.use('/api/v1/external', stakingExternal);
 // Admin — API key generation (protected by DRIP_SECRET)
 app.post('/api/admin/api-keys', (req, res, next) => generateApiKey(req, res).catch(next));
 
-// Swagger docs
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+// Swagger docs (raw JSON — projects can paste into swagger.io or any Swagger UI viewer)
+app.get('/api-docs', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerDocument);
+});
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
