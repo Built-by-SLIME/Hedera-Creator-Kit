@@ -293,7 +293,15 @@ app.get('/api-docs', (req: Request, res: Response) => {
   <meta charset="UTF-8">
   <title>SLIME Tools API — Swagger UI</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.20.0/swagger-ui.css">
-  <style>body{margin:0;background:#1a1a2e;}</style>
+  <style>
+    body { margin: 0; background: #fafafa; }
+    .swagger-ui .topbar { display: none; }
+    .swagger-ui .info .title { color: #111; }
+    .swagger-ui .scheme-container { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+    .swagger-ui .opblock { border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .swagger-ui .opblock .opblock-summary-method { border-radius: 4px; font-weight: 600; }
+    .swagger-ui .opblock-tag { color: #333; font-size: 1.1rem; font-weight: 600; }
+  </style>
 </head>
 <body>
   <div id="swagger-ui"></div>
