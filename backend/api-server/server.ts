@@ -279,6 +279,14 @@ app.use('/api/v1/external', stakingExternal);
 // Admin — API key generation (protected by DRIP_SECRET)
 app.post('/api/admin/api-keys', (req, res, next) => generateApiKey(req, res).catch(next));
 
+// SLIME logo for Swagger UI header
+app.get('/slime-logo.png', (req: Request, res: Response) => {
+  const logoPath = path.resolve('/Users/davidconklin/Hedera-toolkit/SLIMEGraphic.png');
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(logoPath);
+});
+
 // Swagger JSON spec (for programmatic consumption)
 app.get('/api-docs.json', (req: Request, res: Response) => {
   res.json(swaggerDocument);
@@ -294,7 +302,7 @@ app.get('/api-docs', (req: Request, res: Response) => {
   <title>SLIME Tools — External API Docs</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.20.0/swagger-ui.css">
   <style>
-    body { margin: 0; background: #0b0f19; }
+    body { margin: 0; background: #15202B; }
     .swagger-ui { color: #e2e8f0; }
     .swagger-ui .topbar { display: none; }
     .swagger-ui .info { margin: 20px 0; }
@@ -348,16 +356,7 @@ app.get('/api-docs', (req: Request, res: Response) => {
 </head>
 <body>
   <div class="slime-header">
-    <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-      <rect width="48" height="48" rx="10" fill="#00ff40"/>
-      <ellipse cx="14" cy="18" rx="7" ry="10" fill="#111"/>
-      <ellipse cx="34" cy="18" rx="7" ry="10" fill="#111"/>
-      <ellipse cx="14" cy="16" rx="4" ry="5" fill="#fff"/>
-      <ellipse cx="34" cy="16" rx="4" ry="5" fill="#fff"/>
-      <circle cx="14" cy="15" r="1.5" fill="#111"/>
-      <circle cx="34" cy="15" r="1.5" fill="#111"/>
-      <path d="M18 34 Q24 40 30 34" stroke="#111" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-    </svg>
+    <img src="/slime-logo.png" alt="SLIME" style="width:48px;height:48px;border-radius:10px;flex-shrink:0;">
     <div>
       <h1>SLIME Tools External API</h1>
       <span>Third-party integrations · Program-scoped access</span>
