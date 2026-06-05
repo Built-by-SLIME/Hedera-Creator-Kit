@@ -12,6 +12,7 @@ import { API_BASE_URL, BACKEND_MINTER_ACCOUNT } from '../config'
 interface ApiKey {
   id: string
   account_id: string
+  raw_key: string
   name: string | null
   scopes: string[]
   is_active: boolean
@@ -111,16 +112,6 @@ export class AdminTool {
         </button>
 
         ${this.error ? `<div class="error-state" style="margin-top:0.75rem"><p class="error-message">⚠ ${this.escapeHtml(this.error)}</p></div>` : ''}
-
-        ${this.generatedKey ? `
-          <div style="margin-top:1rem;padding:0.8rem;background:rgba(0,255,64,0.06);border:1px solid rgba(0,255,64,0.3);border-radius:6px">
-            <p style="font-size:0.78rem;color:var(--accent-green,#00ff40);margin:0 0 0.4rem">✓ Key generated — shown once only. Copy and send securely.</p>
-            <code id="admin-key-display" style="display:block;font-size:0.72rem;word-break:break-all;background:rgba(0,0,0,0.3);padding:0.5rem;border-radius:4px;color:#e2e8f0;margin-bottom:0.5rem">${this.escapeHtml(this.generatedKey)}</code>
-            <button class="terminal-button ${this.copied ? 'secondary' : ''}" id="admin-copy" style="width:100%">
-              ${this.copied ? '✓ Copied!' : 'Copy to Clipboard'}
-            </button>
-          </div>
-        ` : ''}
       </div>`
   }
 
@@ -135,6 +126,17 @@ export class AdminTool {
     return `
       <div class="cc-right-content">
         <h4 class="section-title" style="font-size:0.95rem">◆ Issued API Keys</h4>
+
+        ${this.generatedKey ? `
+          <div style="margin-bottom:0.75rem;padding:0.8rem;background:rgba(0,255,64,0.06);border:1px solid rgba(0,255,64,0.3);border-radius:6px">
+            <p style="font-size:0.78rem;color:var(--accent-green,#00ff40);margin:0 0 0.4rem">✓ Newly generated — copy and send securely</p>
+            <code id="admin-key-display" style="display:block;font-size:0.72rem;word-break:break-all;background:rgba(0,0,0,0.3);padding:0.5rem;border-radius:4px;color:#e2e8f0;margin-bottom:0.5rem">${this.escapeHtml(this.generatedKey)}</code>
+            <button class="terminal-button ${this.copied ? 'secondary' : ''}" id="admin-copy" style="width:100%">
+              ${this.copied ? '✓ Copied!' : 'Copy to Clipboard'}
+            </button>
+          </div>
+        ` : ''}
+
         ${this.keys.length === 0
           ? `<p style="font-size:0.82rem;opacity:0.5">No API keys issued yet.</p>`
           : `
@@ -162,6 +164,10 @@ export class AdminTool {
           <span style="font-size:0.72rem;color:${statusColor}">${k.is_active ? 'ACTIVE' : 'REVOKED'}</span>
         </div>
         <p style="font-size:0.75rem;opacity:0.65;margin:0 0 0.15rem;font-family:monospace">${k.account_id}</p>
+        <div style="display:flex;align-items:center;gap:0.4rem;margin:0.3rem 0 0.2rem;background:rgba(0,0,0,0.2);border-radius:4px;padding:0.3rem 0.5rem">
+          <code style="font-size:0.68rem;color:var(--accent-green,#00ff40);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(k.raw_key)}</code>
+          <button class="terminal-button secondary" data-action="copy-key" data-key="${this.escapeHtml(k.raw_key)}" style="font-size:0.65rem;padding:0.15rem 0.4rem;white-space:nowrap">Copy</button>
+        </div>
         <p style="font-size:0.72rem;opacity:0.5;margin:0 0 0.4rem">Created: ${created} · Last used: ${lastUsed}</p>
         ${k.is_active ? `
           <button class="terminal-button secondary" data-action="revoke" data-id="${k.id}"
@@ -217,6 +223,11 @@ export class AdminTool {
       const btn = (e.target as HTMLElement).closest('[data-action]') as HTMLElement
       if (!btn) return
       if (btn.dataset.action === 'revoke') this.handleRevoke(btn.dataset.id!)
+      if (btn.dataset.action === 'copy-key') {
+        navigator.clipboard.writeText(btn.dataset.key!)
+        btn.textContent = 'Copied!'
+        setTimeout(() => { btn.textContent = 'Copy' }, 2000)
+      }
     })
 
     this.loadKeys()

@@ -23,7 +23,7 @@ export async function listApiKeys(req: Request, res: Response): Promise<void> {
   }
   try {
     const result = await pool.query(
-      `SELECT id, account_id, name, scopes, is_active, created_at, revoked_at, last_used_at
+      `SELECT id, account_id, raw_key, name, scopes, is_active, created_at, revoked_at, last_used_at
        FROM api_keys ORDER BY created_at DESC`
     );
     res.json({ success: true, keys: result.rows });
@@ -82,12 +82,13 @@ export async function generateApiKey(req: Request, res: Response): Promise<void>
     const keyHash = createHash('sha256').update(rawKey).digest('hex');
 
     const result = await pool.query(
-      `INSERT INTO api_keys (account_id, key_hash, name, scopes)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, account_id, name, scopes, created_at`,
+      `INSERT INTO api_keys (account_id, key_hash, raw_key, name, scopes)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, account_id, raw_key, name, scopes, created_at`,
       [
         accountId,
         keyHash,
+        rawKey,
         name || null,
         scopes && Array.isArray(scopes) ? scopes : ['staking:read', 'staking:write'],
       ]
