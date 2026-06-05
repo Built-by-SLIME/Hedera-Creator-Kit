@@ -4,6 +4,7 @@
  */
 
 import WalletConnectService from '../services/WalletConnectService'
+import { BACKEND_MINTER_ACCOUNT } from '../config'
 
 interface TerminalLine {
   type: 'prompt' | 'command' | 'output' | 'success' | 'error' | 'warning'
@@ -210,6 +211,11 @@ export class Terminal {
       lines.push({ type: 'output', content: line })
     })
 
+    // Admin tool — only shown when operator wallet is connected
+    if (this.walletData.accountId === BACKEND_MINTER_ACCOUNT) {
+      lines.push({ type: 'success', content: `  [A]  ◆ ${'API Key Management'.padEnd(25)} Manage external API keys` })
+    }
+
     return lines
   }
 
@@ -362,6 +368,13 @@ export class Terminal {
 
   private static handleCommand(command: string): void {
     const cmd = command.toLowerCase().trim()
+
+    // Admin shortcut — only when operator wallet connected
+    if ((cmd === 'a' || cmd === 'admin' || cmd === 'api keys' || cmd === 'api-keys') &&
+        this.walletData.accountId === BACKEND_MINTER_ACCOUNT) {
+      this.navigateToTool('admin')
+      return
+    }
 
     // Check for number input (1-13) — navigate to tool, no history
     if (/^([1-9]|1[0-3])$/.test(cmd)) {

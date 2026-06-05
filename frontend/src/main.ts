@@ -15,6 +15,7 @@ import { SwapTool } from './components/SwapTool'
 import { StakingTool } from './components/StakingTool'
 import { DomainTool } from './components/DomainTool'
 import { HelpPage } from './components/HelpPage'
+import { AdminTool } from './components/AdminTool'
 
 // Initialize the application
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -30,7 +31,7 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
   // Security: verify SLIME ownership server-side before rendering any tool.
   // This blocks console-based dispatch attacks (e.g. window.dispatchEvent(...)).
   // 'home', 'menu', and 'help' are safe routes that do not require the gate.
-  const publicRoutes = ['home', 'menu', 'help']
+  const publicRoutes = ['home', 'menu', 'help', 'admin']
   if (!publicRoutes.includes(toolId) && WalletConnectService.getState().hasSlime !== true) {
     console.warn('Navigation blocked: SLIME NFT not verified for tool:', toolId)
     app.innerHTML = Terminal.render()
@@ -123,6 +124,11 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       app.innerHTML = HelpPage.render()
       HelpPage.init()
       break
+    case 'admin':
+      AdminTool.resetState()
+      app.innerHTML = AdminTool.render()
+      AdminTool.init()
+      break
     case 'home':
     case 'menu':
       console.log('Returning to menu')
@@ -138,6 +144,7 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       BurnTool.resetForm()
       SwapTool.resetState()
       StakingTool.resetState()
+      AdminTool.resetState()
       DomainTool.resetForm()
 
       console.log('App element:', app)

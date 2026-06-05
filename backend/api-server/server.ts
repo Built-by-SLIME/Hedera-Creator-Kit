@@ -60,7 +60,7 @@ import {
   externalListParticipants,
   externalListDistributions,
 } from './routes/staking-external';
-import { generateApiKey } from './routes/admin';
+import { generateApiKey, listApiKeys, revokeApiKey } from './routes/admin';
 import { requireApiKey, requireProgramOwnership } from './middleware/auth';
 import { insertSnapshotCredits, clearAndReinsertSnapshotCredits } from '../scripts/insert-snapshot-credits-direct';
 import { initDb, pool } from './db';
@@ -276,8 +276,10 @@ stakingExternal.get('/staking-programs/:id/participants',     (req, res, next) =
 stakingExternal.get('/staking-programs/:id/distributions',   (req, res, next) => requireApiKey(req, res, next), (req, res, next) => externalListDistributions(req, res).catch(next));
 app.use('/api/v1/external', stakingExternal);
 
-// Admin — API key generation (protected by DRIP_SECRET)
-app.post('/api/admin/api-keys', (req, res, next) => generateApiKey(req, res).catch(next));
+// Admin — API key management (protected by DRIP_SECRET or operator wallet)
+app.post('/api/admin/api-keys',          (req, res, next) => generateApiKey(req, res).catch(next));
+app.get('/api/admin/api-keys',           (req, res, next) => listApiKeys(req, res).catch(next));
+app.delete('/api/admin/api-keys/:id',    (req, res, next) => revokeApiKey(req, res).catch(next));
 
 // SLIME logo for Swagger UI header
 app.get('/slime-logo.png', (req: Request, res: Response) => {

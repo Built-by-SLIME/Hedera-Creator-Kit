@@ -87,13 +87,7 @@ export class StakingTool {
   private static showConfirmModal = false
   private static _pendingDeleteId: string | null = null
 
-  // ─── Admin: API Key generation ──────────────────────────────────────────────────────────
-  private static showApiKeys = false
-  private static apiKeyProjectId = ''
-  private static apiKeyName = ''
-  private static generatedApiKey: string | null = null
-  private static apiKeyLoading = false
-  private static apiKeyError: string | null = null
+
 
   // ─── RENDER ───────────────────────────────────────────────
 
@@ -377,39 +371,6 @@ export class StakingTool {
       return `<div class="cc-right-content"><p style="opacity:0.5;font-size:0.85rem;text-align:center;margin-top:2rem">No staking programs yet — configure one on the left.</p></div>`
     }
 
-    const isAdmin = ws.accountId === BACKEND_MINTER_ACCOUNT
-
-    const adminSection = !isAdmin ? '' : `
-      <div style="margin-bottom:1.5rem;padding:0.8rem;border:1px solid rgba(0,255,64,0.2);border-radius:6px;background:rgba(0,255,64,0.04)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
-          <strong style="font-size:0.85rem;color:var(--accent-green)">◆ API Key Management</strong>
-          <button class="terminal-button secondary" id="stk-toggle-apikeys" style="font-size:0.72rem;padding:0.3rem 0.6rem">
-            ${this.showApiKeys ? 'Hide' : 'Generate'}
-          </button>
-        </div>
-        ${this.showApiKeys ? `
-          <div class="input-group" style="margin-bottom:0.5rem">
-            <label style="font-size:0.75rem">Project Account ID</label>
-            <input type="text" id="stk-apikey-account" class="token-input" placeholder="0.0.xxxxx" value="${this.escapeHtml(this.apiKeyProjectId)}" style="font-size:0.8rem;padding:0.4rem" />
-          </div>
-          <div class="input-group" style="margin-bottom:0.5rem">
-            <label style="font-size:0.75rem">Project Name (optional)</label>
-            <input type="text" id="stk-apikey-name" class="token-input" placeholder="e.g. SentX Widget" value="${this.escapeHtml(this.apiKeyName)}" style="font-size:0.8rem;padding:0.4rem" />
-          </div>
-          <button class="terminal-button" id="stk-generate-apikey" style="width:100%;font-size:0.8rem;padding:0.5rem" ${this.apiKeyLoading ? 'disabled' : ''}>
-            ${this.apiKeyLoading ? 'Generating...' : 'Generate API Key'}
-          </button>
-          ${this.apiKeyError ? `<p style="font-size:0.75rem;color:#ff6b6b;margin:0.4rem 0 0">${this.escapeHtml(this.apiKeyError)}</p>` : ''}
-          ${this.generatedApiKey ? `
-            <div style="margin-top:0.6rem;padding:0.6rem;background:rgba(0,255,64,0.08);border:1px solid rgba(0,255,64,0.3);border-radius:4px">
-              <p style="font-size:0.75rem;color:var(--accent-green);margin:0 0 0.3rem">✓ Key generated — copy it now, it will not be shown again:</p>
-              <code style="display:block;font-size:0.75rem;word-break:break-all;background:rgba(0,0,0,0.3);padding:0.4rem;border-radius:4px">${this.escapeHtml(this.generatedApiKey)}</code>
-              <button class="terminal-button secondary" id="stk-copy-apikey" style="margin-top:0.4rem;width:100%;font-size:0.72rem;padding:0.3rem">Copy to Clipboard</button>
-            </div>
-          ` : ''}
-        ` : '<p style="font-size:0.75rem;opacity:0.6;margin:0">Generate API keys for third-party integrations.</p>'}
-      </div>`
-
     const cards = this.programs.map(p => {
       const nextDrip = p.last_distributed_at
         ? new Date(new Date(p.last_distributed_at).getTime() + FREQUENCY_DAYS[p.frequency] * 86400000).toLocaleDateString()
@@ -425,7 +386,12 @@ export class StakingTool {
           <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">Reward: ${p.reward_token_id} · ${FREQUENCY_LABELS[p.frequency]}</p>
           <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">Rate: ${p.reward_rate_per_day}/day · Next drip: ${nextDrip}</p>
           ${!p.allowance_granted ? '<p style="font-size:0.75rem;color:#ff6b6b;margin:0 0 0.3rem">⚠ Allowance not yet granted</p>' : ''}
-          <div style="display:flex;gap:0.4rem;margin-top:0.6rem;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:0.4rem;margin:0.4rem 0 0.2rem;background:rgba(0,0,0,0.2);border-radius:4px;padding:0.3rem 0.5rem">
+            <span style="font-size:0.7rem;opacity:0.5;white-space:nowrap">Program ID:</span>
+            <code style="font-size:0.7rem;color:var(--accent-green);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.id}</code>
+            <button class="terminal-button secondary" data-action="copy-id" data-id="${p.id}" style="font-size:0.65rem;padding:0.15rem 0.4rem;white-space:nowrap">Copy</button>
+          </div>
+          <div style="display:flex;gap:0.4rem;margin-top:0.4rem;flex-wrap:wrap">
             <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem"
               data-action="toggle-status" data-id="${p.id}" data-status="${p.status === 'active' ? 'paused' : 'active'}">
               ${p.status === 'active' ? 'PAUSE' : 'RESUME'}
@@ -436,7 +402,7 @@ export class StakingTool {
         </div>`
     }).join('')
 
-    return `<div class="cc-right-content">${adminSection}<h3 class="section-title">◆ Your Staking Programs</h3>${cards}</div>`
+    return `<div class="cc-right-content"><h3 class="section-title">◆ Your Staking Programs</h3>${cards}</div>`
   }
 
   private static renderConfirmModal(): string {
@@ -481,12 +447,6 @@ export class StakingTool {
     this.createdProgramId = null
     this.showConfirmModal = false
     this._pendingDeleteId = null
-    this.showApiKeys = false
-    this.apiKeyProjectId = ''
-    this.apiKeyName = ''
-    this.generatedApiKey = null
-    this.apiKeyLoading = false
-    this.apiKeyError = null
   }
 
   private static refresh(): void {
@@ -578,31 +538,12 @@ export class StakingTool {
         this.handleToggleStatus(id, btn.dataset.status as 'active' | 'paused')
       } else if (action === 'delete-program') {
         this._pendingDeleteId = id; this.showConfirmModal = true; this.refresh()
+      } else if (action === 'copy-id') {
+        navigator.clipboard.writeText(id)
       }
     })
 
-    // Admin: API key section
-    document.getElementById('stk-toggle-apikeys')?.addEventListener('click', () => {
-      this.showApiKeys = !this.showApiKeys
-      this.generatedApiKey = null
-      this.apiKeyError = null
-      this.refresh()
-    })
-    document.getElementById('stk-apikey-account')?.addEventListener('input', (e) => {
-      this.apiKeyProjectId = (e.target as HTMLInputElement).value
-    })
-    document.getElementById('stk-apikey-name')?.addEventListener('input', (e) => {
-      this.apiKeyName = (e.target as HTMLInputElement).value
-    })
-    document.getElementById('stk-generate-apikey')?.addEventListener('click', () => this.handleGenerateApiKey())
-    document.getElementById('stk-copy-apikey')?.addEventListener('click', () => {
-      if (this.generatedApiKey) {
-        navigator.clipboard.writeText(this.generatedApiKey)
-        this.statusMessage = 'API key copied to clipboard'
-        this.refresh()
-        setTimeout(() => { this.statusMessage = ''; this.refresh() }, 2000)
-      }
-    })
+
 
     if (ws.connected) this.loadPrograms()
   }
@@ -766,31 +707,6 @@ export class StakingTool {
       this._pendingDeleteId = null; this.refresh()
     } catch (err: any) {
       this.error = err.message || 'Failed to delete program'; this.refresh()
-    }
-  }
-
-  private static async handleGenerateApiKey(): Promise<void> {
-    const ws = WalletConnectService.getState()
-    if (!ws.connected || !ws.accountId) return
-    if (!this.apiKeyProjectId.trim()) { this.apiKeyError = 'Project Account ID is required'; this.refresh(); return }
-    this.apiKeyLoading = true; this.apiKeyError = null; this.generatedApiKey = null; this.refresh()
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          createdBy: ws.accountId,
-          accountId: this.apiKeyProjectId.trim(),
-          name: this.apiKeyName.trim() || undefined,
-        }),
-      })
-      const data = await res.json()
-      if (!data.success) throw new Error(data.error || 'Failed to generate API key')
-      this.generatedApiKey = data.apiKey
-    } catch (err: any) {
-      this.apiKeyError = err.message || 'Failed to generate key'
-    } finally {
-      this.apiKeyLoading = false; this.refresh()
     }
   }
 

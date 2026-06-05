@@ -409,8 +409,13 @@ export class SwapTool {
           <strong style="font-size:0.88rem">${this.escapeHtml(p.name)}</strong>
           <span style="font-size:0.72rem;color:${statusColor};text-transform:uppercase">${p.status}</span>
         </div>
-        <div style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin-bottom:0.5rem">
+        <div style="font-size:0.75rem;color:var(--terminal-text);opacity:0.6;margin-bottom:0.4rem">
           ${p.swap_type === 'nft' ? `NFT Swap · ${p.serial_mode === 'random' ? 'Random' : '1:1'}` : 'Fungible'} · ${this.escapeHtml(p.from_token_id)} → ${this.escapeHtml(p.to_token_id)}
+        </div>
+        <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.4rem;background:rgba(0,0,0,0.2);border-radius:4px;padding:0.3rem 0.5rem">
+          <span style="font-size:0.7rem;opacity:0.5;white-space:nowrap">Program ID:</span>
+          <code style="font-size:0.7rem;color:var(--accent-green,#00ff40);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.id}</code>
+          <button class="terminal-button secondary" data-action="copy-id" data-id="${p.id}" style="font-size:0.65rem;padding:0.15rem 0.4rem;white-space:nowrap">Copy</button>
         </div>
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
           <button class="terminal-button secondary" data-action="toggle-status" data-id="${p.id}" data-status="${isActive ? 'paused' : 'active'}" style="font-size:0.72rem;padding:0.25rem 0.6rem">
@@ -619,7 +624,9 @@ export class SwapTool {
       if (!btn) return
       const action = btn.dataset.action
       const id = btn.dataset.id!
-      if (action === 'toggle-status') {
+      if (action === 'copy-id') {
+        navigator.clipboard.writeText(id)
+      } else if (action === 'toggle-status') {
         const newStatus = btn.dataset.status as 'active' | 'paused'
         this.handleToggleStatus(id, newStatus)
       } else if (action === 'delete-program') {
