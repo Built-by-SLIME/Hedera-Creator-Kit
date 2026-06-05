@@ -154,6 +154,7 @@ export async function initDb(): Promise<void> {
       id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       account_id    VARCHAR(50)  NOT NULL,
       key_hash      VARCHAR(64)  NOT NULL UNIQUE,
+      raw_key       VARCHAR(64),
       name          VARCHAR(255),
       scopes        TEXT[]       DEFAULT '{}',
       is_active     BOOLEAN      DEFAULT true,
@@ -161,6 +162,9 @@ export async function initDb(): Promise<void> {
       revoked_at    TIMESTAMPTZ,
       last_used_at  TIMESTAMPTZ
     );
+
+    ALTER TABLE api_keys
+      ADD COLUMN IF NOT EXISTS raw_key VARCHAR(64);
   `);
 
   // Data correction: SLIME program was created with stake_token_type='FT' but it is an NFT program.
