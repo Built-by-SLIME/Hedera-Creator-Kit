@@ -101,7 +101,7 @@ export class AdminTool {
 
         <div class="input-group">
           <label for="admin-name">Project Name</label>
-          <input type="text" id="admin-name" class="token-input" placeholder="e.g. HMNKY, SentX Widget" value="${this.escapeHtml(this.projectName)}" />
+          <input type="text" id="admin-name" class="token-input" placeholder="e.g. SLIME, HMNKY, etc..." value="${this.escapeHtml(this.projectName)}" />
         </div>
 
         <div class="filter-divider"></div>
