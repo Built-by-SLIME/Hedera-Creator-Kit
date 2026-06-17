@@ -36,7 +36,7 @@ async function fetchTreasuryNftSerials(accountId: string, tokenId: string): Prom
     for (const nft of (data.nfts || [])) {
       serials.push(nft.serial_number);
     }
-    url = data.links?.next || null;
+    url = data.links?.next ? `${MIRROR_NODE_URL}${data.links.next}` : null;
   }
   return serials;
 }
