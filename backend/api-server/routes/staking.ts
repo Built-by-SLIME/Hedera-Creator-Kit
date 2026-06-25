@@ -324,12 +324,13 @@ export async function registerParticipant(req: Request, res: Response): Promise<
       // of when last_distributed_at was last set.
       const freqDays = frequencyDays(prog.frequency);
 
+      const dedupHours = freqDays * 24 - 4;
       const alreadyCredited = await pool.query(
         `SELECT nft_serial FROM staking_nft_period_credits
          WHERE program_id = $1
-           AND credited_at > NOW() - INTERVAL '6 days'
+           AND credited_at > NOW() - make_interval(hours => $3)
            AND nft_serial = ANY($2::int[])`,
-        [id, allSerials]
+        [id, allSerials, dedupHours]
       );
 
       const creditedSet = new Set(alreadyCredited.rows.map(r => Number(r.nft_serial)));
@@ -486,12 +487,13 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         console.log(`[drip] ${accountId}: Checking serials against ${days}d window, program ${programId}`);
         console.log(`[drip] ${accountId}: Serials held: ${JSON.stringify(allSerials)}`);
 
+        const dedupHours = days * 24 - 4;
         const alreadyCredited = await pool.query(
           `SELECT nft_serial FROM staking_nft_period_credits
            WHERE program_id = $1
-             AND credited_at > NOW() - INTERVAL '6 days'
+             AND credited_at > NOW() - make_interval(hours => $3)
              AND nft_serial = ANY($2::int[])`,
-          [programId, allSerials]
+          [programId, allSerials, dedupHours]
         );
 
         console.log(`[drip] ${accountId}: Found ${alreadyCredited.rowCount} serials already credited: ${JSON.stringify(alreadyCredited.rows.map(r => r.nft_serial))}`);
