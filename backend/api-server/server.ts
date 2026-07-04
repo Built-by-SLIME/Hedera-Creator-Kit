@@ -12,6 +12,7 @@ import { generateCollection } from './routes/generate';
 import { uploadLayers } from './routes/upload-layers';
 import { previewFromSession } from './routes/preview-session';
 import { generateFromSession } from './routes/generate-session';
+import { getGenerationStatus } from './routes/generate-status';
 import { pinCollectionMetadata } from './routes/pin-collection-metadata';
 import { pinNftMetadata } from './routes/pin-nft-metadata';
 import { mintNfts } from './routes/mint-nfts';
@@ -152,12 +153,22 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
+// Clean up old generation jobs every hour (keep 24 hours for reconnects)
+import { cleanupOldJobs } from './jobStore';
+setInterval(() => {
+  const removed = cleanupOldJobs(24 * 60 * 60 * 1000);
+  if (removed > 0) {
+    console.log(`Cleaned up ${removed} old generation jobs`);
+  }
+}, 60 * 60 * 1000);
+
 // Routes
 app.post('/api/upload-layers', upload.single('zipFile'), uploadLayers);
 app.post('/api/preview-collection', upload.single('zipFile'), previewCollection);
 app.post('/api/generate-collection', upload.single('zipFile'), generateCollection);
 app.post('/api/preview-session', previewFromSession);
 app.post('/api/generate-session', generateFromSession);
+app.get('/api/generate-status/:jobId', (req, res, next) => getGenerationStatus(req, res).catch(next));
 app.post('/api/pin-collection-metadata', imageUpload.fields([
   { name: 'logo', maxCount: 1 },
   { name: 'banner', maxCount: 1 },
@@ -396,9 +407,16 @@ app.use((err: any, req: Request, res: Response, next: any) => {
 // Start server — bind to 0.0.0.0 so Railway's proxy can reach the app
 initDb()
   .then(() => {
-    app.listen(Number(PORT), '0.0.0.0', () => {
+    const server = app.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`Art Generator API Server running on 0.0.0.0:${PORT}`);
     });
+
+    // Keep connections alive through proxy idle timeouts. The async job queue
+    // means normal requests are short, but these values help health checks and
+    // any long-lived connections survive Railway's 60s idle limit.
+    server.keepAliveTimeout = 65000;
+    server.headersTimeout = 70000;
+    server.requestTimeout = 0;
   })
   .catch((err) => {
     console.error('Failed to initialize database:', err);

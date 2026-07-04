@@ -6,6 +6,11 @@ import FormData from 'form-data';
 import { v4 as uuidv4 } from 'uuid';
 import { NFTGenerator } from '../../5-art-generator/nftGenerator';
 import { GeneratorConfig, RarityConfig } from '../../5-art-generator/types';
+import {
+  createJob,
+  updateJob,
+  GenerationResult
+} from '../jobStore';
 
 interface SessionGenerateRequest {
   sessionId: string;
@@ -57,11 +62,13 @@ async function pinFileToPinata(filePath: string, fileName: string): Promise<stri
 }
 
 /**
- * Generate full collection using already-uploaded session layers
+ * Start a full collection generation as a background job.
+ *
+ * The HTTP response returns immediately with a jobId. The actual generation
+ * and pinning runs asynchronously so proxies/browsers cannot time out the
+ * long-running work.
  */
 export async function generateFromSession(req: Request, res: Response) {
-  let outputDir: string | null = null;
-
   try {
     const body: SessionGenerateRequest = req.body;
 
@@ -75,6 +82,51 @@ export async function generateFromSession(req: Request, res: Response) {
       return res.status(404).json({ success: false, error: 'Session not found. Please re-upload your ZIP file.' });
     }
 
+    const totalNFTs = body.config.collectionSize;
+    if (!totalNFTs || totalNFTs < 1) {
+      return res.status(400).json({ success: false, error: 'collectionSize must be at least 1' });
+    }
+
+    const jobId = uuidv4();
+    createJob(jobId, body.sessionId, totalNFTs);
+
+    // Run the long generation/pinning work in the background. Do NOT await.
+    runGenerationJob(jobId, body, sessionDir).catch((error) => {
+      console.error(`Unhandled error in generation job ${jobId}:`, error);
+      updateJob(jobId, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+
+    return res.json({
+      success: true,
+      jobId,
+      status: 'queued',
+      message: 'Generation job started. Poll /api/generate-status/:jobId for progress.'
+    });
+
+  } catch (error: any) {
+    console.error('Failed to start session generation:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to start generation job'
+    });
+  }
+}
+
+/**
+ * Background worker: generate images + metadata, pin to Pinata, and update
+ * the shared job record as it progresses.
+ */
+async function runGenerationJob(
+  jobId: string,
+  body: SessionGenerateRequest,
+  sessionDir: string
+): Promise<void> {
+  let outputDir: string | null = null;
+
+  try {
     // Read the resolved scan directory from session metadata (saved during upload)
     const sessionMeta = await fs.readJSON(path.join(sessionDir, 'session.json')).catch(() => null);
     const scanDir = sessionMeta?.scanDir || path.join(sessionDir, 'traits');
@@ -103,29 +155,38 @@ export async function generateFromSession(req: Request, res: Response) {
     };
 
     const rarityConfig: RarityConfig = body.config.rarity || {};
+    const collectionName = body.config.collectionName || 'Collection';
+    const imageFormat = body.config.imageFormat || 'png';
+    const totalNFTs = body.config.collectionSize;
 
-    console.log(`Generating ${body.config.collectionSize} NFTs...`);
+    console.log(`[Job ${jobId}] Generating ${totalNFTs} NFTs...`);
+
+    updateJob(jobId, { status: 'generating' });
+
     const generator = new NFTGenerator(generatorConfig, rarityConfig);
-    const result = await generator.generateCollection();
+    const result = await generator.generateCollection((current, total) => {
+      updateJob(jobId, { generated: current });
+      if (current % 50 === 0 || current === total) {
+        console.log(`[Job ${jobId}] Generated ${current}/${total}`);
+      }
+    });
 
     if (result.failed > 0 && result.successful === 0) {
       throw new Error('Failed to generate NFT collection');
     }
 
-    const collectionName = body.config.collectionName || 'Collection';
-    const imageFormat = body.config.imageFormat || 'png';
-    const totalNFTs = body.config.collectionSize;
+    // Pin each image individually and remember its CID for the result object
+    const imageCIDs = new Map<number, string>();
 
-    // Pin each image individually
-    const nftResults: Array<{ number: number; imageCID: string; metadataCID: string; tokenURI: string }> = [];
+    console.log(`[Job ${jobId}] Pinning ${totalNFTs} images to IPFS individually...`);
+    updateJob(jobId, { status: 'pinning_images' });
 
-    console.log(`Pinning ${totalNFTs} images to IPFS individually...`);
     for (let i = 1; i <= totalNFTs; i++) {
       const imageFile = path.join(imagesDir, `${i}.${imageFormat}`);
       if (!await fs.pathExists(imageFile)) continue;
 
       const imageCID = await pinFileToPinata(imageFile, `${collectionName} #${i}`);
-      console.log(`📌 [${i}/${totalNFTs}] Image pinned: ${imageCID}`);
+      imageCIDs.set(i, imageCID);
 
       // Update metadata with individual image CID
       const metaFile = path.join(metadataDir, `${i}.json`);
@@ -135,45 +196,68 @@ export async function generateFromSession(req: Request, res: Response) {
         await fs.writeJSON(metaFile, metadata, { spaces: 2 });
       }
 
-      // Pin metadata individually
+      updateJob(jobId, { pinnedImages: imageCIDs.size });
+      if (imageCIDs.size % 50 === 0 || i === totalNFTs) {
+        console.log(`[Job ${jobId}] Pinned ${imageCIDs.size}/${totalNFTs} images`);
+      }
+    }
+
+    // Pin metadata individually
+    console.log(`[Job ${jobId}] Pinning ${totalNFTs} metadata files to IPFS individually...`);
+    updateJob(jobId, { status: 'pinning_metadata' });
+
+    const nftResults: GenerationResult[] = [];
+
+    for (let i = 1; i <= totalNFTs; i++) {
+      const metaFile = path.join(metadataDir, `${i}.json`);
+      if (!await fs.pathExists(metaFile)) continue;
+
       const metadataCID = await pinFileToPinata(metaFile, `${collectionName} #${i} Metadata`);
-      console.log(`📌 [${i}/${totalNFTs}] Metadata pinned: ${metadataCID}`);
 
       nftResults.push({
         number: i,
-        imageCID,
+        imageCID: imageCIDs.get(i) || '',
         metadataCID,
         tokenURI: `ipfs://${metadataCID}`
       });
+
+      updateJob(jobId, { pinnedMetadata: nftResults.length });
+      if (nftResults.length % 50 === 0 || i === totalNFTs) {
+        console.log(`[Job ${jobId}] Pinned ${nftResults.length}/${totalNFTs} metadata files`);
+      }
     }
 
-    console.log(`✅ All ${nftResults.length} NFTs pinned individually!`);
+    console.log(`[Job ${jobId}] ✅ All ${nftResults.length} NFTs pinned individually!`);
 
     // Clean up temp output and session
     await fs.remove(outputDir);
     await fs.remove(sessionDir);
 
-    res.json({
-      success: true,
-      mint_ready: true,
-      nfts: nftResults,
-      token_uris: nftResults.map(n => n.tokenURI),
-      collection_info: {
-        name: collectionName,
-        description: body.config.collectionDescription,
-        total_nfts: totalNFTs
-      },
-      generation_stats: {
-        total: result.totalNFTs,
-        successful: result.successful,
-        failed: result.failed,
-        duration: result.duration
+    updateJob(jobId, {
+      status: 'completed',
+      result: {
+        nfts: nftResults,
+        token_uris: nftResults.map(n => n.tokenURI),
+        collection_info: {
+          name: collectionName,
+          description: body.config.collectionDescription,
+          total_nfts: totalNFTs
+        },
+        generation_stats: {
+          total: result.totalNFTs,
+          successful: result.successful,
+          failed: result.failed,
+          duration: result.duration
+        }
       }
     });
 
   } catch (error: any) {
-    console.error('Session generation error:', error);
+    console.error(`[Job ${jobId}] Generation error:`, error);
     if (outputDir) await fs.remove(outputDir).catch(console.error);
-    res.status(500).json({ success: false, error: error.message || 'Failed to generate collection' });
+    updateJob(jobId, {
+      status: 'failed',
+      error: error.message || 'Failed to generate collection'
+    });
   }
 }

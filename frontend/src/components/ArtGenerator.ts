@@ -32,6 +32,12 @@ export class ArtGenerator {
   private static tokenURIs: string[] = [];
   private static generationStats: any = null;
 
+  // Async generation job state
+  private static jobId: string | null = null;
+  private static pollInterval: number | null = null;
+  private static pollFailures = 0;
+  private static readonly MAX_POLL_FAILURES = 5;
+
   static render(): string {
     return `<div class="terminal-window">${this.renderChrome()}${this.renderContent()}${this.renderStatusBar()}</div>`;
   }
@@ -282,7 +288,7 @@ export class ArtGenerator {
   }
 
   private static renderGenerateProgress(): string {
-    return `<div class="loading-state"><div class="spinner"></div><p>Generating ${this.collectionSize} NFTs and uploading to IPFS...</p><p class="dim">This may take several minutes</p></div>`;
+    return `<div class="loading-state"><div class="spinner"></div><p>${this.statusMessage || `Generating ${this.collectionSize} NFTs...`}</p><p class="dim">This may take several minutes. You can leave this page open.</p></div>`;
   }
 
   private static renderCompleteInfo(): string {
@@ -597,8 +603,11 @@ export class ArtGenerator {
     this.loading = true;
     this.error = null;
     this.step = 'generate';
-    this.statusMessage = `Generating ${this.collectionSize} NFTs and uploading to IPFS...`;
+    this.statusMessage = 'Starting generation job...';
     this.refresh();
+
+    // Clear any previous polling state
+    this.clearPolling();
 
     try {
       const config = {
@@ -613,27 +622,114 @@ export class ArtGenerator {
         }
       };
 
-      const response = await fetch(`${API_BASE_URL}/api/generate-session`, {
+      const startRes = await fetch(`${API_BASE_URL}/api/generate-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: this.sessionId, config })
       });
 
-      const data = await response.json();
-      if (!data.success) throw new Error(data.error || 'Generation failed');
+      const startData = await startRes.json();
+      if (!startData.success) throw new Error(startData.error || 'Failed to start generation job');
 
-      this.nftResults = data.nfts || [];
-      this.tokenURIs = data.token_uris || [];
-      this.generationStats = data.generation_stats;
-      this.step = 'complete';
-      this.loading = false;
-      this.statusMessage = 'Collection generated and pinned to IPFS!';
+      this.jobId = startData.jobId;
+      this.pollFailures = 0;
+      this.statusMessage = 'Generation job started. Waiting for first update...';
       this.refresh();
+
+      // Poll immediately, then every 3 seconds
+      this.pollJobStatus();
+      this.pollInterval = window.setInterval(() => this.pollJobStatus(), 3000);
+
     } catch (err: any) {
       this.loading = false;
       this.error = err.message || 'Failed to generate collection';
       this.statusMessage = '';
+      this.clearPolling();
       this.refresh();
+    }
+  }
+
+  private static async pollJobStatus(): Promise<void> {
+    if (!this.jobId) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/generate-status/${this.jobId}`);
+      const data = await res.json();
+
+      if (!data.success) {
+        this.pollFailures++;
+        if (this.pollFailures >= this.MAX_POLL_FAILURES) {
+          throw new Error(data.error || 'Lost connection to generation job');
+        }
+        return;
+      }
+
+      // Reset failure count on any successful poll
+      this.pollFailures = 0;
+
+      const { status, progress, error, result } = data;
+      this.statusMessage = this.formatProgressMessage(status, progress);
+      this.refresh();
+
+      if (status === 'completed') {
+        this.clearPolling();
+        this.nftResults = result?.nfts || [];
+        this.tokenURIs = result?.token_uris || [];
+        this.generationStats = result?.generation_stats || null;
+        this.step = 'complete';
+        this.loading = false;
+        this.statusMessage = 'Collection generated and pinned to IPFS!';
+        this.refresh();
+        return;
+      }
+
+      if (status === 'failed') {
+        throw new Error(error || 'Generation failed on the server');
+      }
+
+    } catch (err: any) {
+      // Network-level errors get a few retries before we surface them
+      if (err.name === 'TypeError' || err.message?.includes('fetch')) {
+        this.pollFailures++;
+        if (this.pollFailures < this.MAX_POLL_FAILURES) {
+          this.statusMessage = `Connection hiccup (${this.pollFailures}/${this.MAX_POLL_FAILURES}) — retrying...`;
+          this.refresh();
+          return;
+        }
+      }
+
+      this.clearPolling();
+      this.loading = false;
+      this.error = err.message || 'Failed to check generation status';
+      this.statusMessage = '';
+      this.refresh();
+    }
+  }
+
+  private static formatProgressMessage(status: string, progress: any): string {
+    const total = progress?.total || this.collectionSize;
+    switch (status) {
+      case 'queued':
+        return `Job queued — waiting to start...`;
+      case 'generating':
+        return `Generating image ${progress?.generated || 0} / ${total}...`;
+      case 'pinning_images':
+        return `Pinning image ${progress?.pinnedImages || 0} / ${total} to IPFS...`;
+      case 'pinning_metadata':
+        return `Pinning metadata ${progress?.pinnedMetadata || 0} / ${total} to IPFS...`;
+      case 'completed':
+        return 'Collection generated and pinned to IPFS!';
+      case 'failed':
+        return 'Generation failed.';
+      default:
+        return `Processing... (${status})`;
+    }
+  }
+
+  private static clearPolling(): void {
+    if (this.pollInterval !== null) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
     }
   }
 
@@ -673,5 +769,8 @@ export class ArtGenerator {
     this.nftResults = [];
     this.tokenURIs = [];
     this.generationStats = null;
+    this.jobId = null;
+    this.pollFailures = 0;
+    this.clearPolling();
   }
 }
