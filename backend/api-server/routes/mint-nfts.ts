@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { Client, PrivateKey, TokenMintTransaction, AccountId, Hbar } from '@hashgraph/sdk';
+import { v4 as uuidv4 } from 'uuid';
+import { createMintJob, updateMintJob } from '../mintJobStore';
 
 const BACKEND_ACCOUNT_ID = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
@@ -17,13 +19,10 @@ interface MintRequest {
 
 /**
  * POST /api/mint-nfts
- * Mints NFTs using the supply key with operator paying fees
+ * Starts a batch minting job and returns a jobId immediately.
  *
- * Flow:
- * 1. User transfers HBAR to operator account to cover transaction fees
- * 2. Frontend sends supply key + metadata to this endpoint
- * 3. Backend mints in batches of 10 using supply key (operator pays fees from received HBAR)
- * 4. Returns minted serial numbers
+ * The actual minting runs in the background so proxies/browsers cannot time out
+ * the long-running Hedera consensus process.
  */
 export async function mintNfts(req: Request, res: Response): Promise<void> {
   try {
@@ -46,10 +45,9 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Validate supply key format
-    let supplyPrivateKey: PrivateKey;
+    // Validate supply key format early
     try {
-      supplyPrivateKey = PrivateKey.fromString(supplyKey);
+      PrivateKey.fromString(supplyKey);
     } catch (err) {
       res.status(400).json({
         success: false,
@@ -58,18 +56,68 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    const batchSize = 10;
+    const totalBatches = Math.ceil(metadataCIDs.length / batchSize);
+    const jobId = uuidv4();
+
+    createMintJob(jobId, tokenId, metadataCIDs.length, totalBatches);
+
+    // Run the long minting work in the background. Do NOT await.
+    runMintJob(jobId, req.body as MintRequest).catch((error) => {
+      console.error(`Unhandled error in mint job ${jobId}:`, error);
+      updateMintJob(jobId, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+
+    res.json({
+      success: true,
+      jobId,
+      status: 'queued',
+      message: 'Minting job started. Poll /api/mint-status/:jobId for progress.',
+      totalBatches,
+      totalNFTs: metadataCIDs.length,
+    });
+
+  } catch (err: any) {
+    console.error('Failed to start minting job:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to start minting job',
+    });
+  }
+}
+
+/**
+ * Background worker: mint NFTs in batches of 10 and update the shared job
+ * record as each batch reaches consensus.
+ */
+async function runMintJob(jobId: string, body: MintRequest): Promise<void> {
+  const { tokenId, supplyKey, metadataCIDs } = body;
+
+  try {
+    if (!BACKEND_ACCOUNT_ID || !BACKEND_PRIVATE_KEY) {
+      throw new Error('Backend operator credentials not configured');
+    }
+
     // Set up Hedera client with backend operator
     const client = Client.forMainnet();
-    // Try ECDSA first (most HashPack wallets), fallback to generic parsing
     let backendPrivateKey: PrivateKey;
     try {
-      backendPrivateKey = PrivateKey.fromStringECDSA(BACKEND_PRIVATE_KEY!);
+      backendPrivateKey = PrivateKey.fromStringECDSA(BACKEND_PRIVATE_KEY);
     } catch {
-      backendPrivateKey = PrivateKey.fromString(BACKEND_PRIVATE_KEY!);
+      backendPrivateKey = PrivateKey.fromString(BACKEND_PRIVATE_KEY);
     }
-    client.setOperator(BACKEND_ACCOUNT_ID!, backendPrivateKey);
+    client.setOperator(BACKEND_ACCOUNT_ID, backendPrivateKey);
 
-    // Batch metadata into groups of 10 (Hedera's hard limit)
+    let supplyPrivateKey: PrivateKey;
+    try {
+      supplyPrivateKey = PrivateKey.fromString(supplyKey);
+    } catch (err) {
+      throw new Error('Invalid supply key format');
+    }
+
     const batchSize = 10;
     const batches: string[][] = [];
     for (let i = 0; i < metadataCIDs.length; i += batchSize) {
@@ -77,52 +125,72 @@ export async function mintNfts(req: Request, res: Response): Promise<void> {
     }
 
     const allSerials: number[] = [];
+    const errors: string[] = [];
 
-    // Mint each batch
+    updateMintJob(jobId, { status: 'minting' });
+    console.log(`[Job ${jobId}] Starting mint of ${metadataCIDs.length} NFTs in ${batches.length} batches...`);
+
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
-      
-      // Convert metadata CIDs to Buffer format
-      const metadataList = batch.map(cid => {
+
+      const metadataList = batch.map((cid) => {
         const uri = cid.startsWith('ipfs://') ? cid : `ipfs://${cid}`;
         return Buffer.from(uri);
       });
 
-      // Create mint transaction
-      const mintTx = new TokenMintTransaction()
-        .setTokenId(tokenId)
-        .setMetadata(metadataList)
-        .setMaxTransactionFee(new Hbar(10)); // Increased fee for post-v0.70.0
+      try {
+        const mintTx = new TokenMintTransaction()
+          .setTokenId(tokenId)
+          .setMetadata(metadataList)
+          .setMaxTransactionFee(new Hbar(10));
 
-      // Freeze transaction with client
-      const frozenTx = await mintTx.freezeWith(client);
+        const frozenTx = await mintTx.freezeWith(client);
+        const signedTx = await frozenTx.sign(supplyPrivateKey);
+        const txResponse = await signedTx.execute(client);
+        const receipt = await txResponse.getReceipt(client);
 
-      // Sign with supply key only (operator signs automatically for fee payment)
-      const signedTx = await frozenTx.sign(supplyPrivateKey);
+        const serials = (receipt.serials || []).map((s: any) =>
+          typeof s === 'object' && s.low !== undefined ? s.low : Number(s)
+        );
+        allSerials.push(...serials);
 
-      // Execute - operator pays fees from its account (funded by user's transfer)
-      const txResponse = await signedTx.execute(client);
-      const receipt = await txResponse.getReceipt(client);
+        updateMintJob(jobId, {
+          currentBatch: i + 1,
+          serials: [...allSerials]
+        });
 
-      // Extract serial numbers
-      const serials = (receipt.serials || []).map((s: any) => 
-        typeof s === 'object' && s.low !== undefined ? s.low : Number(s)
-      );
-      allSerials.push(...serials);
+        console.log(`[Job ${jobId}] Batch ${i + 1}/${batches.length} minted — serials: [${serials.join(', ')}]`);
+      } catch (batchErr: any) {
+        const msg = `Batch ${i + 1}/${batches.length} failed: ${batchErr.message || String(batchErr)}`;
+        console.error(`[Job ${jobId}] ${msg}`);
+        errors.push(msg);
+        updateMintJob(jobId, {
+          currentBatch: i + 1,
+          errors: [...errors]
+        });
+        // Continue with remaining batches rather than failing the entire job
+      }
     }
 
-    res.json({
-      success: true,
-      message: `Successfully minted ${metadataCIDs.length} NFTs in ${batches.length} batches`,
+    const status = allSerials.length > 0 ? 'completed' : 'failed';
+    const finalError = allSerials.length === 0
+      ? (errors[0] || 'All batches failed')
+      : (errors.length > 0 ? `${errors.length} batch(es) failed, ${allSerials.length} NFT(s) minted` : undefined);
+
+    updateMintJob(jobId, {
+      status,
       serials: allSerials,
-      totalMinted: allSerials.length,
+      errors,
+      error: finalError
     });
-  } catch (err: any) {
-    console.error('Mint NFTs error:', err);
-    res.status(500).json({
-      success: false,
-      error: err.message || 'Failed to mint NFTs',
+
+    console.log(`[Job ${jobId}] ✅ Minting complete. Minted: ${allSerials.length}/${metadataCIDs.length}, Errors: ${errors.length}`);
+
+  } catch (error: any) {
+    console.error(`[Job ${jobId}] Minting error:`, error);
+    updateMintJob(jobId, {
+      status: 'failed',
+      error: error.message || 'Failed to mint NFTs'
     });
   }
 }
-

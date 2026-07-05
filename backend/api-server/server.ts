@@ -16,6 +16,7 @@ import { getGenerationStatus } from './routes/generate-status';
 import { pinCollectionMetadata } from './routes/pin-collection-metadata';
 import { pinNftMetadata } from './routes/pin-nft-metadata';
 import { mintNfts } from './routes/mint-nfts';
+import { getMintStatus } from './routes/mint-status';
 import { calculateMintFee } from './routes/calculate-mint-fee';
 import {
   createSwapProgram,
@@ -155,10 +156,12 @@ setInterval(() => {
 
 // Clean up old generation jobs every hour (keep 24 hours for reconnects)
 import { cleanupOldJobs } from './jobStore';
+import { cleanupOldMintJobs } from './mintJobStore';
 setInterval(() => {
-  const removed = cleanupOldJobs(24 * 60 * 60 * 1000);
-  if (removed > 0) {
-    console.log(`Cleaned up ${removed} old generation jobs`);
+  const removedGen = cleanupOldJobs(24 * 60 * 60 * 1000);
+  const removedMint = cleanupOldMintJobs(24 * 60 * 60 * 1000);
+  if (removedGen > 0 || removedMint > 0) {
+    console.log(`Cleaned up ${removedGen} old generation jobs and ${removedMint} old mint jobs`);
   }
 }, 60 * 60 * 1000);
 
@@ -215,6 +218,7 @@ app.post('/api/calculate-mint-fee', (req, res, next) => {
 app.post('/api/mint-nfts', (req, res, next) => {
   mintNfts(req, res).catch(next);
 });
+app.get('/api/mint-status/:jobId', (req, res, next) => getMintStatus(req, res).catch(next));
 
 // Swap program routes
 app.post('/api/swap-programs', (req, res, next) => createSwapProgram(req, res).catch(next));

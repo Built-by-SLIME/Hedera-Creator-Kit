@@ -90,6 +90,12 @@ export class MintNFTs {
   private static mintErrors: Array<{ number: number; error: string }> = [];
   private static isMinting = false;
 
+  // Async mint job state
+  private static mintJobId: string | null = null;
+  private static mintPollInterval: number | null = null;
+  private static mintPollFailures = 0;
+  private static readonly MAX_MINT_POLL_FAILURES = 5;
+
   // ─── RENDER ───────────────────────────────────────────────
   public static render(): string {
     const ws = WalletConnectService.getState();
@@ -1192,8 +1198,12 @@ export class MintNFTs {
       this.statusMessage = 'Fee transferred! Sending to backend for minting...';
       this.refresh();
 
-      // Step 3: Send to backend for minting
-      const response = await fetch(`${API_BASE_URL}/api/mint-nfts`, {
+      // Step 3: Start async minting job
+      this.statusMessage = 'Starting minting job...';
+      this.refresh();
+      this.clearMintPolling();
+
+      const startRes = await fetch(`${API_BASE_URL}/api/mint-nfts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1204,40 +1214,141 @@ export class MintNFTs {
         }),
       });
 
-      const text = await response.text();
-      let data: any;
+      const startText = await startRes.text();
+      let startData: any;
       try {
-        data = JSON.parse(text);
+        startData = JSON.parse(startText);
       } catch {
-        throw new Error(`Server returned ${response.status}: ${text || 'empty response'}`);
+        throw new Error(`Server returned ${startRes.status}: ${startText || 'empty response'}`);
       }
 
-      if (!data.success) {
-        throw new Error(data.error || 'Backend minting failed');
+      if (!startData.success) {
+        throw new Error(startData.error || 'Backend minting failed');
       }
 
-      // Update entries with minted serials
-      const serials = data.serials || [];
-      pendingEntries.forEach((e, idx) => {
-        e.status = 'minted';
-        e.serial = serials[idx] || 0;
-        this.mintedSerials.push({ number: e.number, serial: e.serial || 0 });
-      });
-
-      // Update total supply
-      this.tokenInfo.totalSupply += pendingEntries.length;
-
-      this.isMinting = false;
-      this.statusMessage = `Successfully minted ${pendingEntries.length} NFTs!`;
-      this.step = 'complete';
+      this.mintJobId = startData.jobId;
+      this.totalBatches = startData.totalBatches || Math.ceil(metadataCIDs.length / this.batchSize);
+      this.mintPollFailures = 0;
+      this.statusMessage = 'Minting job started. Waiting for first update...';
       this.refresh();
+
+      // Poll immediately, then every 3 seconds
+      this.pollMintStatus();
+      this.mintPollInterval = window.setInterval(() => this.pollMintStatus(), 3000);
     } catch (err: any) {
       console.error('Minting error:', err);
       this.isMinting = false;
       this.error = err.message || 'Minting failed';
       this.statusMessage = '';
       this.step = 'setup';
+      this.clearMintPolling();
       this.refresh();
+    }
+  }
+
+  private static async pollMintStatus(): Promise<void> {
+    if (!this.mintJobId) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/mint-status/${this.mintJobId}`);
+      const data = await res.json();
+
+      if (!data.success) {
+        this.mintPollFailures++;
+        if (this.mintPollFailures >= this.MAX_MINT_POLL_FAILURES) {
+          throw new Error(data.error || 'Lost connection to minting job');
+        }
+        return;
+      }
+
+      this.mintPollFailures = 0;
+
+      const { status, progress, serials, errors, error } = data;
+      this.currentBatch = progress?.currentBatch || this.currentBatch;
+      this.totalBatches = progress?.totalBatches || this.totalBatches;
+      this.statusMessage = this.formatMintProgressMessage(status, progress);
+
+      // Update entry statuses and serials from latest job state
+      if (serials && serials.length > 0) {
+        const entries = this.mode === 'csv' ? this.csvEntries : this.directEntries;
+        const pendingEntries = entries.filter(e => e.status === 'pending' || e.status === 'minting');
+        pendingEntries.forEach((e, idx) => {
+          if (idx < serials.length) {
+            const serial = serials[idx] ?? 0;
+            e.status = 'minted';
+            e.serial = serial;
+            if (!this.mintedSerials.find(s => s.number === e.number)) {
+              this.mintedSerials.push({ number: e.number, serial });
+            }
+          } else if (status === 'minting') {
+            e.status = 'minting';
+          }
+        });
+      }
+
+      this.refresh();
+
+      if (status === 'completed') {
+        this.clearMintPolling();
+        const entries = this.mode === 'csv' ? this.csvEntries : this.directEntries;
+        const mintedCount = entries.filter(e => e.status === 'minted').length;
+        this.tokenInfo!.totalSupply += mintedCount;
+        this.isMinting = false;
+        this.statusMessage = errors?.length
+          ? `Minted ${mintedCount} NFTs with ${errors.length} batch error(s).`
+          : `Successfully minted ${mintedCount} NFTs!`;
+        this.step = 'complete';
+        this.refresh();
+        return;
+      }
+
+      if (status === 'failed') {
+        throw new Error(error || 'Minting failed on the server');
+      }
+
+    } catch (err: any) {
+      if (err.name === 'TypeError' || err.message?.includes('fetch')) {
+        this.mintPollFailures++;
+        if (this.mintPollFailures < this.MAX_MINT_POLL_FAILURES) {
+          this.statusMessage = `Connection hiccup (${this.mintPollFailures}/${this.MAX_MINT_POLL_FAILURES}) — retrying...`;
+          this.refresh();
+          return;
+        }
+      }
+
+      this.clearMintPolling();
+      this.isMinting = false;
+      this.error = err.message || 'Failed to check minting status';
+      this.statusMessage = '';
+      this.step = 'setup';
+      this.refresh();
+    }
+  }
+
+  private static formatMintProgressMessage(status: string, progress: any): string {
+    const current = progress?.currentBatch || 0;
+    const total = progress?.totalBatches || this.totalBatches;
+    const minted = progress?.minted || 0;
+    const totalNfts = progress?.totalNFTs || (this.mode === 'csv' ? this.csvEntries.length : this.directEntries.length);
+
+    switch (status) {
+      case 'queued':
+        return 'Minting job queued — waiting to start...';
+      case 'minting':
+        return `Minting batch ${current} / ${total} (${minted} / ${totalNfts} NFTs)...`;
+      case 'completed':
+        return `Minting complete — ${minted} NFTs minted.`;
+      case 'failed':
+        return 'Minting failed.';
+      default:
+        return `Processing... (${status})`;
+    }
+  }
+
+  private static clearMintPolling(): void {
+    if (this.mintPollInterval !== null) {
+      clearInterval(this.mintPollInterval);
+      this.mintPollInterval = null;
     }
   }
 
@@ -1316,6 +1427,9 @@ export class MintNFTs {
     this.loading = false;
     this.error = null;
     this.statusMessage = '';
+    this.mintJobId = null;
+    this.mintPollFailures = 0;
+    this.clearMintPolling();
   }
 
   // ─── ESCAPE HTML ───────────────────────────────────────────
