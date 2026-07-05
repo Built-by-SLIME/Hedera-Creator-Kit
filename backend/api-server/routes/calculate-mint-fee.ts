@@ -234,17 +234,20 @@ export async function calculateMintFee(req: Request, res: Response): Promise<voi
       source = `${source}-floor`;
     }
 
-    const totalFee = feePerBatchTinybar * totalBatches;
-    const totalFeeWithBuffer = totalFee * usedBuffer;
+    const totalFeeTinybar = feePerBatchTinybar * totalBatches;
+    const totalFeeWithBufferTinybar = totalFeeTinybar * usedBuffer;
+
+    // The frontend expects HBAR values (it multiplies by 1e8 to get tinybars).
+    const TINYBAR_PER_HBAR = 100_000_000;
 
     res.json({
       success: true,
       source,
       hasCustomFees: await tokenHasCustomFees(tokenId),
-      feePerBatch: feePerBatchTinybar,
+      feePerBatch: feePerBatchTinybar / TINYBAR_PER_HBAR,
       totalBatches,
-      totalFee,
-      totalFeeWithBuffer,
+      totalFee: totalFeeTinybar / TINYBAR_PER_HBAR,
+      totalFeeWithBuffer: totalFeeWithBufferTinybar / TINYBAR_PER_HBAR,
     });
   } catch (err: any) {
     console.error('Calculate mint fee error:', err);
