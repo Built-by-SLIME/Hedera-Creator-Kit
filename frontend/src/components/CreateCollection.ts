@@ -810,8 +810,8 @@ export class CreateCollection {
       if (this.royaltiesEnabled && this.royaltyEntries.length > 0) {
         const fees = this.royaltyEntries.map(entry => {
           const fee = new CustomRoyaltyFee()
-            .setNumerator(Math.round(entry.percentage * 100))
-            .setDenominator(10000)
+            .setNumerator(entry.percentage)
+            .setDenominator(100)
             .setFeeCollectorAccountId(AccountId.fromString(entry.wallet.trim()));
 
           if (this.tradeFeeEnabled && this.tradeFeeAmount > 0) {
