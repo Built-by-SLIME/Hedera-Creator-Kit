@@ -35,6 +35,7 @@ export async function getMintStatus(req: Request, res: Response) {
         minted: job.serials.length
       },
       serials: job.serials,
+      batchResults: job.batchResults,
       errors: job.errors,
       error: job.error
     });

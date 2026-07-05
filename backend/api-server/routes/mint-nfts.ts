@@ -126,6 +126,7 @@ async function runMintJob(jobId: string, body: MintRequest): Promise<void> {
 
     const allSerials: number[] = [];
     const errors: string[] = [];
+    const batchResults: { batchIndex: number; success: boolean; serials: number[]; error?: string }[] = [];
 
     updateMintJob(jobId, { status: 'minting' });
     console.log(`[Job ${jobId}] Starting mint of ${metadataCIDs.length} NFTs in ${batches.length} batches...`);
@@ -153,10 +154,12 @@ async function runMintJob(jobId: string, body: MintRequest): Promise<void> {
           typeof s === 'object' && s.low !== undefined ? s.low : Number(s)
         );
         allSerials.push(...serials);
+        batchResults.push({ batchIndex: i, success: true, serials });
 
         updateMintJob(jobId, {
           currentBatch: i + 1,
-          serials: [...allSerials]
+          serials: [...allSerials],
+          batchResults: [...batchResults]
         });
 
         console.log(`[Job ${jobId}] Batch ${i + 1}/${batches.length} minted — serials: [${serials.join(', ')}]`);
@@ -164,9 +167,11 @@ async function runMintJob(jobId: string, body: MintRequest): Promise<void> {
         const msg = `Batch ${i + 1}/${batches.length} failed: ${batchErr.message || String(batchErr)}`;
         console.error(`[Job ${jobId}] ${msg}`);
         errors.push(msg);
+        batchResults.push({ batchIndex: i, success: false, serials: [], error: msg });
         updateMintJob(jobId, {
           currentBatch: i + 1,
-          errors: [...errors]
+          errors: [...errors],
+          batchResults: [...batchResults]
         });
         // Continue with remaining batches rather than failing the entire job
       }
@@ -181,6 +186,7 @@ async function runMintJob(jobId: string, body: MintRequest): Promise<void> {
       status,
       serials: allSerials,
       errors,
+      batchResults,
       error: finalError
     });
 

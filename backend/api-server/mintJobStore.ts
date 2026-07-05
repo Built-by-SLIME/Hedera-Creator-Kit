@@ -6,6 +6,13 @@
 
 export type MintJobStatus = 'queued' | 'minting' | 'completed' | 'failed';
 
+export interface BatchResult {
+  batchIndex: number;
+  success: boolean;
+  serials: number[];
+  error?: string;
+}
+
 export interface MintJob {
   jobId: string;
   tokenId: string;
@@ -15,6 +22,7 @@ export interface MintJob {
   totalBatches: number;
   serials: number[];
   errors: string[];
+  batchResults: BatchResult[];
   error?: string;
   createdAt: number;
   updatedAt: number;
@@ -38,6 +46,7 @@ export function createMintJob(
     totalBatches,
     serials: [],
     errors: [],
+    batchResults: [],
     createdAt: now,
     updatedAt: now
   };

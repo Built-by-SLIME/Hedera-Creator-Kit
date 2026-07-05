@@ -1263,26 +1263,39 @@ export class MintNFTs {
 
       this.mintPollFailures = 0;
 
-      const { status, progress, serials, errors, error } = data;
+      const { status, progress, batchResults, errors, error } = data;
       this.currentBatch = progress?.currentBatch || this.currentBatch;
       this.totalBatches = progress?.totalBatches || this.totalBatches;
       this.statusMessage = this.formatMintProgressMessage(status, progress);
 
-      // Update entry statuses and serials from latest job state
-      if (serials && serials.length > 0) {
-        const entries = this.mode === 'csv' ? this.csvEntries : this.directEntries;
-        const pendingEntries = entries.filter(e => e.status === 'pending' || e.status === 'minting');
-        pendingEntries.forEach((e, idx) => {
-          if (idx < serials.length) {
-            const serial = serials[idx] ?? 0;
-            e.status = 'minted';
-            e.serial = serial;
-            if (!this.mintedSerials.find(s => s.number === e.number)) {
-              this.mintedSerials.push({ number: e.number, serial });
+      // Update entry statuses and serials from latest job state.
+      // batchResults tells us exactly which entry ranges succeeded or failed.
+      const entries = this.mode === 'csv' ? this.csvEntries : this.directEntries;
+      if (batchResults && batchResults.length > 0) {
+        for (const batch of batchResults) {
+          const startIdx = batch.batchIndex * this.batchSize;
+          const endIdx = Math.min(startIdx + this.batchSize, entries.length);
+          for (let i = startIdx; i < endIdx; i++) {
+            const entry = entries[i];
+            if (!entry) continue;
+            if (batch.success) {
+              const serial = batch.serials[i - startIdx] ?? 0;
+              entry.status = 'minted';
+              entry.serial = serial;
+              if (!this.mintedSerials.find(s => s.number === entry.number)) {
+                this.mintedSerials.push({ number: entry.number, serial });
+              }
+            } else if (entry.status !== 'minted') {
+              entry.status = 'error';
+              entry.error = batch.error;
             }
-          } else if (status === 'minting') {
-            e.status = 'minting';
           }
+        }
+      } else if (status === 'minting') {
+        // Fallback for older jobs that don't have batchResults yet:
+        // mark all still-pending entries as minting while we wait.
+        entries.forEach(e => {
+          if (e.status === 'pending') e.status = 'minting';
         });
       }
 
