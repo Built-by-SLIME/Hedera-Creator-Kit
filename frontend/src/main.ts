@@ -9,6 +9,7 @@ import { CreateCollection } from './components/CreateCollection'
 import { MintNFTs } from './components/MintNFTs'
 import { CreateToken } from './components/CreateToken'
 import { UpdateTokenIcon } from './components/UpdateTokenIcon'
+import { UpdateNftMetadata } from './components/UpdateNftMetadata'
 import { AddLiquidity } from './components/AddLiquidity'
 import { BurnTool } from './components/BurnTool'
 import { SwapTool } from './components/SwapTool'
@@ -90,6 +91,12 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       UpdateTokenIcon.init()
       console.log('UpdateTokenIcon initialized')
       break
+    case 'update-nft-metadata':
+      console.log('Rendering UpdateNftMetadata')
+      app.innerHTML = UpdateNftMetadata.render()
+      UpdateNftMetadata.init()
+      console.log('UpdateNftMetadata initialized')
+      break
     case 'add-liquidity':
       console.log('Rendering AddLiquidity')
       app.innerHTML = AddLiquidity.render()
@@ -140,6 +147,7 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       MintNFTs.resetState()
       CreateToken.resetForm()
       UpdateTokenIcon.resetForm()
+      UpdateNftMetadata.resetState()
       AddLiquidity.resetForm()
       BurnTool.resetForm()
       SwapTool.resetState()

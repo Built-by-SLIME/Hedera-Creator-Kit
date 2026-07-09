@@ -19,6 +19,7 @@ interface GenerateRequest {
     imageHeight?: number;
     imageFormat?: 'png' | 'jpg' | 'webp';
     imageQuality?: number;
+    startSerialNumber?: number;
     rarity?: RarityConfig;
   };
 }
@@ -139,7 +140,8 @@ export async function generateCollection(req: Request, res: Response) {
       imageWidth: configData.imageWidth || 1000,
       imageHeight: configData.imageHeight || 1000,
       imageFormat: configData.imageFormat || 'png',
-      imageQuality: configData.imageQuality || 100
+      imageQuality: configData.imageQuality || 100,
+      startSerialNumber: configData.startSerialNumber ?? 1
     };
 
     const rarityConfig: RarityConfig = configData.rarity || {
@@ -167,9 +169,10 @@ export async function generateCollection(req: Request, res: Response) {
     const metadataCID = await uploadToPinata(metadataDir, `${configData.collectionName}-metadata`);
 
     // Generate token URIs
+    const startSerialNumber = configData.startSerialNumber ?? 1;
     const tokenURIs: string[] = [];
-    for (let i = 1; i <= configData.collectionSize; i++) {
-      tokenURIs.push(`ipfs://${metadataCID}/${i}.json`);
+    for (let i = 0; i < configData.collectionSize; i++) {
+      tokenURIs.push(`ipfs://${metadataCID}/${startSerialNumber + i}.json`);
     }
 
     // Clean up temp directory

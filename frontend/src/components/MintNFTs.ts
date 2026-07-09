@@ -67,10 +67,12 @@ export class MintNFTs {
   private static directEntries: NftEntry[] = [];
   private static uploadedImages: Array<{
     file: File; preview: string; name: string;
+    targetNumber: number;
     status: 'pending' | 'pinning' | 'pinned' | 'error';
     description: string; creator: string;
     attributes: Array<{ trait_type: string; value: string }>;
   }> = [];
+  private static directStartNumber = 0; // 0 = auto from totalSupply + 1
   private static sharedDescription = '';
   private static sharedCreator = '';
   private static sharedAttributes: Array<{ trait_type: string; value: string }> = [];
@@ -81,6 +83,9 @@ export class MintNFTs {
   private static directCsvFileName = '';
   private static directCsvMatched = false;
   private static directCsvError: string | null = null;
+
+  // CSV offset for phased minting (e.g., 1500 to display #1501 from CSV row 1)
+  private static csvOffset = 0;
 
   // Minting progress
   private static batchSize = 10;
@@ -95,6 +100,8 @@ export class MintNFTs {
   private static mintPollInterval: number | null = null;
   private static mintPollFailures = 0;
   private static readonly MAX_MINT_POLL_FAILURES = 5;
+
+
 
   // ─── RENDER ───────────────────────────────────────────────
   public static render(): string {
@@ -146,6 +153,7 @@ export class MintNFTs {
       ${this.tokenValidated ? this.renderModeSection() : ''}
       ${this.tokenValidated && this.mode === 'csv' ? this.renderCsvSection() : ''}
       ${this.tokenValidated && this.mode === 'direct' ? this.renderDirectSection() : ''}
+      ${this.renderPreMintSummary()}
       ${this.renderMintButton()}
       ${this.error ? `<div class="error-state" style="text-align:left;padding:0.5rem 0"><p class="error-message">${this.error}</p></div>` : ''}
       ${this.statusMessage ? `<p style="color:var(--terminal-text-dim);font-size:0.85rem;margin-top:0.5rem">${this.statusMessage}</p>` : ''}
@@ -162,7 +170,8 @@ export class MintNFTs {
           <button class="terminal-button small" id="mint-validate-token" ${this.loading ? 'disabled' : ''}>VALIDATE</button>
         </div>
         ${this.tokenError ? `<p style="color:#ff6b6b;font-size:0.8rem;margin:0.25rem 0 0">${this.tokenError}</p>` : ''}
-        ${this.tokenValidated && this.tokenInfo ? `<p style="color:var(--accent-green);font-size:0.8rem;margin:0.25rem 0 0">✓ ${this.escapeHtml(this.tokenInfo.name)} (${this.tokenInfo.symbol}) — ${this.tokenInfo.totalSupply}/${this.tokenInfo.maxSupply} minted</p>` : ''}
+        ${this.tokenValidated && this.tokenInfo ? `<p style="color:var(--accent-green);font-size:0.8rem;margin:0.25rem 0 0">✓ ${this.escapeHtml(this.tokenInfo.name)} (${this.escapeHtml(this.tokenInfo.symbol)}) — ${this.tokenInfo.totalSupply}/${this.tokenInfo.maxSupply} minted</p>` : ''}
+        ${this.tokenValidated && this.tokenInfo ? `<p style="color:var(--terminal-text-dim);font-size:0.78rem;margin:0.35rem 0 0">➜ Next Hedera serial will be <strong>#${this.tokenInfo.totalSupply + 1}</strong></p>` : ''}
       </div>
 
       ${this.tokenValidated ? `
@@ -214,10 +223,17 @@ export class MintNFTs {
         Expected format: <code style="color:var(--terminal-purple)">Token Number,Image CID,Metadata CID,Token URI</code>
       </p>
       ${this.csvEntries.length > 0 ? `
-        <div class="input-group" style="margin-top:0.75rem">
-          <label>Batch Size <span class="cc-field-hint">max 10 per transaction</span></label>
-          <input type="number" class="token-input" id="mint-batch-size" min="1" max="10" value="${this.batchSize}" style="max-width:100px" />
+        <div class="input-row" style="margin-top:0.75rem">
+          <div class="input-group">
+            <label>Batch Size <span class="cc-field-hint">max 10 per transaction</span></label>
+            <input type="number" class="token-input" id="mint-batch-size" min="1" max="10" value="${this.batchSize}" style="max-width:100px" />
+          </div>
+          <div class="input-group">
+            <label>Number Offset <span class="cc-field-hint">e.g. 1500</span></label>
+            <input type="number" class="token-input" id="mint-csv-offset" value="${this.csvOffset || ''}" placeholder="0" style="max-width:120px" />
+          </div>
         </div>
+        <p style="color:var(--terminal-text-dim);font-size:0.75rem;margin:0.25rem 0 0">Use offset to display CSV row #1 as serial #1501 (enter 1500). This does not change pinned metadata — make sure your metadata names are already correct.</p>
       ` : ''}
     `;
   }
@@ -253,6 +269,20 @@ export class MintNFTs {
 
       ${hasImages ? `
         <button class="terminal-button secondary" id="mint-clear-images" style="font-size:0.8rem;padding:0.4rem 0.8rem;margin-top:0.5rem">CLEAR ALL</button>
+
+        <div class="filter-divider"></div>
+        <h4 class="cc-sub-heading">Naming</h4>
+        <div class="input-row">
+          <div class="input-group">
+            <label>Start Number <span class="cc-field-hint">auto = next serial</span></label>
+            <input type="number" class="token-input" id="mint-direct-start" min="1" value="${this.directStartNumber || ''}" placeholder="${this.tokenInfo ? this.tokenInfo.totalSupply + 1 : '1'}" style="max-width:120px" />
+          </div>
+          <div class="input-group" style="display:flex;align-items:flex-end">
+            <button class="terminal-button secondary" id="mint-renumber-images" style="font-size:0.78rem;padding:0.4rem 0.8rem">RENUMBER ALL</button>
+          </div>
+        </div>
+        <p style="color:var(--terminal-text-dim);font-size:0.75rem;margin:0.25rem 0 0">Names below are what will be pinned in the metadata JSON. Edit them before pinning.</p>
+        ${this.renderImageNameList()}
 
         <div class="filter-divider"></div>
         <h4 class="cc-sub-heading">Metadata</h4>
@@ -315,6 +345,29 @@ export class MintNFTs {
     `;
   }
 
+  private static renderImageNameList(): string {
+    if (this.uploadedImages.length === 0) return '';
+    return `
+      <div style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.4rem">
+        ${this.uploadedImages.map((img, i) => `
+          <div class="cc-royalty-row" data-index="${i}" style="align-items:center">
+            <div style="width:40px;height:40px;border-radius:4px;overflow:hidden;flex-shrink:0;background:rgba(255,255,255,0.05)">
+              ${img.file.type === 'video/mp4'
+                ? `<video src="${img.preview}" class="mint-queue-thumb" muted autoplay loop playsinline style="width:100%;height:100%;object-fit:cover"></video>`
+                : `<img src="${img.preview}" class="mint-queue-thumb" style="width:100%;height:100%;object-fit:cover" />`
+              }
+            </div>
+            <div class="input-group" style="flex:1;margin:0">
+              <input type="text" class="token-input mint-upload-name" data-index="${i}" value="${this.escapeHtml(img.name)}" style="font-size:0.85rem" />
+            </div>
+            <span style="color:var(--terminal-text-dim);font-size:0.75rem;white-space:nowrap">#${img.targetNumber}</span>
+            <button class="cc-royalty-remove mint-upload-remove" data-index="${i}" title="Remove">✕</button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
   private static renderAttributesSection(): string {
     const rows = this.sharedAttributes.map((attr, i) => `
       <div class="cc-royalty-row" data-index="${i}">
@@ -332,6 +385,60 @@ export class MintNFTs {
     `;
   }
 
+
+  // ─── PRE-MINT SUMMARY ─────────────────────────────────────
+  private static renderPreMintSummary(): string {
+    const entries = this.mode === 'csv' ? this.csvEntries : this.directEntries;
+    if (!this.tokenValidated || entries.length === 0) return '';
+
+    const nextSerial = this.tokenInfo ? this.tokenInfo.totalSupply + 1 : 1;
+    const displayRows = entries.slice(0, 20).map((e, i) => {
+      const displayNumber = this.getDisplayNumber(e);
+      const expectedSerial = nextSerial + i;
+      const mismatch = displayNumber !== expectedSerial;
+      return `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.06)">
+          <td style="padding:0.35rem 0.5rem;font-size:0.8rem;color:${mismatch ? '#ff6b6b' : 'var(--terminal-text)'}">#${displayNumber}${mismatch ? ' ⚠' : ''}</td>
+          <td style="padding:0.35rem 0.5rem;font-size:0.8rem;color:var(--terminal-text-dim)">${this.escapeHtml(e.tokenURI)}</td>
+          <td style="padding:0.35rem 0.5rem;font-size:0.8rem;color:var(--terminal-text-dim)">#${expectedSerial}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const mismatches = entries.slice(0, 100).map((e, i) => {
+      const displayNumber = this.getDisplayNumber(e);
+      const expectedSerial = nextSerial + i;
+      return displayNumber !== expectedSerial ? { displayNumber, expectedSerial } : null;
+    }).filter(Boolean);
+
+    return `
+      <div class="filter-divider"></div>
+      <h4 class="cc-sub-heading">Pre-Mint Check</h4>
+      <p style="color:var(--terminal-text-dim);font-size:0.78rem;margin:0 0 0.5rem">
+        Verify that the intended names/numbers line up with the Hedera serials that will be minted.
+      </p>
+      <div style="max-height:300px;overflow:auto;border:1px solid rgba(255,255,255,0.08);border-radius:6px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead style="position:sticky;top:0;background:var(--terminal-bg)">
+            <tr>
+              <th style="text-align:left;padding:0.5rem;font-size:0.75rem;color:var(--terminal-text-dim);font-weight:600">Intended #</th>
+              <th style="text-align:left;padding:0.5rem;font-size:0.75rem;color:var(--terminal-text-dim);font-weight:600">Metadata URI</th>
+              <th style="text-align:left;padding:0.5rem;font-size:0.75rem;color:var(--terminal-text-dim);font-weight:600">Will be serial</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${displayRows}
+          </tbody>
+        </table>
+      </div>
+      ${entries.length > 20 ? `<p style="color:var(--terminal-text-dim);font-size:0.75rem;margin:0.35rem 0 0">...and ${entries.length - 20} more</p>` : ''}
+      ${mismatches.length > 0 ? `
+        <div style="margin-top:0.75rem;padding:0.6rem 0.8rem;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.25);border-radius:6px">
+          <p style="font-size:0.78rem;color:#ff6b6b;margin:0">⚠️ ${mismatches.length} NFT(s) have intended numbers that do not match the next available Hedera serials. This usually means the metadata names will be wrong. Please review before minting.</p>
+        </div>
+      ` : ''}
+    `;
+  }
 
   // ─── MINT BUTTON ──────────────────────────────────────────
   private static renderMintButton(): string {
@@ -443,14 +550,14 @@ export class MintNFTs {
           <h4 class="section-title" style="font-size:0.9rem">Queue (${entries.length} NFTs)</h4>
           <div class="mint-queue-grid">
             ${entries.slice(0, 50).map((e) => `
-              <div class="mint-queue-card ${e.status}" title="#${e.number} — ${this.escapeHtml(e.tokenURI)}">
+              <div class="mint-queue-card ${e.status}" title="#${this.getDisplayNumber(e)} — ${this.escapeHtml(e.tokenURI)}">
                 ${e.previewUrl
                   ? `<img src="${e.previewUrl}" class="mint-queue-thumb" />`
                   : e.imageCID
                     ? `<img src="https://ipfs.io/ipfs/${e.imageCID}" class="mint-queue-thumb" loading="lazy" />`
                     : `<div class="mint-queue-thumb-placeholder">#${e.number}</div>`}
                 <div class="mint-queue-card-info">
-                  <span class="mint-queue-card-num">#${e.number}</span>
+                  <span class="mint-queue-card-num">#${this.getDisplayNumber(e)}</span>
                   <span class="mint-queue-card-status">${
                     e.status === 'minted' ? `S/N ${e.serial}` :
                     e.status === 'minting' ? '⏳' :
@@ -468,6 +575,11 @@ export class MintNFTs {
         </div>
       </div>
     `;
+  }
+
+  private static getDisplayNumber(entry: NftEntry): number {
+    if (this.mode === 'csv') return entry.number + this.csvOffset;
+    return entry.number;
   }
 
   private static renderRightComplete(): string {
@@ -550,8 +662,27 @@ export class MintNFTs {
     document.querySelectorAll('.mint-upload-name').forEach(el => {
       el.addEventListener('input', () => {
         const idx = parseInt((el as HTMLElement).dataset.index || '0');
-        if (this.uploadedImages[idx]) this.uploadedImages[idx].name = (el as HTMLInputElement).value;
+        if (!this.uploadedImages[idx]) return;
+        const newName = (el as HTMLInputElement).value;
+        this.uploadedImages[idx].name = newName;
+        // Try to extract a number from the end of the name (e.g. "Collection #1502")
+        const match = newName.match(/#(\d+)(?:\s*\/\s*\d+)?\s*$/);
+        if (match) {
+          this.uploadedImages[idx].targetNumber = parseInt(match[1]);
+        }
       });
+    });
+
+    // Direct upload start number input
+    const startInput = document.getElementById('mint-direct-start') as HTMLInputElement | null;
+    startInput?.addEventListener('input', () => {
+      const val = parseInt(startInput.value);
+      this.directStartNumber = isNaN(val) || val < 1 ? 0 : val;
+    });
+
+    // Renumber all images button
+    document.getElementById('mint-renumber-images')?.addEventListener('click', () => {
+      this.renumberImages();
     });
 
     // Per-image remove buttons
@@ -645,6 +776,14 @@ export class MintNFTs {
     batchInput?.addEventListener('input', () => {
       const val = parseInt(batchInput.value);
       if (val >= 1 && val <= 10) this.batchSize = val;
+    });
+
+    // CSV offset
+    const csvOffsetInput = document.getElementById('mint-csv-offset') as HTMLInputElement | null;
+    csvOffsetInput?.addEventListener('input', () => {
+      const val = parseInt(csvOffsetInput.value);
+      this.csvOffset = isNaN(val) ? 0 : val;
+      this.refresh();
     });
 
     // Mint start
@@ -1009,9 +1148,8 @@ export class MintNFTs {
         // When using CSV matching, 1 entry per image. Otherwise multiply by mintCopies.
         const copies = this.directCsvFile ? 1 : this.mintCopies;
         for (let c = 0; c < copies; c++) {
-          const nextNum = this.directEntries.length + 1;
           this.directEntries.push({
-            number: nextNum,
+            number: img.targetNumber + c,
             metadataCID: data.metadataCID,
             tokenURI: data.tokenURI,
             imageCID: data.imageCID,
@@ -1040,7 +1178,11 @@ export class MintNFTs {
   // ─── ADD IMAGES HELPER ─────────────────────────────────
   private static addImages(files: FileList | File[]): void {
     const collectionName = this.tokenInfo?.name || 'NFT';
-    const startNum = this.uploadedImages.length + this.directEntries.length + 1;
+    const baseStart = this.directStartNumber > 0
+      ? this.directStartNumber
+      : (this.tokenInfo ? this.tokenInfo.totalSupply + 1 : 1);
+    const existingCount = this.uploadedImages.length + this.directEntries.length;
+    const startNum = baseStart + existingCount;
 
     // Sort by filename so numbered images (1.png, 2.png, …) come in order
     const sorted = Array.from(files)
@@ -1048,15 +1190,37 @@ export class MintNFTs {
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
     sorted.forEach((file, i) => {
+      const targetNumber = startNum + i;
       this.uploadedImages.push({
         file,
         preview: URL.createObjectURL(file),
-        name: `${collectionName} #${startNum + i}`,
+        name: `${collectionName} #${targetNumber}`,
+        targetNumber,
         status: 'pending',
         description: '',
         creator: '',
         attributes: [],
       });
+    });
+
+    this.refresh();
+  }
+
+  // ─── RENUMBER IMAGES HELPER ─────────────────────────────
+  private static renumberImages(): void {
+    if (this.uploadedImages.length === 0) return;
+    const collectionName = this.tokenInfo?.name || 'NFT';
+    const baseStart = this.directStartNumber > 0
+      ? this.directStartNumber
+      : (this.tokenInfo ? this.tokenInfo.totalSupply + 1 : 1);
+
+    this.uploadedImages.forEach((img, i) => {
+      img.targetNumber = baseStart + i;
+      // Preserve any custom prefix the user may have set; only update if it looks like the default
+      const hasDefaultName = img.name.match(/#\d+(?:\s*\/\s*\d+)?\s*$/);
+      if (hasDefaultName) {
+        img.name = `${collectionName} #${img.targetNumber}`;
+      }
     });
 
     this.refresh();
@@ -1431,6 +1595,8 @@ export class MintNFTs {
     this.directCsvFileName = '';
     this.directCsvMatched = false;
     this.directCsvError = null;
+    this.directStartNumber = 0;
+    this.csvOffset = 0;
     this.batchSize = 10;
     this.currentBatch = 0;
     this.totalBatches = 0;

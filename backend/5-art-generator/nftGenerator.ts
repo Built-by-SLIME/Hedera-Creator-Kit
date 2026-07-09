@@ -143,13 +143,15 @@ export class NFTGenerator {
     let failed = 0;
 
     // Generate each NFT
-    for (let i = 1; i <= this.config.numNFTs; i++) {
+    const startSerialNumber = this.config.startSerialNumber ?? 1;
+    const endSerialNumber = startSerialNumber + this.config.numNFTs - 1;
+    for (let i = startSerialNumber; i <= endSerialNumber; i++) {
       const result = await this.generateNFT(i);
       results.push(result);
 
       if (result.success) {
         successful++;
-        const progress = calculateProgress(i, this.config.numNFTs);
+        const progress = calculateProgress(i - startSerialNumber + 1, this.config.numNFTs);
         console.log(`✅ [${progress}%] Generated NFT #${i}`);
       } else {
         failed++;

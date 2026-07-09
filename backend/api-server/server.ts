@@ -15,6 +15,7 @@ import { generateFromSession } from './routes/generate-session';
 import { getGenerationStatus } from './routes/generate-status';
 import { pinCollectionMetadata } from './routes/pin-collection-metadata';
 import { pinNftMetadata } from './routes/pin-nft-metadata';
+import { pinMetadataJson } from './routes/pin-metadata-json';
 import { mintNfts } from './routes/mint-nfts';
 import { getMintStatus } from './routes/mint-status';
 import { calculateMintFee } from './routes/calculate-mint-fee';
@@ -209,6 +210,10 @@ app.post('/api/pin-nft-metadata', nftMediaUpload.fields([
   { name: 'image', maxCount: 1 },
 ]), (req, res, next) => {
   pinNftMetadata(req, res).catch(next);
+});
+
+app.post('/api/pin-metadata-json', (req, res, next) => {
+  pinMetadataJson(req, res).catch(next);
 });
 
 app.post('/api/calculate-mint-fee', (req, res, next) => {

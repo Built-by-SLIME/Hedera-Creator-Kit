@@ -36,6 +36,7 @@ export interface GeneratorConfig {
   imageHeight?: number;
   imageFormat?: 'png' | 'jpg' | 'webp';
   imageQuality?: number;
+  startSerialNumber?: number;
 }
 
 export interface SpecialNFT {

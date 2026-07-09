@@ -23,6 +23,7 @@ interface SessionGenerateRequest {
     imageHeight?: number;
     imageFormat?: 'png' | 'jpg' | 'webp';
     imageQuality?: number;
+    startSerialNumber?: number;
     rarity?: RarityConfig;
   };
 }
@@ -151,13 +152,16 @@ async function runGenerationJob(
       imageWidth: body.config.imageWidth,
       imageHeight: body.config.imageHeight,
       imageFormat: body.config.imageFormat || 'png',
-      imageQuality: body.config.imageQuality || 100
+      imageQuality: body.config.imageQuality || 100,
+      startSerialNumber: body.config.startSerialNumber ?? 1
     };
 
     const rarityConfig: RarityConfig = body.config.rarity || {};
     const collectionName = body.config.collectionName || 'Collection';
     const imageFormat = body.config.imageFormat || 'png';
     const totalNFTs = body.config.collectionSize;
+    const startSerialNumber = body.config.startSerialNumber ?? 1;
+    const endSerialNumber = startSerialNumber + totalNFTs - 1;
 
     console.log(`[Job ${jobId}] Generating ${totalNFTs} NFTs...`);
 
@@ -181,15 +185,15 @@ async function runGenerationJob(
     console.log(`[Job ${jobId}] Pinning ${totalNFTs} images to IPFS individually...`);
     updateJob(jobId, { status: 'pinning_images' });
 
-    for (let i = 1; i <= totalNFTs; i++) {
-      const imageFile = path.join(imagesDir, `${i}.${imageFormat}`);
+    for (let serial = startSerialNumber; serial <= endSerialNumber; serial++) {
+      const imageFile = path.join(imagesDir, `${serial}.${imageFormat}`);
       if (!await fs.pathExists(imageFile)) continue;
 
-      const imageCID = await pinFileToPinata(imageFile, `${collectionName} #${i}`);
-      imageCIDs.set(i, imageCID);
+      const imageCID = await pinFileToPinata(imageFile, `${collectionName} #${serial}`);
+      imageCIDs.set(serial, imageCID);
 
       // Update metadata with individual image CID
-      const metaFile = path.join(metadataDir, `${i}.json`);
+      const metaFile = path.join(metadataDir, `${serial}.json`);
       if (await fs.pathExists(metaFile)) {
         const metadata = await fs.readJSON(metaFile);
         metadata.image = `ipfs://${imageCID}`;
@@ -197,7 +201,7 @@ async function runGenerationJob(
       }
 
       updateJob(jobId, { pinnedImages: imageCIDs.size });
-      if (imageCIDs.size % 50 === 0 || i === totalNFTs) {
+      if (imageCIDs.size % 50 === 0 || serial === endSerialNumber) {
         console.log(`[Job ${jobId}] Pinned ${imageCIDs.size}/${totalNFTs} images`);
       }
     }
@@ -208,21 +212,21 @@ async function runGenerationJob(
 
     const nftResults: GenerationResult[] = [];
 
-    for (let i = 1; i <= totalNFTs; i++) {
-      const metaFile = path.join(metadataDir, `${i}.json`);
+    for (let serial = startSerialNumber; serial <= endSerialNumber; serial++) {
+      const metaFile = path.join(metadataDir, `${serial}.json`);
       if (!await fs.pathExists(metaFile)) continue;
 
-      const metadataCID = await pinFileToPinata(metaFile, `${collectionName} #${i} Metadata`);
+      const metadataCID = await pinFileToPinata(metaFile, `${collectionName} #${serial} Metadata`);
 
       nftResults.push({
-        number: i,
-        imageCID: imageCIDs.get(i) || '',
+        number: serial,
+        imageCID: imageCIDs.get(serial) || '',
         metadataCID,
         tokenURI: `ipfs://${metadataCID}`
       });
 
       updateJob(jobId, { pinnedMetadata: nftResults.length });
-      if (nftResults.length % 50 === 0 || i === totalNFTs) {
+      if (nftResults.length % 50 === 0 || serial === endSerialNumber) {
         console.log(`[Job ${jobId}] Pinned ${nftResults.length}/${totalNFTs} metadata files`);
       }
     }

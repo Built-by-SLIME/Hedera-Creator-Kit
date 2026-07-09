@@ -17,6 +17,7 @@ export class ArtGenerator {
   private static collectionName = '';
   private static collectionDescription = '';
   private static collectionSize = 100;
+  private static startSerialNumber = 1;
 
   private static weights: TraitWeight[] = [];
   private static exclusionRules: ExclusionRule[] = [];
@@ -131,6 +132,7 @@ export class ArtGenerator {
         </div>
         <div class="input-row">
           <div class="input-group"><label for="collection-size">Collection Size</label><input type="number" id="collection-size" class="token-input" min="1" max="10000" value="${this.collectionSize}" /></div>
+          <div class="input-group"><label for="collection-start-serial">Start Serial <span class="cc-field-hint">default 1</span></label><input type="number" id="collection-start-serial" class="token-input" min="1" max="999999999" value="${this.startSerialNumber}" /></div>
         </div>
 
         <div class="filter-divider"></div>
@@ -425,6 +427,9 @@ export class ArtGenerator {
       const descEl = document.querySelector('.section-desc');
       if (descEl) descEl.textContent = `Set how many of each trait to include. Each layer's total should equal the collection size (${this.collectionSize}).`;
     });
+    document.getElementById('collection-start-serial')?.addEventListener('input', (e) => {
+      this.startSerialNumber = parseInt((e.target as HTMLInputElement).value) || 1;
+    });
     // Weight inputs
     this.attachWeightListeners();
 
@@ -567,6 +572,7 @@ export class ArtGenerator {
         collectionName: this.collectionName || 'Untitled',
         collectionDescription: this.collectionDescription,
         collectionSize: this.collectionSize,
+        startSerialNumber: this.startSerialNumber,
         traitOrder: this.layers.map(l => l.name),
         rarity: {
           weights: this.weights.length > 0 ? this.weights : undefined,
@@ -614,6 +620,7 @@ export class ArtGenerator {
         collectionName: this.collectionName || 'Untitled',
         collectionDescription: this.collectionDescription,
         collectionSize: this.collectionSize,
+        startSerialNumber: this.startSerialNumber,
         traitOrder: this.layers.map(l => l.name),
         rarity: {
           weights: this.weights.length > 0 ? this.weights : undefined,
@@ -755,6 +762,7 @@ export class ArtGenerator {
     this.collectionName = '';
     this.collectionDescription = '';
     this.collectionSize = 100;
+    this.startSerialNumber = 1;
 
     this.weights = [];
     this.exclusionRules = [];
