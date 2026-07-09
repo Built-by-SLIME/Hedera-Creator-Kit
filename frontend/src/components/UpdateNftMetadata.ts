@@ -12,6 +12,8 @@ import {
   TransactionId,
   TokenUpdateNftsTransaction,
   Long,
+  PrivateKey,
+  Client,
 } from '@hashgraph/sdk'
 
 interface NftAttribute {
@@ -50,6 +52,11 @@ export class UpdateNftMetadata {
   private static error: string | null = null
   private static statusMessage = ''
   private static newMetadataCID = ''
+
+  // Private-key signing fallback
+  private static usePrivateKey = false
+  private static privateKeyInput = ''
+  private static privateKeyRevealed = false
 
   // ─── RENDER ───────────────────────────────────────────────
   static render(): string {
@@ -168,6 +175,32 @@ export class UpdateNftMetadata {
       </div>
 
       <div class="filter-divider"></div>
+
+      <div class="input-group" style="margin-top:1rem">
+        <label>Signing Method</label>
+        <div style="display:flex;gap:0.75rem;margin-top:0.35rem;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;color:var(--terminal-text);font-size:0.85rem">
+            <input type="radio" name="update-meta-sign-method" value="wallet" ${!this.usePrivateKey ? 'checked' : ''} />
+            WalletConnect
+          </label>
+          <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;color:var(--terminal-text);font-size:0.85rem">
+            <input type="radio" name="update-meta-sign-method" value="privatekey" ${this.usePrivateKey ? 'checked' : ''} />
+            Private Key (fallback)
+          </label>
+        </div>
+      </div>
+
+      ${this.usePrivateKey ? `
+        <div class="input-group" style="margin-top:0.75rem">
+          <label for="update-meta-private-key">Metadata Key Private Key <span class="cc-field-hint">never saved or sent</span></label>
+          <div style="display:flex;gap:0.5rem">
+            <input type="${this.privateKeyRevealed ? 'text' : 'password'}" id="update-meta-private-key" class="token-input" placeholder="Paste the metadata key private key..." value="${this.escapeHtml(this.privateKeyInput)}" style="flex:1;font-family:monospace;font-size:0.85rem" autocomplete="off" />
+            <button class="terminal-button small" id="update-meta-toggle-private-key" style="padding:0.4rem 0.6rem">${this.privateKeyRevealed ? 'HIDE' : 'SHOW'}</button>
+          </div>
+          <p style="color:var(--terminal-text-dim);font-size:0.75rem;margin:0.25rem 0 0">The key stays in your browser memory only long enough to sign. It is never persisted, logged, or sent to the server.</p>
+        </div>
+      ` : ''}
+
       <div style="padding:0.6rem 0.8rem;background:rgba(255,193,7,0.08);border:1px solid rgba(255,193,7,0.25);border-radius:6px;margin:1rem 0">
         <p style="font-size:0.78rem;color:var(--warning-yellow);margin:0">⚠️ This will permanently update the on-chain metadata URI for serial ${this.serial}. The old metadata CID will no longer be referenced by this NFT.</p>
       </div>
@@ -241,6 +274,9 @@ export class UpdateNftMetadata {
   // ─── INIT ─────────────────────────────────────────────────
   static init(): void {
     document.getElementById('update-meta-back')?.addEventListener('click', () => {
+      // Clear any private key from memory when leaving the tool
+      this.privateKeyInput = ''
+      this.privateKeyRevealed = false
       window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }))
     })
 
@@ -296,6 +332,26 @@ export class UpdateNftMetadata {
     document.getElementById('update-meta-pin')?.addEventListener('click', () => this.pinAndUpdate())
     document.getElementById('update-meta-another')?.addEventListener('click', () => {
       this.resetState()
+      this.refresh()
+    })
+
+    // Signing method radios
+    document.querySelectorAll('input[name="update-meta-sign-method"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        this.usePrivateKey = (e.target as HTMLInputElement).value === 'privatekey'
+        this.refresh()
+      })
+    })
+
+    // Private key input
+    const privateKeyInput = document.getElementById('update-meta-private-key') as HTMLInputElement | null
+    privateKeyInput?.addEventListener('input', () => {
+      this.privateKeyInput = privateKeyInput.value
+    })
+
+    // Private key show/hide toggle
+    document.getElementById('update-meta-toggle-private-key')?.addEventListener('click', () => {
+      this.privateKeyRevealed = !this.privateKeyRevealed
       this.refresh()
     })
   }
@@ -459,17 +515,36 @@ export class UpdateNftMetadata {
         .setTransactionId(TransactionId.generate(acctId))
         .freezeWith(getHederaClient())
 
-      // Use hedera_signTransaction instead of hedera_signAndExecuteTransaction.
-      // HashPack rejects TokenUpdateNftsTransaction via the execute path, but
-      // may still sign the raw transaction body. We attach the returned
-      // signature map and submit the signed transaction ourselves.
-      this.statusMessage = 'Waiting for wallet signature...'
-      this.refresh()
-      const signedTx = await signer.signTransaction(frozenTx)
+      // Sign and submit the update transaction
+      let txResponse
+      if (this.usePrivateKey) {
+        if (!this.privateKeyInput.trim()) {
+          throw new Error('Private key is required when using private-key signing')
+        }
 
-      this.statusMessage = 'Submitting signed transaction...'
-      this.refresh()
-      const txResponse = await signedTx.execute(getHederaClient())
+        this.statusMessage = 'Signing transaction locally with private key...'
+        this.refresh()
+
+        const client = Client.forMainnet()
+        const privateKey = PrivateKey.fromString(this.privateKeyInput.trim())
+        client.setOperator(acctId, privateKey)
+
+        // Clear the key from our state now that it has been loaded into the
+        // local SDK client. It is never logged, persisted, or sent anywhere.
+        this.privateKeyInput = ''
+        this.privateKeyRevealed = false
+
+        txResponse = await frozenTx.execute(client)
+      } else {
+        // WalletConnect path (currently unsupported by HashPack for this tx type)
+        this.statusMessage = 'Waiting for wallet signature...'
+        this.refresh()
+        const signedTx = await signer.signTransaction(frozenTx)
+
+        this.statusMessage = 'Submitting signed transaction...'
+        this.refresh()
+        txResponse = await signedTx.execute(getHederaClient())
+      }
       this.txId = txResponse.transactionId?.toString() || null
 
       this.statusMessage = 'Transaction submitted. Confirming...'
@@ -546,5 +621,8 @@ export class UpdateNftMetadata {
     this.error = null
     this.statusMessage = ''
     this.newMetadataCID = ''
+    this.usePrivateKey = false
+    this.privateKeyInput = ''
+    this.privateKeyRevealed = false
   }
 }
