@@ -459,7 +459,17 @@ export class UpdateNftMetadata {
         .setTransactionId(TransactionId.generate(acctId))
         .freezeWith(getHederaClient())
 
-      const txResponse = await frozenTx.executeWithSigner(signer)
+      // Use hedera_signTransaction instead of hedera_signAndExecuteTransaction.
+      // HashPack rejects TokenUpdateNftsTransaction via the execute path, but
+      // may still sign the raw transaction body. We attach the returned
+      // signature map and submit the signed transaction ourselves.
+      this.statusMessage = 'Waiting for wallet signature...'
+      this.refresh()
+      const signedTx = await signer.signTransaction(frozenTx)
+
+      this.statusMessage = 'Submitting signed transaction...'
+      this.refresh()
+      const txResponse = await signedTx.execute(getHederaClient())
       this.txId = txResponse.transactionId?.toString() || null
 
       this.statusMessage = 'Transaction submitted. Confirming...'
