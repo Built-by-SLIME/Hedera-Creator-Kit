@@ -233,6 +233,58 @@ export async function listPublicStakingPrograms(_req: Request, res: Response): P
   }
 }
 
+// ─── ADMIN: Check remaining token allowance ───────────────────────────────────
+
+/**
+ * GET /api/staking-programs/:id/allowance
+ * Returns the current remaining token allowance granted by the program's
+ * treasury to the backend operator for the reward token.
+ */
+export async function getStakingProgramAllowance(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { createdBy } = req.query;
+
+    const progResult = await pool.query(
+      'SELECT * FROM staking_programs WHERE id=$1 AND created_by=$2',
+      [id, createdBy]
+    );
+    if (progResult.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Program not found or not owned by you' });
+      return;
+    }
+    const prog = progResult.rows[0];
+
+    const decimals = await fetchTokenDecimals(prog.reward_token_id);
+    const url = `${MIRROR_NODE_URL}/api/v1/accounts/${prog.treasury_account_id}/allowances/tokens?spender.id=${BACKEND_ACCOUNT_ID}&token.id=${prog.reward_token_id}`;
+
+    const mirrorRes = await fetch(url);
+    if (!mirrorRes.ok) {
+      res.status(502).json({ success: false, error: 'Failed to fetch allowance from mirror node' });
+      return;
+    }
+
+    const data = await mirrorRes.json() as {
+      allowances?: Array<{ amount: number; amount_granted: number }>;
+    };
+    const rawRemaining = data.allowances?.[0]?.amount ?? 0;
+    const rawGranted = data.allowances?.[0]?.amount_granted ?? rawRemaining;
+
+    res.json({
+      success: true,
+      allowance_remaining: Number(rawRemaining) / Math.pow(10, decimals),
+      allowance_granted: Number(rawGranted) / Math.pow(10, decimals),
+      raw_remaining: rawRemaining,
+      raw_granted: rawGranted,
+      reward_token_id: prog.reward_token_id,
+      decimals,
+    });
+  } catch (err: any) {
+    console.error('getStakingProgramAllowance error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // ─── ADMIN: Update status ─────────────────────────────────────────────────────
 
 /** PUT /api/staking-programs/:id/status */

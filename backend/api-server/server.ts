@@ -46,6 +46,7 @@ import {
   listPublicStakingPrograms,
   updateStakingProgram,
   updateStakingStatus,
+  getStakingProgramAllowance,
   deleteStakingProgram,
   markAllowanceGranted,
   registerParticipant,
@@ -268,6 +269,7 @@ app.get('/api/staking-programs/:id/check-serial/:serial', async (req, res) => {
   }
 });
 app.put('/api/staking-programs/:id',                       (req, res, next) => updateStakingProgram(req, res).catch(next));
+app.get('/api/staking-programs/:id/allowance',             (req, res, next) => getStakingProgramAllowance(req, res).catch(next));
 app.put('/api/staking-programs/:id/status',               (req, res, next) => updateStakingStatus(req, res).catch(next));
 app.put('/api/staking-programs/:id/allowance',            (req, res, next) => markAllowanceGranted(req, res).catch(next));
 app.delete('/api/staking-programs/:id',                   (req, res, next) => deleteStakingProgram(req, res).catch(next));

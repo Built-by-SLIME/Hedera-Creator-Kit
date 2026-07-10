@@ -15,6 +15,7 @@ import WalletConnectService from '../services/WalletConnectService'
 import { API_BASE_URL, BACKEND_MINTER_ACCOUNT, MIRROR_NODE_URL, getHederaClient } from '../config'
 import {
   AccountAllowanceApproveTransaction,
+  AccountAllowanceAdjustTransaction,
   AccountId,
   TokenId,
   TransactionId,
@@ -94,6 +95,12 @@ export class StakingTool {
   private static editRewardRatePerDay = ''
   private static editFrequency: Frequency = '7d'
   private static editMinStakeAmount = '0'
+
+  // ─── Allowance state ──────────────────────────────────────
+  private static allowances: Record<string, { remaining: number | null; granted: number | null; loading: boolean }> = {}
+  private static toppingUpProgramId: string | null = null
+  private static topUpAmount = ''
+  private static topUpLoading = false
 
 
 
@@ -388,6 +395,13 @@ export class StakingTool {
         ? new Date(new Date(p.last_distributed_at).getTime() + FREQUENCY_DAYS[p.frequency] * 86400000).toLocaleDateString()
         : 'On first drip run'
       const statusColor = p.status === 'active' ? 'var(--accent-green)' : p.status === 'paused' ? '#ffa500' : '#ff6b6b'
+      const allowance = this.allowances[p.id]
+      const allowanceText = allowance?.loading
+        ? 'Loading allowance...'
+        : allowance?.remaining != null
+          ? `Allowance: ${allowance.remaining.toLocaleString(undefined, { maximumFractionDigits: 6 })} remaining`
+          : 'Allowance: unknown'
+      const isToppingUp = this.toppingUpProgramId === p.id
       return `
         <div class="program-card" style="margin-bottom:1rem;padding:0.8rem;border:1px solid var(--border-color);border-radius:6px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem">
@@ -397,22 +411,40 @@ export class StakingTool {
           <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">${p.stake_token_type} · Stake: ${p.stake_token_id}</p>
           <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">Reward: ${p.reward_token_id} · ${FREQUENCY_LABELS[p.frequency]}</p>
           <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">Rate: ${p.reward_rate_per_day}/day · Next drip: ${nextDrip}</p>
+          <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">${allowanceText}</p>
           ${!p.allowance_granted ? '<p style="font-size:0.75rem;color:#ff6b6b;margin:0 0 0.3rem">⚠ Allowance not yet granted</p>' : ''}
           <div style="display:flex;align-items:center;gap:0.4rem;margin:0.4rem 0 0.2rem;background:rgba(0,0,0,0.2);border-radius:4px;padding:0.3rem 0.5rem">
             <span style="font-size:0.7rem;opacity:0.5;white-space:nowrap">Program ID:</span>
             <code style="font-size:0.7rem;color:var(--accent-green);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.id}</code>
             <button class="terminal-button secondary" data-action="copy-id" data-id="${p.id}" style="font-size:0.65rem;padding:0.15rem 0.4rem;white-space:nowrap">Copy</button>
           </div>
-          <div style="display:flex;gap:0.4rem;margin-top:0.4rem;flex-wrap:wrap">
-            <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem"
-              data-action="toggle-status" data-id="${p.id}" data-status="${p.status === 'active' ? 'paused' : 'active'}">
-              ${p.status === 'active' ? 'PAUSE' : 'RESUME'}
-            </button>
-            <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem"
-              data-action="edit-program" data-id="${p.id}">EDIT</button>
-            <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem;color:#ff6b6b;border-color:#ff6b6b"
-              data-action="delete-program" data-id="${p.id}">DELETE</button>
-          </div>
+          ${isToppingUp ? `
+            <div style="margin-top:0.5rem;padding:0.5rem;background:rgba(0,255,64,0.06);border:1px solid rgba(0,255,64,0.2);border-radius:6px">
+              <div class="input-group" style="margin-bottom:0.4rem">
+                <label style="font-size:0.75rem">Add Allowance (whole reward tokens)</label>
+                <input type="number" id="stk-top-up-amount" class="token-input" step="any" min="0" placeholder="e.g. 10000" value="${this.escapeHtml(this.topUpAmount)}" style="font-size:0.85rem" />
+              </div>
+              <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+                <button class="terminal-button" style="font-size:0.72rem;padding:0.3rem 0.6rem" data-action="submit-top-up" data-id="${p.id}" ${this.topUpLoading ? 'disabled' : ''}>
+                  ${this.topUpLoading ? 'SIGNING...' : 'SIGN ALLOWANCE'}
+                </button>
+                <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem" data-action="cancel-top-up" ${this.topUpLoading ? 'disabled' : ''}>CANCEL</button>
+              </div>
+            </div>
+          ` : `
+            <div style="display:flex;gap:0.4rem;margin-top:0.4rem;flex-wrap:wrap">
+              <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem"
+                data-action="toggle-status" data-id="${p.id}" data-status="${p.status === 'active' ? 'paused' : 'active'}">
+                ${p.status === 'active' ? 'PAUSE' : 'RESUME'}
+              </button>
+              <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem"
+                data-action="edit-program" data-id="${p.id}">EDIT</button>
+              <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem"
+                data-action="top-up" data-id="${p.id}">TOP UP</button>
+              <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem;color:#ff6b6b;border-color:#ff6b6b"
+                data-action="delete-program" data-id="${p.id}">DELETE</button>
+            </div>
+          `}
         </div>`
     }).join('')
 
@@ -516,6 +548,10 @@ export class StakingTool {
     this.editRewardRatePerDay = ''
     this.editFrequency = '7d'
     this.editMinStakeAmount = '0'
+    this.allowances = {}
+    this.toppingUpProgramId = null
+    this.topUpAmount = ''
+    this.topUpLoading = false
   }
 
   private static refresh(): void {
@@ -611,6 +647,12 @@ export class StakingTool {
         this.saveEdit(id)
       } else if (action === 'cancel-edit') {
         this.editingProgramId = null; this.refresh()
+      } else if (action === 'top-up') {
+        this.startTopUp(id)
+      } else if (action === 'cancel-top-up') {
+        this.cancelTopUp()
+      } else if (action === 'submit-top-up') {
+        this.submitTopUp(id)
       } else if (action === 'delete-program') {
         this._pendingDeleteId = id; this.showConfirmModal = true; this.refresh()
       } else if (action === 'copy-id') {
@@ -629,6 +671,10 @@ export class StakingTool {
     editFreq?.addEventListener('change', () => { this.editFrequency = editFreq.value as Frequency })
     const editMin = document.getElementById('stk-edit-min-stake') as HTMLInputElement | null
     editMin?.addEventListener('input', () => { this.editMinStakeAmount = editMin.value })
+
+    // Top-up input binding
+    const topUpInput = document.getElementById('stk-top-up-amount') as HTMLInputElement | null
+    topUpInput?.addEventListener('input', () => { this.topUpAmount = topUpInput.value })
 
 
 
@@ -737,7 +783,10 @@ export class StakingTool {
     try {
       const res = await fetch(`${API_BASE_URL}/api/staking-programs?createdBy=${ws.accountId}`)
       const data = await res.json()
-      if (data.success) this.programs = data.programs
+      if (data.success) {
+        this.programs = data.programs
+        this.fetchAllAllowances()
+      }
     } catch (err) {
       console.error('loadPrograms error:', err)
     } finally {
@@ -757,6 +806,12 @@ export class StakingTool {
             this.saveEdit(id)
           } else if (action === 'cancel-edit') {
             this.editingProgramId = null; this.refresh()
+          } else if (action === 'top-up') {
+            this.startTopUp(id)
+          } else if (action === 'cancel-top-up') {
+            this.cancelTopUp()
+          } else if (action === 'submit-top-up') {
+            this.submitTopUp(id)
           } else if (action === 'delete-program') {
             this._pendingDeleteId = id; this.showConfirmModal = true; this.refresh()
           }
@@ -847,6 +902,97 @@ export class StakingTool {
       this.refresh()
     } catch (err: any) {
       this.error = err.message || 'Failed to update program'; this.refresh()
+    }
+  }
+
+  private static async getTokenDecimals(tokenId: string): Promise<number> {
+    try {
+      const res = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${tokenId.trim()}`)
+      if (!res.ok) return 0
+      const data = await res.json() as { decimals?: string }
+      return parseInt(data.decimals ?? '0')
+    } catch {
+      return 0
+    }
+  }
+
+  private static async fetchAllAllowances(): Promise<void> {
+    await Promise.all(this.programs.map(p => this.fetchAllowance(p.id)))
+  }
+
+  private static async fetchAllowance(id: string): Promise<void> {
+    const ws = WalletConnectService.getState()
+    if (!ws.connected || !ws.accountId) return
+    this.allowances[id] = { ...this.allowances[id], loading: true }
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/staking-programs/${id}/allowance?createdBy=${ws.accountId}`)
+      const data = await res.json()
+      if (data.success) {
+        this.allowances[id] = {
+          remaining: data.allowance_remaining,
+          granted: data.allowance_granted,
+          loading: false,
+        }
+      } else {
+        this.allowances[id] = { remaining: null, granted: null, loading: false }
+      }
+    } catch {
+      this.allowances[id] = { remaining: null, granted: null, loading: false }
+    }
+    this.refresh()
+  }
+
+  private static startTopUp(id: string): void {
+    this.toppingUpProgramId = id
+    this.topUpAmount = ''
+    this.topUpLoading = false
+    this.refresh()
+  }
+
+  private static cancelTopUp(): void {
+    this.toppingUpProgramId = null
+    this.topUpAmount = ''
+    this.topUpLoading = false
+    this.refresh()
+  }
+
+  private static async submitTopUp(id: string): Promise<void> {
+    const ws = WalletConnectService.getState()
+    if (!ws.connected || !ws.accountId) { this.error = 'Connect your wallet first.'; this.refresh(); return }
+
+    const amount = parseFloat(this.topUpAmount)
+    if (isNaN(amount) || amount <= 0) { this.error = 'Please enter a valid amount to add.'; this.refresh(); return }
+
+    const p = this.programs.find(prog => prog.id === id)
+    if (!p) return
+
+    this.topUpLoading = true
+    this.error = null
+    this.refresh()
+
+    try {
+      const signer = WalletConnectService.getSigner(ws.accountId)
+      const acctId = AccountId.fromString(ws.accountId)
+      const operatorId = AccountId.fromString(BACKEND_MINTER_ACCOUNT)
+      const decimals = await this.getTokenDecimals(p.reward_token_id)
+      const rawAmount = Math.floor(amount * Math.pow(10, decimals))
+
+      const adjustTx = new AccountAllowanceAdjustTransaction()
+        .grantTokenAllowance(TokenId.fromString(p.reward_token_id), acctId, operatorId, rawAmount)
+        .setTransactionId(TransactionId.generate(acctId))
+      adjustTx.freezeWith(getHederaClient())
+      await adjustTx.executeWithSigner(signer)
+
+      this.topUpAmount = ''
+      this.toppingUpProgramId = null
+      this.topUpLoading = false
+      this.statusMessage = 'Allowance topped up'
+      await this.fetchAllowance(id)
+      this.statusMessage = ''
+    } catch (err: any) {
+      this.topUpLoading = false
+      this.error = err.message || 'Failed to top up allowance'
+      this.refresh()
     }
   }
 
