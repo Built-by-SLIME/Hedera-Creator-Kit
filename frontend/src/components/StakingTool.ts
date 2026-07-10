@@ -87,6 +87,14 @@ export class StakingTool {
   private static showConfirmModal = false
   private static _pendingDeleteId: string | null = null
 
+  // ─── Inline edit state ────────────────────────────────────
+  private static editingProgramId: string | null = null
+  private static editName = ''
+  private static editDescription = ''
+  private static editRewardRatePerDay = ''
+  private static editFrequency: Frequency = '7d'
+  private static editMinStakeAmount = '0'
+
 
 
   // ─── RENDER ───────────────────────────────────────────────
@@ -372,6 +380,10 @@ export class StakingTool {
     }
 
     const cards = this.programs.map(p => {
+      if (this.editingProgramId === p.id) {
+        return this.renderProgramEditCard(p)
+      }
+
       const nextDrip = p.last_distributed_at
         ? new Date(new Date(p.last_distributed_at).getTime() + FREQUENCY_DAYS[p.frequency] * 86400000).toLocaleDateString()
         : 'On first drip run'
@@ -396,6 +408,8 @@ export class StakingTool {
               data-action="toggle-status" data-id="${p.id}" data-status="${p.status === 'active' ? 'paused' : 'active'}">
               ${p.status === 'active' ? 'PAUSE' : 'RESUME'}
             </button>
+            <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem"
+              data-action="edit-program" data-id="${p.id}">EDIT</button>
             <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem;color:#ff6b6b;border-color:#ff6b6b"
               data-action="delete-program" data-id="${p.id}">DELETE</button>
           </div>
@@ -403,6 +417,55 @@ export class StakingTool {
     }).join('')
 
     return `<div class="cc-right-content"><h3 class="section-title">◆ Your Staking Programs</h3>${cards}</div>`
+  }
+
+  private static renderProgramEditCard(p: StakingProgram): string {
+    const freqOptions = (Object.keys(FREQUENCY_LABELS) as Frequency[]).map(f =>
+      `<option value="${f}" ${this.editFrequency === f ? 'selected' : ''}>${FREQUENCY_LABELS[f]}</option>`
+    ).join('')
+
+    return `
+      <div class="program-card" style="margin-bottom:1rem;padding:0.8rem;border:1px solid var(--accent-green);border-radius:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem">
+          <strong style="font-size:0.9rem;color:var(--accent-green)">Edit Program</strong>
+        </div>
+
+        <div class="input-group" style="margin-bottom:0.5rem">
+          <label style="font-size:0.75rem">Name</label>
+          <input type="text" id="stk-edit-name" class="token-input" value="${this.escapeHtml(this.editName)}" style="font-size:0.85rem" />
+        </div>
+
+        <div class="input-group" style="margin-bottom:0.5rem">
+          <label style="font-size:0.75rem">Description</label>
+          <input type="text" id="stk-edit-description" class="token-input" value="${this.escapeHtml(this.editDescription)}" style="font-size:0.85rem" />
+        </div>
+
+        <div class="input-group" style="margin-bottom:0.5rem">
+          <label style="font-size:0.75rem">Daily Reward Rate</label>
+          <input type="number" id="stk-edit-rate" class="token-input" step="any" min="0" value="${this.escapeHtml(this.editRewardRatePerDay)}" style="font-size:0.85rem" />
+        </div>
+
+        <div class="input-group" style="margin-bottom:0.5rem">
+          <label style="font-size:0.75rem">Distribution Frequency</label>
+          <select id="stk-edit-frequency" class="token-input" style="background:var(--terminal-bg);color:var(--terminal-text);border:1px solid var(--border-color);padding:0.4rem;font-size:0.85rem">
+            ${freqOptions}
+          </select>
+        </div>
+
+        <div class="input-group" style="margin-bottom:0.6rem">
+          <label style="font-size:0.75rem">Minimum Holdings</label>
+          <input type="number" id="stk-edit-min-stake" class="token-input" min="0" value="${this.escapeHtml(this.editMinStakeAmount)}" style="font-size:0.85rem" />
+        </div>
+
+        <div style="padding:0.5rem;background:rgba(0,0,0,0.2);border-radius:4px;margin-bottom:0.6rem">
+          <p style="font-size:0.7rem;opacity:0.6;margin:0">Locked: Stake ${p.stake_token_id} (${p.stake_token_type}) · Reward ${p.reward_token_id} · Treasury ${p.treasury_account_id}</p>
+        </div>
+
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+          <button class="terminal-button" style="font-size:0.72rem;padding:0.3rem 0.6rem" data-action="save-edit" data-id="${p.id}">SAVE</button>
+          <button class="terminal-button secondary" style="font-size:0.72rem;padding:0.3rem 0.6rem" data-action="cancel-edit">CANCEL</button>
+        </div>
+      </div>`
   }
 
   private static renderConfirmModal(): string {
@@ -447,6 +510,12 @@ export class StakingTool {
     this.createdProgramId = null
     this.showConfirmModal = false
     this._pendingDeleteId = null
+    this.editingProgramId = null
+    this.editName = ''
+    this.editDescription = ''
+    this.editRewardRatePerDay = ''
+    this.editFrequency = '7d'
+    this.editMinStakeAmount = '0'
   }
 
   private static refresh(): void {
@@ -536,12 +605,30 @@ export class StakingTool {
       const action = btn.dataset.action, id = btn.dataset.id!
       if (action === 'toggle-status') {
         this.handleToggleStatus(id, btn.dataset.status as 'active' | 'paused')
+      } else if (action === 'edit-program') {
+        this.startEdit(id)
+      } else if (action === 'save-edit') {
+        this.saveEdit(id)
+      } else if (action === 'cancel-edit') {
+        this.editingProgramId = null; this.refresh()
       } else if (action === 'delete-program') {
         this._pendingDeleteId = id; this.showConfirmModal = true; this.refresh()
       } else if (action === 'copy-id') {
         navigator.clipboard.writeText(id)
       }
     })
+
+    // Inline edit input bindings (only present when editing)
+    const editName = document.getElementById('stk-edit-name') as HTMLInputElement | null
+    editName?.addEventListener('input', () => { this.editName = editName.value })
+    const editDesc = document.getElementById('stk-edit-description') as HTMLInputElement | null
+    editDesc?.addEventListener('input', () => { this.editDescription = editDesc.value })
+    const editRate = document.getElementById('stk-edit-rate') as HTMLInputElement | null
+    editRate?.addEventListener('input', () => { this.editRewardRatePerDay = editRate.value })
+    const editFreq = document.getElementById('stk-edit-frequency') as HTMLSelectElement | null
+    editFreq?.addEventListener('change', () => { this.editFrequency = editFreq.value as Frequency })
+    const editMin = document.getElementById('stk-edit-min-stake') as HTMLInputElement | null
+    editMin?.addEventListener('input', () => { this.editMinStakeAmount = editMin.value })
 
 
 
@@ -664,6 +751,12 @@ export class StakingTool {
           const action = btn.dataset.action, id = btn.dataset.id!
           if (action === 'toggle-status') {
             this.handleToggleStatus(id, btn.dataset.status as 'active' | 'paused')
+          } else if (action === 'edit-program') {
+            this.startEdit(id)
+          } else if (action === 'save-edit') {
+            this.saveEdit(id)
+          } else if (action === 'cancel-edit') {
+            this.editingProgramId = null; this.refresh()
           } else if (action === 'delete-program') {
             this._pendingDeleteId = id; this.showConfirmModal = true; this.refresh()
           }
@@ -707,6 +800,53 @@ export class StakingTool {
       this._pendingDeleteId = null; this.refresh()
     } catch (err: any) {
       this.error = err.message || 'Failed to delete program'; this.refresh()
+    }
+  }
+
+  private static startEdit(id: string): void {
+    const p = this.programs.find(prog => prog.id === id)
+    if (!p) return
+    this.editingProgramId = id
+    this.editName = p.name
+    this.editDescription = p.description || ''
+    this.editRewardRatePerDay = String(p.reward_rate_per_day)
+    this.editFrequency = p.frequency
+    this.editMinStakeAmount = String(p.min_stake_amount)
+    this.refresh()
+  }
+
+  private static async saveEdit(id: string): Promise<void> {
+    const ws = WalletConnectService.getState()
+    if (!ws.connected || !ws.accountId) { this.error = 'Connect your wallet first.'; this.refresh(); return }
+
+    if (!this.editName.trim()) { this.error = 'Program name is required.'; this.refresh(); return }
+    const rate = parseFloat(this.editRewardRatePerDay)
+    if (isNaN(rate) || rate < 0) { this.error = 'Daily reward rate must be 0 or greater.'; this.refresh(); return }
+    const minStake = parseInt(this.editMinStakeAmount) || 0
+    if (minStake < 0) { this.error = 'Minimum holdings cannot be negative.'; this.refresh(); return }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/staking-programs/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          createdBy: ws.accountId,
+          name: this.editName.trim(),
+          description: this.editDescription.trim() || null,
+          rewardRatePerDay: rate,
+          minStakeAmount: minStake,
+          frequency: this.editFrequency,
+        }),
+      })
+      const data = await res.json()
+      if (!data.success) throw new Error(data.error || 'Failed to update program')
+
+      const idx = this.programs.findIndex(p => p.id === id)
+      if (idx >= 0) this.programs[idx] = data.program
+      this.editingProgramId = null
+      this.refresh()
+    } catch (err: any) {
+      this.error = err.message || 'Failed to update program'; this.refresh()
     }
   }
 

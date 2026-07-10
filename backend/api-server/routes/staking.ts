@@ -258,6 +258,71 @@ export async function updateStakingStatus(req: Request, res: Response): Promise<
   }
 }
 
+// ─── ADMIN: Update program ────────────────────────────────────────────────────
+
+/**
+ * PUT /api/staking-programs/:id
+ * Edit editable fields of an existing soft-staking program.
+ * Locked fields (stake_token_id, stake_token_type, reward_token_id,
+ * treasury_account_id, total_reward_supply, status) are ignored.
+ */
+export async function updateStakingProgram(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { createdBy, name, description, rewardRatePerDay, minStakeAmount, frequency } = req.body;
+
+    if (!createdBy) {
+      res.status(400).json({ success: false, error: 'createdBy is required' });
+      return;
+    }
+
+    const validFrequencies = ['1d', '7d', '30d', '90d', '180d', '365d'];
+    if (frequency && !validFrequencies.includes(frequency)) {
+      res.status(400).json({ success: false, error: `frequency must be one of: ${validFrequencies.join(', ')}` });
+      return;
+    }
+    if (rewardRatePerDay != null && (typeof rewardRatePerDay !== 'number' || rewardRatePerDay < 0)) {
+      res.status(400).json({ success: false, error: 'rewardRatePerDay must be a non-negative number' });
+      return;
+    }
+    if (minStakeAmount != null && (typeof minStakeAmount !== 'number' || minStakeAmount < 0)) {
+      res.status(400).json({ success: false, error: 'minStakeAmount must be a non-negative number' });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE staking_programs
+       SET name = COALESCE($1, name),
+           description = COALESCE($2, description),
+           reward_rate_per_day = COALESCE($3, reward_rate_per_day),
+           min_stake_amount = COALESCE($4, min_stake_amount),
+           frequency = COALESCE($5, frequency),
+           updated_at = NOW()
+       WHERE id = $6 AND created_by = $7
+       RETURNING *`,
+      [
+        name ?? null,
+        description ?? null,
+        rewardRatePerDay ?? null,
+        minStakeAmount ?? null,
+        frequency ?? null,
+        id,
+        createdBy,
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Program not found or not owned by you' });
+      return;
+    }
+
+    res.json({ success: true, program: result.rows[0] });
+  } catch (err: any) {
+    console.error('updateStakingProgram error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // ─── ADMIN: Delete program ────────────────────────────────────────────────────
 
 /** DELETE /api/staking-programs/:id */
