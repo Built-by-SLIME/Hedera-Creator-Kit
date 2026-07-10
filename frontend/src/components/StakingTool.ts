@@ -634,31 +634,8 @@ export class StakingTool {
     })
     document.getElementById('stk-confirm-delete')?.addEventListener('click', () => this.executeDelete())
 
-    // Program card delegation
-    document.querySelector('.cc-right-content')?.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest('[data-action]') as HTMLElement
-      if (!btn) return
-      const action = btn.dataset.action, id = btn.dataset.id!
-      if (action === 'toggle-status') {
-        this.handleToggleStatus(id, btn.dataset.status as 'active' | 'paused')
-      } else if (action === 'edit-program') {
-        this.startEdit(id)
-      } else if (action === 'save-edit') {
-        this.saveEdit(id)
-      } else if (action === 'cancel-edit') {
-        this.editingProgramId = null; this.refresh()
-      } else if (action === 'top-up') {
-        this.startTopUp(id)
-      } else if (action === 'cancel-top-up') {
-        this.cancelTopUp()
-      } else if (action === 'submit-top-up') {
-        this.submitTopUp(id)
-      } else if (action === 'delete-program') {
-        this._pendingDeleteId = id; this.showConfirmModal = true; this.refresh()
-      } else if (action === 'copy-id') {
-        navigator.clipboard.writeText(id)
-      }
-    })
+    // Program card delegation (single listener on the stable right panel)
+    this.attachProgramCardListeners()
 
     // Inline edit input bindings (only present when editing)
     const editName = document.getElementById('stk-edit-name') as HTMLInputElement | null
@@ -776,6 +753,37 @@ export class StakingTool {
     }
   }
 
+  private static attachProgramCardListeners(): void {
+    document.querySelector('.art-gen-right')?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-action]') as HTMLElement
+      if (!btn) return
+      const action = btn.dataset.action, id = btn.dataset.id!
+      if (action === 'toggle-status') {
+        this.handleToggleStatus(id, btn.dataset.status as 'active' | 'paused')
+      } else if (action === 'edit-program') {
+        this.startEdit(id)
+      } else if (action === 'save-edit') {
+        this.saveEdit(id)
+      } else if (action === 'cancel-edit') {
+        this.editingProgramId = null; this.refresh()
+      } else if (action === 'top-up') {
+        this.startTopUp(id)
+      } else if (action === 'cancel-top-up') {
+        this.cancelTopUp()
+      } else if (action === 'submit-top-up') {
+        this.submitTopUp(id)
+      } else if (action === 'delete-program') {
+        this._pendingDeleteId = id; this.showConfirmModal = true; this.refresh()
+      }
+    })
+  }
+
+  private static renderProgramPanel(): void {
+    const right = document.querySelector('.art-gen-right')
+    if (!right) return
+    right.innerHTML = this.renderRight()
+  }
+
   private static async loadPrograms(): Promise<void> {
     const ws = WalletConnectService.getState()
     if (!ws.connected) return
@@ -785,38 +793,18 @@ export class StakingTool {
       const data = await res.json()
       if (data.success) {
         this.programs = data.programs
-        this.fetchAllAllowances()
+        // Initialize allowance state to loading, render once, then fetch.
+        this.programs.forEach(p => {
+          this.allowances[p.id] = { remaining: null, granted: null, loading: true }
+        })
+        this.renderProgramPanel()
+        await this.fetchAllAllowances()
+        this.renderProgramPanel()
       }
     } catch (err) {
       console.error('loadPrograms error:', err)
     } finally {
       this.loadingPrograms = false
-      const right = document.querySelector('.art-gen-right')
-      if (right) {
-        right.innerHTML = this.renderRight()
-        document.querySelector('.cc-right-content')?.addEventListener('click', (e) => {
-          const btn = (e.target as HTMLElement).closest('[data-action]') as HTMLElement
-          if (!btn) return
-          const action = btn.dataset.action, id = btn.dataset.id!
-          if (action === 'toggle-status') {
-            this.handleToggleStatus(id, btn.dataset.status as 'active' | 'paused')
-          } else if (action === 'edit-program') {
-            this.startEdit(id)
-          } else if (action === 'save-edit') {
-            this.saveEdit(id)
-          } else if (action === 'cancel-edit') {
-            this.editingProgramId = null; this.refresh()
-          } else if (action === 'top-up') {
-            this.startTopUp(id)
-          } else if (action === 'cancel-top-up') {
-            this.cancelTopUp()
-          } else if (action === 'submit-top-up') {
-            this.submitTopUp(id)
-          } else if (action === 'delete-program') {
-            this._pendingDeleteId = id; this.showConfirmModal = true; this.refresh()
-          }
-        })
-      }
     }
   }
 
@@ -939,7 +927,6 @@ export class StakingTool {
     } catch {
       this.allowances[id] = { remaining: null, granted: null, loading: false }
     }
-    this.refresh()
   }
 
   private static startTopUp(id: string): void {
@@ -988,6 +975,7 @@ export class StakingTool {
       this.topUpLoading = false
       this.statusMessage = 'Allowance topped up'
       await this.fetchAllowance(id)
+      this.renderProgramPanel()
       this.statusMessage = ''
     } catch (err: any) {
       this.topUpLoading = false
