@@ -793,18 +793,17 @@ export class StakingTool {
       const data = await res.json()
       if (data.success) {
         this.programs = data.programs
-        // Initialize allowance state to loading, render once, then fetch.
         this.programs.forEach(p => {
           this.allowances[p.id] = { remaining: null, granted: null, loading: true }
         })
-        this.renderProgramPanel()
-        await this.fetchAllAllowances()
-        this.renderProgramPanel()
       }
     } catch (err) {
       console.error('loadPrograms error:', err)
     } finally {
       this.loadingPrograms = false
+      this.renderProgramPanel()
+      // Fetch allowances in the background without blocking the program list.
+      this.fetchAllAllowances().catch(err => console.error('fetchAllAllowances error:', err))
     }
   }
 
@@ -913,7 +912,10 @@ export class StakingTool {
     if (!ws.connected || !ws.accountId) return
     this.allowances[id] = { ...this.allowances[id], loading: true }
     try {
-      const res = await fetch(`${API_BASE_URL}/api/staking-programs/${id}/allowance?createdBy=${ws.accountId}`)
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000)
+      const res = await fetch(`${API_BASE_URL}/api/staking-programs/${id}/allowance?createdBy=${ws.accountId}`, { signal: controller.signal })
+      clearTimeout(timeout)
       const data = await res.json()
       if (data.success) {
         this.allowances[id] = {
@@ -927,6 +929,7 @@ export class StakingTool {
     } catch {
       this.allowances[id] = { remaining: null, granted: null, loading: false }
     }
+    this.renderProgramPanel()
   }
 
   private static startTopUp(id: string): void {
