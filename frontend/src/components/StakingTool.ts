@@ -24,6 +24,15 @@ import {
 type StakingStep = 'form' | 'allowance' | 'success'
 type StakeType   = 'NFT' | 'FT'
 type Frequency   = '1d' | '7d' | '30d' | '90d' | '180d' | '365d'
+type TierType    = 'range' | 'specific'
+
+interface TierConfigItem {
+  name?: string
+  type: TierType
+  range?: { start: number; end: number }
+  serials?: number[]
+  reward_rate_per_day: number
+}
 
 interface StakingProgram {
   id: string
@@ -41,6 +50,7 @@ interface StakingProgram {
   last_distributed_at: string | null
   status: 'active' | 'paused' | 'completed'
   created_at: string
+  tier_config?: TierConfigItem[] | null
 }
 
 const FREQUENCY_LABELS: Record<Frequency, string> = {
@@ -69,6 +79,8 @@ export class StakingTool {
   private static minStakeAmount    = '0'
   private static frequency: Frequency = '7d'
   private static totalRewardSupply = ''
+  private static tieredRewardsEnabled = false
+  private static tiers: TierConfigItem[] = []
 
   // ─── Token info (fetched on blur) ─────────────────────────
   private static rewardDecimals: number | null   = null
@@ -95,6 +107,8 @@ export class StakingTool {
   private static editRewardRatePerDay = ''
   private static editFrequency: Frequency = '7d'
   private static editMinStakeAmount = '0'
+  private static editTieredRewardsEnabled = false
+  private static editTiers: TierConfigItem[] = []
 
   // ─── Allowance state ──────────────────────────────────────
   private static allowances: Record<string, { remaining: number | null; granted: number | null; loading: boolean }> = {}
@@ -275,6 +289,8 @@ export class StakingTool {
           <input type="number" id="stk-supply" class="token-input" placeholder="Leave blank for unlimited" min="0" value="${this.escapeHtml(this.totalRewardSupply)}" />
         </div>
 
+        ${!isFT ? this.renderTierSection() : ''}
+
         <div class="filter-divider"></div>
 
         <button class="terminal-button" id="stk-submit" style="width:100%;margin-top:0.5rem"
@@ -283,6 +299,147 @@ export class StakingTool {
         </button>
         ${!ws.connected ? '<p style="font-size:0.75rem;color:#ff6b6b;margin:0.4rem 0 0;text-align:center">⚠ Connect your wallet to continue</p>' : ''}
       </div>`
+  }
+
+  // ─── TIER BUILDER ─────────────────────────────────────────
+
+  private static renderTierSection(): string {
+    return `
+      <div class="input-group" style="margin-top:0.75rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem">
+          <label style="margin:0">Tiered Rewards by Serial</label>
+          <button class="terminal-button ${this.tieredRewardsEnabled ? '' : 'secondary'}" id="stk-toggle-tiers" style="font-size:0.72rem;padding:0.25rem 0.5rem">
+            ${this.tieredRewardsEnabled ? 'DISABLE TIERS' : 'ENABLE TIERS'}
+          </button>
+        </div>
+        ${this.tieredRewardsEnabled ? `
+          <p style="font-size:0.75rem;opacity:0.6;margin:0 0 0.5rem">
+            Serials matching a tier earn that tier's rate. Serials not in any tier earn the default Daily Reward Rate.
+          </p>
+          <div id="stk-tier-list">
+            ${this.renderTierBuilder(this.tiers, 'stk-tier')}
+          </div>
+          <button class="terminal-button secondary" id="stk-add-tier" style="width:100%;margin-top:0.5rem;font-size:0.75rem">+ ADD TIER</button>
+        ` : `
+          <p style="font-size:0.75rem;opacity:0.5;margin:0">Enable to set different reward rates for specific serials or serial ranges.</p>
+        `}
+      </div>`
+  }
+
+  private static renderTierSummary(tiers: TierConfigItem[]): string {
+    const items = tiers.map(t => {
+      const label = t.name || (t.type === 'range' ? `Range ${t.range!.start}-${t.range!.end}` : `${t.serials!.length} serial(s)`)
+      return `<li style="margin:0.15rem 0">${this.escapeHtml(label)}: ${t.reward_rate_per_day}/day</li>`
+    }).join('')
+    return `<ul style="font-size:0.72rem;opacity:0.65;margin:0 0 0.3rem 1rem;padding:0">${items}</ul>`
+  }
+
+  private static renderTierBuilder(tiers: TierConfigItem[], prefix: string): string {
+    if (tiers.length === 0) {
+      return `<p style="font-size:0.78rem;opacity:0.6;margin:0 0 0.5rem">No tiers added yet. Click “Add Tier” to define serial-specific reward rates.</p>`
+    }
+    const rows = tiers.map((t, i) => this.renderTierRow(t, i, prefix)).join('')
+    return `<div style="display:flex;flex-direction:column;gap:0.6rem">${rows}</div>`
+  }
+
+  private static renderTierRow(tier: TierConfigItem, index: number, prefix: string): string {
+    const isRange = tier.type === 'range'
+    const nameId = `${prefix}-name-${index}`
+    const typeId = `${prefix}-type-${index}`
+    const startId = `${prefix}-start-${index}`
+    const endId = `${prefix}-end-${index}`
+    const serialsId = `${prefix}-serials-${index}`
+    const rateId = `${prefix}-rate-${index}`
+    return `
+      <div class="tier-row" data-tier-index="${index}" style="padding:0.6rem;background:rgba(255,255,255,0.04);border:1px solid var(--border-color);border-radius:6px">
+        <div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.4rem">
+          <input type="text" id="${nameId}" class="token-input" data-field="name" value="${this.escapeHtml(tier.name || '')}" placeholder="Tier name (optional)" style="flex:1;font-size:0.8rem" />
+          <button class="terminal-button secondary" data-tier-action="remove" style="font-size:0.65rem;padding:0.2rem 0.4rem">✕</button>
+        </div>
+        <div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.4rem;flex-wrap:wrap">
+          <select id="${typeId}" class="token-input" data-field="type" style="font-size:0.8rem;background:var(--terminal-bg);color:var(--terminal-text);border:1px solid var(--border-color)">
+            <option value="range" ${isRange ? 'selected' : ''}>Range</option>
+            <option value="specific" ${!isRange ? 'selected' : ''}>Specific Serials</option>
+          </select>
+          ${isRange ? `
+            <input type="number" id="${startId}" class="token-input" data-field="start" placeholder="Start" min="0" value="${tier.range?.start ?? ''}" style="width:80px;font-size:0.8rem" />
+            <span style="font-size:0.8rem">-</span>
+            <input type="number" id="${endId}" class="token-input" data-field="end" placeholder="End" min="0" value="${tier.range?.end ?? ''}" style="width:80px;font-size:0.8rem" />
+          ` : `
+            <textarea id="${serialsId}" class="token-input" data-field="serials" placeholder="e.g. 1, 20, 420" style="flex:1;min-height:2.5rem;font-size:0.8rem">${this.escapeHtml(this.formatSerialsInput(tier.serials))}</textarea>
+          `}
+        </div>
+        <div style="display:flex;gap:0.4rem;align-items:center">
+          <input type="number" id="${rateId}" class="token-input" data-field="rate" placeholder="Daily rate" step="any" min="0" value="${tier.reward_rate_per_day}" style="flex:1;font-size:0.8rem" />
+          <span style="font-size:0.75rem;opacity:0.7">/ day</span>
+          <button class="terminal-button secondary" data-tier-action="up" style="font-size:0.65rem;padding:0.2rem 0.4rem">↑</button>
+          <button class="terminal-button secondary" data-tier-action="down" style="font-size:0.65rem;padding:0.2rem 0.4rem">↓</button>
+        </div>
+      </div>`
+  }
+
+  private static parseSerialsInput(value: string): number[] {
+    return value.split(/[,\n]+/)
+      .map(s => s.replace(/#/g, '').trim())
+      .filter(s => s.length > 0)
+      .map(s => parseInt(s, 10))
+      .filter(n => !isNaN(n) && n >= 0)
+  }
+
+  private static formatSerialsInput(serials?: number[]): string {
+    return (serials || []).join(', ')
+  }
+
+  private static handleTierFieldChange(index: number, field: string, value: string, isEdit: boolean): void {
+    const tiers = isEdit ? this.editTiers : this.tiers
+    const tier = tiers[index]
+    if (!tier) return
+
+    if (field === 'name') {
+      tier.name = value.trim() || undefined
+    } else if (field === 'type') {
+      tier.type = value as TierType
+      if (tier.type === 'range') {
+        tier.range = { start: 1, end: 100 }
+        tier.serials = undefined
+      } else {
+        tier.serials = []
+        tier.range = undefined
+      }
+      this.refresh()
+    } else if (field === 'start') {
+      if (!tier.range) tier.range = { start: 0, end: 0 }
+      tier.range.start = parseInt(value, 10) || 0
+    } else if (field === 'end') {
+      if (!tier.range) tier.range = { start: 0, end: 0 }
+      tier.range.end = parseInt(value, 10) || 0
+    } else if (field === 'serials') {
+      tier.serials = this.parseSerialsInput(value)
+    } else if (field === 'rate') {
+      tier.reward_rate_per_day = parseFloat(value) || 0
+    }
+  }
+
+  private static validateTiers(tiers: TierConfigItem[]): { valid: boolean; error?: string } {
+    if (tiers.length === 0) {
+      return { valid: false, error: 'At least one tier is required when tiered rewards are enabled.' }
+    }
+    for (let i = 0; i < tiers.length; i++) {
+      const t = tiers[i]
+      if (t.type === 'range') {
+        if (!t.range || !Number.isInteger(t.range.start) || !Number.isInteger(t.range.end) || t.range.start < 0 || t.range.end < t.range.start) {
+          return { valid: false, error: `Tier ${i + 1} has an invalid serial range.` }
+        }
+      } else {
+        if (!t.serials || t.serials.length === 0) {
+          return { valid: false, error: `Tier ${i + 1} has no specific serials.` }
+        }
+      }
+      if (isNaN(t.reward_rate_per_day) || t.reward_rate_per_day < 0) {
+        return { valid: false, error: `Tier ${i + 1} rate must be 0 or greater.` }
+      }
+    }
+    return { valid: true }
   }
 
   private static renderFeeWarning(): string {
@@ -327,7 +484,12 @@ export class StakingTool {
           <p style="font-size:0.8rem;margin:0 0 0.3rem"><strong>Program:</strong> ${this.escapeHtml(this.programName)}</p>
           <p style="font-size:0.8rem;margin:0 0 0.3rem"><strong>Stake Token:</strong> ${this.escapeHtml(this.stakeTokenId)} (${this.stakeType})</p>
           <p style="font-size:0.8rem;margin:0 0 0.3rem"><strong>Reward Token:</strong> ${this.escapeHtml(this.rewardTokenId)}</p>
-          <p style="font-size:0.8rem;margin:0 0 0.3rem"><strong>Rate:</strong> ${this.rewardRatePerDay} tokens / ${this.stakeType === 'NFT' ? 'NFT' : 'unit'} / day → ~${perDistrib} per distribution</p>
+          ${this.tieredRewardsEnabled && this.stakeType === 'NFT' ? `
+            <p style="font-size:0.8rem;margin:0 0 0.3rem"><strong>Default Rate:</strong> ${this.rewardRatePerDay || 0} tokens / NFT / day</p>
+            <p style="font-size:0.8rem;margin:0 0 0.3rem"><strong>Tiers:</strong> ${this.tiers.length} configured</p>
+          ` : `
+            <p style="font-size:0.8rem;margin:0 0 0.3rem"><strong>Rate:</strong> ${this.rewardRatePerDay} tokens / ${this.stakeType === 'NFT' ? 'NFT' : 'unit'} / day → ~${perDistrib} per distribution</p>
+          `}
           <p style="font-size:0.8rem;margin:0"><strong>Frequency:</strong> ${FREQUENCY_LABELS[this.frequency]}</p>
         </div>
 
@@ -410,7 +572,9 @@ export class StakingTool {
           </div>
           <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">${p.stake_token_type} · Stake: ${p.stake_token_id}</p>
           <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">Reward: ${p.reward_token_id} · ${FREQUENCY_LABELS[p.frequency]}</p>
-          <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">Rate: ${p.reward_rate_per_day}/day · Next drip: ${nextDrip}</p>
+          ${p.tier_config && p.tier_config.length > 0 && p.stake_token_type === 'NFT'
+            ? `<p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">Default: ${p.reward_rate_per_day}/day · ${p.tier_config.length} tier(s) · Next drip: ${nextDrip}</p>${this.renderTierSummary(p.tier_config)}`
+            : `<p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">Rate: ${p.reward_rate_per_day}/day · Next drip: ${nextDrip}</p>`}
           <p style="font-size:0.77rem;opacity:0.65;margin:0 0 0.3rem">${allowanceText}</p>
           ${!p.allowance_granted ? '<p style="font-size:0.75rem;color:#ff6b6b;margin:0 0 0.3rem">⚠ Allowance not yet granted</p>' : ''}
           <div style="display:flex;align-items:center;gap:0.4rem;margin:0.4rem 0 0.2rem;background:rgba(0,0,0,0.2);border-radius:4px;padding:0.3rem 0.5rem">
@@ -473,7 +637,7 @@ export class StakingTool {
         </div>
 
         <div class="input-group" style="margin-bottom:0.5rem">
-          <label style="font-size:0.75rem">Daily Reward Rate</label>
+          <label style="font-size:0.75rem">${this.editTieredRewardsEnabled ? 'Default Daily Reward Rate' : 'Daily Reward Rate'}</label>
           <input type="number" id="stk-edit-rate" class="token-input" step="any" min="0" value="${this.escapeHtml(this.editRewardRatePerDay)}" style="font-size:0.85rem" />
         </div>
 
@@ -488,6 +652,18 @@ export class StakingTool {
           <label style="font-size:0.75rem">Minimum Holdings</label>
           <input type="number" id="stk-edit-min-stake" class="token-input" min="0" value="${this.escapeHtml(this.editMinStakeAmount)}" style="font-size:0.85rem" />
         </div>
+
+        ${this.editTieredRewardsEnabled ? `
+          <div class="input-group" style="margin-bottom:0.6rem">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem">
+              <label style="margin:0;font-size:0.75rem">Tiers</label>
+              <button class="terminal-button secondary" id="stk-edit-add-tier" style="font-size:0.65rem;padding:0.2rem 0.4rem">+ ADD TIER</button>
+            </div>
+            <div id="stk-edit-tier-list">
+              ${this.renderTierBuilder(this.editTiers, 'stk-edit-tier')}
+            </div>
+          </div>
+        ` : ''}
 
         <div style="padding:0.5rem;background:rgba(0,0,0,0.2);border-radius:4px;margin-bottom:0.6rem">
           <p style="font-size:0.7rem;opacity:0.6;margin:0">Locked: Stake ${p.stake_token_id} (${p.stake_token_type}) · Reward ${p.reward_token_id} · Treasury ${p.treasury_account_id}</p>
@@ -530,6 +706,8 @@ export class StakingTool {
     this.minStakeAmount = '0'
     this.frequency = '7d'
     this.totalRewardSupply = ''
+    this.tieredRewardsEnabled = false
+    this.tiers = []
     this.rewardDecimals = null
     this.rewardTotalSupply = null
     this.rewardTokenName = ''
@@ -548,6 +726,8 @@ export class StakingTool {
     this.editRewardRatePerDay = ''
     this.editFrequency = '7d'
     this.editMinStakeAmount = '0'
+    this.editTieredRewardsEnabled = false
+    this.editTiers = []
     this.allowances = {}
     this.toppingUpProgramId = null
     this.topUpAmount = ''
@@ -576,8 +756,53 @@ export class StakingTool {
     })
 
     // Stake type toggle
-    document.getElementById('stk-type-ft')?.addEventListener('click', () => { this.stakeType = 'FT'; this.refresh() })
+    document.getElementById('stk-type-ft')?.addEventListener('click', () => {
+      this.stakeType = 'FT'
+      this.tieredRewardsEnabled = false
+      this.refresh()
+    })
     document.getElementById('stk-type-nft')?.addEventListener('click', () => { this.stakeType = 'NFT'; this.refresh() })
+
+    // Tiered rewards toggle
+    document.getElementById('stk-toggle-tiers')?.addEventListener('click', () => {
+      this.tieredRewardsEnabled = !this.tieredRewardsEnabled
+      if (this.tieredRewardsEnabled && this.tiers.length === 0) {
+        this.tiers.push({ type: 'range', range: { start: 1, end: 100 }, reward_rate_per_day: 0 })
+      }
+      this.refresh()
+    })
+    document.getElementById('stk-add-tier')?.addEventListener('click', () => {
+      this.tiers.push({ type: 'range', range: { start: 1, end: 100 }, reward_rate_per_day: 0 })
+      this.refresh()
+    })
+    const tierList = document.getElementById('stk-tier-list')
+    tierList?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-tier-action]') as HTMLElement
+      if (!btn) return
+      const row = btn.closest('[data-tier-index]') as HTMLElement
+      const idx = parseInt(row?.dataset.tierIndex || '0')
+      const action = btn.dataset.tierAction
+      if (action === 'remove') this.tiers.splice(idx, 1)
+      if (action === 'up' && idx > 0) [this.tiers[idx - 1], this.tiers[idx]] = [this.tiers[idx], this.tiers[idx - 1]]
+      if (action === 'down' && idx < this.tiers.length - 1) [this.tiers[idx], this.tiers[idx + 1]] = [this.tiers[idx + 1], this.tiers[idx]]
+      this.refresh()
+    })
+    tierList?.addEventListener('input', (e) => {
+      const el = e.target as HTMLInputElement | HTMLTextAreaElement
+      const row = el.closest('[data-tier-index]') as HTMLElement
+      if (!row) return
+      const idx = parseInt(row.dataset.tierIndex || '0')
+      const field = el.dataset.field
+      if (field) this.handleTierFieldChange(idx, field, el.value, false)
+    })
+    tierList?.addEventListener('change', (e) => {
+      const el = e.target as HTMLSelectElement
+      const row = el.closest('[data-tier-index]') as HTMLElement
+      if (!row) return
+      const idx = parseInt(row.dataset.tierIndex || '0')
+      const field = el.dataset.field
+      if (field) this.handleTierFieldChange(idx, field, el.value, false)
+    })
 
     // Form input bindings
     const bind = (id: string, key: string) => {
@@ -649,6 +874,40 @@ export class StakingTool {
     const editMin = document.getElementById('stk-edit-min-stake') as HTMLInputElement | null
     editMin?.addEventListener('input', () => { this.editMinStakeAmount = editMin.value })
 
+    // Edit-mode tier builder
+    document.getElementById('stk-edit-add-tier')?.addEventListener('click', () => {
+      this.editTiers.push({ type: 'range', range: { start: 1, end: 100 }, reward_rate_per_day: 0 })
+      this.refresh()
+    })
+    const editTierList = document.getElementById('stk-edit-tier-list')
+    editTierList?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-tier-action]') as HTMLElement
+      if (!btn) return
+      const row = btn.closest('[data-tier-index]') as HTMLElement
+      const idx = parseInt(row?.dataset.tierIndex || '0')
+      const action = btn.dataset.tierAction
+      if (action === 'remove') this.editTiers.splice(idx, 1)
+      if (action === 'up' && idx > 0) [this.editTiers[idx - 1], this.editTiers[idx]] = [this.editTiers[idx], this.editTiers[idx - 1]]
+      if (action === 'down' && idx < this.editTiers.length - 1) [this.editTiers[idx], this.editTiers[idx + 1]] = [this.editTiers[idx + 1], this.editTiers[idx]]
+      this.refresh()
+    })
+    editTierList?.addEventListener('input', (e) => {
+      const el = e.target as HTMLInputElement | HTMLTextAreaElement
+      const row = el.closest('[data-tier-index]') as HTMLElement
+      if (!row) return
+      const idx = parseInt(row.dataset.tierIndex || '0')
+      const field = el.dataset.field
+      if (field) this.handleTierFieldChange(idx, field, el.value, true)
+    })
+    editTierList?.addEventListener('change', (e) => {
+      const el = e.target as HTMLSelectElement
+      const row = el.closest('[data-tier-index]') as HTMLElement
+      if (!row) return
+      const idx = parseInt(row.dataset.tierIndex || '0')
+      const field = el.dataset.field
+      if (field) this.handleTierFieldChange(idx, field, el.value, true)
+    })
+
     // Top-up input binding
     const topUpInput = document.getElementById('stk-top-up-amount') as HTMLInputElement | null
     topUpInput?.addEventListener('input', () => { this.topUpAmount = topUpInput.value })
@@ -668,9 +927,22 @@ export class StakingTool {
     if (!this.rewardTokenId.trim()) { this.error = 'Reward Token ID is required.'; this.refresh(); return }
     // Always use the connected wallet as treasury
     this.treasuryAccountId = ws.accountId!
-    if (!this.rewardRatePerDay || parseFloat(this.rewardRatePerDay) <= 0) {
-      this.error = 'Daily reward rate must be greater than 0.'; this.refresh(); return
+
+    if (this.tieredRewardsEnabled) {
+      if (this.stakeType !== 'NFT') {
+        this.error = 'Tiered rewards are only available for NFT programs.'; this.refresh(); return
+      }
+      const tierValidation = this.validateTiers(this.tiers)
+      if (!tierValidation.valid) { this.error = tierValidation.error || 'Invalid tiers'; this.refresh(); return }
+      if (parseFloat(this.rewardRatePerDay) < 0) {
+        this.error = 'Default daily reward rate cannot be negative.'; this.refresh(); return
+      }
+    } else {
+      if (!this.rewardRatePerDay || parseFloat(this.rewardRatePerDay) <= 0) {
+        this.error = 'Daily reward rate must be greater than 0.'; this.refresh(); return
+      }
     }
+
     // Fetch token info before proceeding if not already loaded
     if (this.rewardDecimals === null) {
       this.fetchRewardTokenInfo(this.rewardTokenId.trim()).then(() => {
@@ -728,6 +1000,7 @@ export class StakingTool {
           minStakeAmount:     parseInt(this.minStakeAmount) || 0,
           frequency:          this.frequency,
           totalRewardSupply:  this.totalRewardSupply ? parseInt(this.totalRewardSupply) : null,
+          tierConfig:         this.tieredRewardsEnabled && this.stakeType === 'NFT' ? this.tiers : null,
         }),
       })
       const saveData = await saveRes.json()
@@ -858,6 +1131,9 @@ export class StakingTool {
     this.editRewardRatePerDay = String(p.reward_rate_per_day)
     this.editFrequency = p.frequency
     this.editMinStakeAmount = String(p.min_stake_amount)
+    const hasTiers = p.stake_token_type === 'NFT' && Array.isArray(p.tier_config) && p.tier_config.length > 0
+    this.editTieredRewardsEnabled = hasTiers
+    this.editTiers = hasTiers ? JSON.parse(JSON.stringify(p.tier_config)) : []
     this.refresh()
   }
 
@@ -883,6 +1159,11 @@ export class StakingTool {
     if (isNaN(rate) || rate < 0) { this.error = 'Daily reward rate must be 0 or greater.'; this.refresh(); return }
     if (minStake < 0) { this.error = 'Minimum holdings cannot be negative.'; this.refresh(); return }
 
+    if (this.editTieredRewardsEnabled) {
+      const tierValidation = this.validateTiers(this.editTiers)
+      if (!tierValidation.valid) { this.error = tierValidation.error || 'Invalid tiers'; this.refresh(); return }
+    }
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/staking-programs/${id}`, {
         method: 'PUT',
@@ -894,6 +1175,7 @@ export class StakingTool {
           rewardRatePerDay: rate,
           minStakeAmount: minStake,
           frequency,
+          tierConfig: this.editTieredRewardsEnabled ? this.editTiers : undefined,
         }),
       })
       const data = await res.json()

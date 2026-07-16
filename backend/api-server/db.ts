@@ -144,7 +144,11 @@ export async function initDb(): Promise<void> {
       ADD COLUMN IF NOT EXISTS stake_token_type    VARCHAR(3)  DEFAULT 'FT',
       ADD COLUMN IF NOT EXISTS frequency           VARCHAR(6)  DEFAULT '7d',
       ADD COLUMN IF NOT EXISTS allowance_granted   BOOLEAN     DEFAULT false,
-      ADD COLUMN IF NOT EXISTS last_distributed_at TIMESTAMPTZ;
+      ADD COLUMN IF NOT EXISTS last_distributed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS tier_config         JSONB       DEFAULT NULL;
+
+    ALTER TABLE staking_distributions
+      ADD COLUMN IF NOT EXISTS tier_breakdown      JSONB       DEFAULT NULL;
 
     ALTER TABLE swap_programs
       ADD COLUMN IF NOT EXISTS serial_mode VARCHAR(10) DEFAULT '1:1'

@@ -1,7 +1,7 @@
-# Tiered Staking — Research & Implementation Plan
+# Tiered Staking — Implementation Plan
 
-> Captured from recent staking-tool research.  
-> Goal: allow a creator to define multiple reward tiers inside a single staking program (e.g. serials 1–1000 earn X/day, serials 1001–5000 earn Y/day, etc.).
+> Final design for NFT-serial-based tiered rewards.  
+> Goal: let creators define multiple reward tiers inside one staking program, where each tier applies to either a serial range or a list of specific serials. Unmatched serials fall back to the program’s global `reward_rate_per_day`.
 
 ---
 
@@ -27,203 +27,267 @@ rewardRaw   = Math.floor(wholeReward * 10^rewardDecimals)
 - **FT programs:** `unitsHeld` = `rawBalance / 10^stakeDecimals`.
 - Drip uses `TransferTransaction` with `addApprovedTokenTransfer`, drawing from the creator’s treasury allowance.
 
-### Existing serial handling
-
-- Mirror Node query: `/api/v1/accounts/{accountId}/nfts?token.id={tokenId}` (paginated).
-- `staking_nft_period_credits` stores `(program_id, nft_serial, period_start, credited_at)`.
-- A serial is skipped if it was credited within `frequencyDays * 24 - 4` hours.
-
-### Frontend
-
-- Program creation form: stake asset type, stake/reward token IDs, treasury, one global rate, one global minimum, frequency, optional supply cap.
-- Edit mode currently allows editing: `name`, `description`, `reward_rate_per_day`, `frequency`, `min_stake_amount`.
-- No tier / serial-range UI exists today.
-
 ---
 
 ## 2. What tiered staking looks like
 
-A creator defines tiers inside a program. Each tier maps a set of serials to its own reward rate (and optionally its own minimum holdings).
+A creator defines tiers inside a program. Each tier maps a set of serials to its own reward rate.
 
-Example:
+### Example
 
-| Tier | Serial range | Reward / day |
-|------|--------------|--------------|
-| Legendary | 1 – 100 | 50 |
-| Epic | 101 – 1,000 | 20 |
-| Common | 1,001 – 10,000 | 5 |
+| Tier | Serials | Reward / day |
+|------|---------|--------------|
+| Founder’s Edition | specific: `1, 20, 420` | 100 |
+| Legendary | range: `1 – 150` | 50 |
+| Epic | range: `151 – 1000` | 20 |
+| Everything else | fallback | 10 |
 
-At drip time, the backend:
+At drip time:
 
-1. Fetches the participant’s held serials.
-2. Buckets each serial into the matching tier.
-3. Sums: `countInTier * tierRate * frequencyDays` across all tiers.
-4. Pays the total in one approved token transfer.
-5. Records each rewarded serial in `staking_nft_period_credits` (unchanged logic).
+1. Fetch the participant’s held serials.
+2. Filter out serials already credited in the current period (`staking_nft_period_credits`).
+3. For each remaining serial, find the **first matching tier** (array order matters).
+4. Sum: `tierRate * frequencyDays` for matched serials, or `globalRate * frequencyDays` for unmatched serials.
+5. Pay the total in one approved token transfer.
+6. Record each rewarded serial in `staking_nft_period_credits` (unchanged).
 
----
+### Scope
 
-## 3. Data-model options
-
-### Option A: `tier_config JSONB` column on `staking_programs`
-
-```json
-[
-  { "name": "Legendary", "serial_start": 1,    "serial_end": 100,  "reward_rate_per_day": 50 },
-  { "name": "Epic",      "serial_start": 101,  "serial_end": 1000, "reward_rate_per_day": 20 },
-  { "name": "Common",    "serial_start": 1001, "serial_end": 10000, "reward_rate_per_day": 5 }
-]
-```
-
-- **Pros:** Simple, no new table, fast to implement.
-- **Cons:** Harder to query across tiers, less flexible for future features.
-- **Best for:** First version / small static tier lists.
-
-### Option B: New `staking_program_tiers` table
-
-```sql
-CREATE TABLE staking_program_tiers (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  program_id UUID REFERENCES staking_programs(id) ON DELETE CASCADE,
-  name VARCHAR(255),
-  serial_start BIGINT NOT NULL,
-  serial_end BIGINT NOT NULL,
-  reward_rate_per_day NUMERIC NOT NULL,
-  min_stake_amount BIGINT DEFAULT 0,
-  sort_order INT DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (program_id, serial_start, serial_end)
-);
-```
-
-- **Pros:** Normalized, queryable, supports per-tier minimums and future expansion (metadata traits, weights, etc.).
-- **Cons:** More tables, more CRUD endpoints, slightly more UI work.
-- **Best for:** Long-term feature richness.
-
-**Recommendation:** Start with **Option A** (`tier_config JSONB`) for speed. Migrate to Option B later if tiers become a first-class feature.
+- **NFT programs only.** FT/HTS programs keep the existing flat-rate UI.
+- **New programs only** for adding tiers to a previously flat program. Once a flat program has participants or distributions, it cannot be converted to tiered.
+- Existing flat-rate programs continue working unchanged.
 
 ---
 
-## 4. Backend changes
+## 3. Data model
 
-### `staking_programs` table
-
-Add:
+### `tier_config` JSONB column on `staking_programs`
 
 ```sql
 ALTER TABLE staking_programs ADD COLUMN tier_config JSONB DEFAULT NULL;
 ```
 
-Migration for existing programs: auto-generate one default tier spanning a very large serial range (`0` to `999999999`) using the existing `reward_rate_per_day`, so behavior is unchanged.
+Example payload:
 
-### Reward calculation
+```json
+[
+  {
+    "name": "Founder's Edition",
+    "type": "specific",
+    "serials": [1, 20, 420],
+    "reward_rate_per_day": 100
+  },
+  {
+    "name": "Legendary",
+    "type": "range",
+    "range": { "start": 1, "end": 150 },
+    "reward_rate_per_day": 50
+  },
+  {
+    "name": "Epic",
+    "type": "range",
+    "range": { "start": 151, "end": 1000 },
+    "reward_rate_per_day": 20
+  }
+]
+```
 
-Replace the single-rate formula with tiered summation:
+### Audit column
+
+```sql
+ALTER TABLE staking_distributions ADD COLUMN tier_breakdown JSONB DEFAULT NULL;
+```
+
+Stores per-drip summary such as:
+
+```json
+{
+  "Founder's Edition": { "count": 2, "rate": 100, "reward": 200 },
+  "Legendary":         { "count": 3, "rate": 50,  "reward": 150 }
+}
+```
+
+### Why JSONB
+
+- One column, minimal schema change.
+- Naturally supports both `range` and `specific` tiers.
+- Keeps the existing `reward_rate_per_day` column as the fallback/default rate.
+- No migration required for existing programs (`NULL` = use flat rate).
+
+A normalized table can be introduced later if tiers become a first-class analytics feature.
+
+---
+
+## 4. Handling `reward_rate_per_day`
+
+Keep the existing column as the **default/fallback rate**.
+
+| Program | `tier_config` | Reward logic |
+|---------|---------------|--------------|
+| Existing FT or NFT | `NULL` / `[]` | Use global `reward_rate_per_day` exactly as today. |
+| New flat-rate NFT/FT | `NULL` / `[]` | Use global `reward_rate_per_day`. |
+| New tiered NFT | non-empty array | Bucket serials by tier; unmatched serials earn the global rate. |
+
+If a creator wants unmatched serials to earn nothing, they simply set the global rate to `0`.
+
+---
+
+## 5. Backend changes
+
+### a. Schema migration (`backend/api-server/db.ts`)
+
+```sql
+ALTER TABLE staking_programs
+  ADD COLUMN IF NOT EXISTS tier_config JSONB DEFAULT NULL;
+
+ALTER TABLE staking_distributions
+  ADD COLUMN IF NOT EXISTS tier_breakdown JSONB DEFAULT NULL;
+```
+
+### b. Validation helper (`staking.ts`)
+
+`validateTierConfig(tiers, stakeTokenType)`:
+
+- Reject tiers for FT programs.
+- Each tier must have:
+  - `name` (string, optional)
+  - `reward_rate_per_day` (number ≥ 0)
+  - Either `type: "range"` with integer `start ≤ end`, or `type: "specific"` with an array of unique non-negative integers.
+
+### c. Create endpoint (`POST /api/staking-programs`)
+
+- Accept optional `tier_config`.
+- Validate and store as JSONB.
+
+### d. Update endpoint (`PUT /api/staking-programs/:id`)
+
+- Accept optional `tier_config`.
+- If the program currently has no tiers, allow adding tiers **only if** it has zero participants and zero distributions.
+- If the program already has tiers, allow editing them freely.
+- This protects existing flat-rate participants from unexpected reward-rule changes.
+
+### e. `processDrip` — core change
+
+For NFT programs with a non-empty `tier_config`:
 
 ```ts
-let wholeReward = 0;
-for (const tier of program.tier_config ?? [defaultTier]) {
-  const countInTier = serialsHeld.filter(
-    s => s >= tier.serial_start && s <= tier.serial_end
-  ).length;
-  wholeReward += countInTier * tier.reward_rate_per_day * frequencyDays;
-}
+const { wholeReward, breakdown } = calcTieredReward(
+  newSerials,
+  prog.tier_config,
+  Number(prog.reward_rate_per_day),
+  days,
+);
 const rewardRaw = Math.floor(wholeReward * 10 ** rewardDecimals);
 ```
 
-For FT programs, tiers don’t apply by serial — keep the global rate or introduce a separate FT-tier concept later.
+For FT programs or NFT programs without tiers, keep the existing `calcReward` path.
 
-### API endpoints
+Store `breakdown` in `staking_distributions.tier_breakdown`.
 
-| Endpoint | Change |
-|----------|--------|
-| `POST /api/staking-programs` | Accept `tier_config` array. Validate ranges don’t overlap and rates are positive. |
-| `PUT /api/staking-programs/:id` | Allow editing `tier_config` (or add `PUT /api/staking-programs/:id/tiers`). |
-| `GET /api/staking-programs/:id/allowance` | No change. |
-| `POST /api/staking-programs/:id/register` | Optional: validate participant qualifies for at least one tier. |
-| `processDrip` | Bucket serials into tiers before calculating reward. |
+### f. External API (`staking-external.ts`)
 
-### `staking_nft_period_credits`
-
-No schema change needed. This table’s only job is to prevent a serial from being rewarded twice in the same period. Tiered reward calculation happens **before** the credit check and remains compatible.
-
-### Audit / distribution history
-
-`staking_distributions` currently stores aggregate `units_held` and `amount`. To show “X from Tier 1, Y from Tier 2” historically, either:
-
-- Add a JSONB `tier_breakdown` column to `staking_distributions`, or
-- Create `staking_distribution_tiers(program_id, distribution_id, tier_name, serials_count, amount)`.
-
-This is optional for the first version but recommended for transparency.
+- Include `tier_config` in program responses.
+- Update `externalGetPosition` and `externalGetEligibility` to estimate rewards using `calcTieredReward` for NFT programs.
+- Include `tier_breakdown` in distribution responses.
 
 ---
 
-## 5. Frontend changes
+## 6. Overlap policy
 
-### Program creation form
+**First match wins, by array order.**
 
-Add a **Tier Builder** section:
+- A serial may match a specific-serial tier and also a range tier.
+- The first tier in the array that contains the serial determines its rate.
+- The frontend lets creators reorder tiers.
 
-- “Add tier” button.
-- Per tier: name, serial start, serial end, daily reward rate.
-- Validation:
-  - Ranges cannot overlap.
-  - Rates must be positive numbers.
-  - At least one tier required.
-
-### Program edit card
-
-Allow editing tiers the same way other editable fields are edited (inline edit mode → save → `PUT`).
-
-### Program display
-
-Show tier summary on the card, e.g.:
-
-```
-Tiers:
-• Legendary (serials 1–100): 50 / day
-• Epic (serials 101–1,000): 20 / day
-• Common (serials 1,001–10,000): 5 / day
-```
-
-### Registration / drip history
-
-- Registration stays the same.
-- Drip history can show total earned per tier if audit table is added.
+This makes it easy to put rare/specific serials above broad ranges.
 
 ---
 
-## 6. Design decisions to make
+## 7. Frontend changes (`frontend/src/components/StakingTool.ts`)
 
-| Decision | Options | Notes |
-|----------|---------|-------|
-| **Tier basis** | Serial ranges vs. metadata traits | Serial ranges are fast and use existing mirror-node data. Metadata traits require IPFS fetches and parsing. |
-| **Range overlap** | Strict non-overlap vs. priority order | Non-overlap is simplest. If overlapping, define “first match wins” or “highest rate wins.” |
-| **Per-tier minimums** | Global minimum only vs. per-tier minimums | Global minimum keeps the first version simple. |
-| **Editing live tiers** | Editable vs. locked after creation | Soft-staking means edits can take effect next drip without affecting past distributions. |
-| **Existing programs** | Backfill one default tier vs. leave null | Backfill guarantees existing programs continue working. |
-| **FT programs** | Support tiers later vs. now | FT tiers are usually balance thresholds, not serial ranges. Can be a Phase 2. |
+### a. Creation form
+
+Add a **“Enable tiered rewards by serial”** toggle, visible only when **Stake Asset Type = NFT**.
+
+When enabled:
+
+- Global rate field is relabeled to **“Default Daily Reward Rate”**.
+- Tier builder appears below it.
+- Each tier row shows:
+  - Name input (optional).
+  - Type selector: **Range** or **Specific Serials**.
+  - Range mode: start/end inputs.
+  - Specific mode: textarea for comma-separated serials (e.g. `1, 20, 420`).
+  - Daily rate input.
+  - Remove / move-up / move-down buttons.
+- **“Add Tier”** button appends a new tier.
+
+Validation before submit:
+
+- At least one tier if tiered mode is on.
+- Each range has valid `start ≤ end` integers.
+- Each specific tier has at least one valid serial.
+- Each tier rate is ≥ 0.
+
+### b. Allowance step
+
+Summary shows:
+
+- Default rate.
+- Number of configured tiers.
+
+### c. Program list cards
+
+For tiered NFT programs:
+
+- Show default rate and tier count.
+- Expand a small tier summary (name/rate for each tier).
+
+For flat programs, keep the existing `Rate: X/day` line.
+
+### d. Edit card
+
+- For tiered programs: show the tier editor inline, allowing add/remove/reorder/edit of tiers.
+- For flat programs: keep the current simple edit UI (no tier editor).
+- Flat programs with participants/distributions cannot be converted to tiered from the UI (backend enforces this).
 
 ---
 
-## 7. Recommended minimal implementation path
+## 8. Migration / backfill strategy
 
-1. **Schema:** Add `tier_config JSONB` to `staking_programs`.
-2. **Migration:** Auto-generate a single default tier for every existing program using its current `reward_rate_per_day`.
-3. **Validation:** Create a helper that checks `tier_config` for overlapping ranges, positive rates, and required fields.
-4. **`processDrip`:** Update NFT reward calculation to bucket serials by tiers and sum tier rewards.
-5. **API:** Accept/save `tier_config` on create and update.
-6. **Frontend:** Add tier builder to creation form and edit card.
-7. **Audit (optional):** Add `tier_breakdown` JSONB to `staking_distributions`.
+**No migration required.**
 
-This keeps the change localized, reuses the existing serial-credit system, and does not require a new table.
+1. Add `tier_config` and `tier_breakdown` columns idempotently.
+2. Existing programs keep `tier_config = NULL` and use the global rate.
+3. `processDrip` checks:
+   - If `tier_config` is null/empty → flat-rate logic.
+   - If `tier_config` is non-empty → tiered logic.
+4. Existing distribution history remains valid.
 
 ---
 
-## 8. Open questions
+## 9. Risks & mitigations
 
-1. Should tiers be allowed for **FT** programs too (e.g. balance thresholds), or only NFT serial ranges?
-2. Should tiers support **metadata-based rules** in the future, and if so, how is metadata fetched/cached?
-3. Should the UI show participants a preview of their estimated reward by tier before they register?
-4. Should distributions record per-tier breakdowns from day one?
-5. How should the system handle serials that fall outside all defined tiers — ignore them or fall back to a default rate?
+| Risk | Mitigation |
+|------|------------|
+| Existing programs break | Keep global rate as fallback; only use tiers when `tier_config` is non-empty. |
+| FT programs accidentally tiered | Validation rejects `tier_config` for `stake_token_type === 'FT'`. |
+| Overlap ambiguity | First-match-wins policy; UI lets creators reorder tiers. |
+| Unmatched serials earn too much/too little | Global rate acts as default; creator can set it to `0` if desired. |
+| Malformed `tier_config` | Strict validation on create/update; defensive normalization in drip logic. |
+| Live tier edits affect next drip | Soft-staking means changes are forward-looking only; existing distributions are immutable. |
+| External API consumers | `tier_config` included in program/position/eligibility responses. |
+| Double-payment | `staking_nft_period_credits` still works per serial, independent of tier math. |
+
+---
+
+## 10. Implementation order
+
+1. Add `tier_config` and `tier_breakdown` columns.
+2. Create `validateTierConfig`, `findTierForSerial`, and `calcTieredReward` helpers.
+3. Update `processDrip` with tier-aware calculation.
+4. Update create/update endpoints.
+5. Update external API responses.
+6. Build frontend tier builder and display.
+7. Test with a new test program before offering to creators.

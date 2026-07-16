@@ -72,6 +72,137 @@ export function calcReward(
   return Math.floor(wholeReward * Math.pow(10, decimals));
 }
 
+// ─── Tiered staking types and helpers ────────────────────────────────────────
+
+export type TierType = 'range' | 'specific';
+
+export interface TierConfigItem {
+  name?: string;
+  type: TierType;
+  range?: { start: number; end: number };
+  serials?: number[];
+  reward_rate_per_day: number;
+}
+
+export interface TierBreakdownItem {
+  count: number;
+  rate: number;
+  reward: number;
+}
+
+/** Validate and normalize a tier_config payload. */
+export function validateTierConfig(
+  tiers: unknown,
+  stakeTokenType: string,
+): { valid: boolean; error?: string; normalized?: TierConfigItem[] } {
+  if (tiers === undefined || tiers === null) {
+    return { valid: true, normalized: undefined };
+  }
+  if (!Array.isArray(tiers)) {
+    return { valid: false, error: 'tier_config must be an array' };
+  }
+  if (tiers.length === 0) {
+    return { valid: true, normalized: [] };
+  }
+  if (stakeTokenType !== 'NFT') {
+    return { valid: false, error: 'Tiered rewards are only supported for NFT programs' };
+  }
+
+  const normalized: TierConfigItem[] = [];
+
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    if (!t || typeof t !== 'object') {
+      return { valid: false, error: `Tier ${i + 1} is invalid` };
+    }
+
+    const name = typeof (t as any).name === 'string' ? (t as any).name.trim() : undefined;
+    const rate = Number((t as any).reward_rate_per_day);
+    if (isNaN(rate) || rate < 0) {
+      return { valid: false, error: `Tier ${i + 1} reward_rate_per_day must be a non-negative number` };
+    }
+
+    const type = (t as any).type;
+    if (type !== 'range' && type !== 'specific') {
+      return { valid: false, error: `Tier ${i + 1} type must be 'range' or 'specific'` };
+    }
+
+    if (type === 'range') {
+      const r = (t as any).range;
+      if (!r || typeof r !== 'object') {
+        return { valid: false, error: `Tier ${i + 1} range is invalid` };
+      }
+      const start = Number(r.start);
+      const end = Number(r.end);
+      if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start) {
+        return { valid: false, error: `Tier ${i + 1} range must have integer start <= end` };
+      }
+      normalized.push({ name, type: 'range', range: { start, end }, reward_rate_per_day: rate });
+    } else {
+      const serials = (t as any).serials;
+      if (!Array.isArray(serials) || serials.length === 0) {
+        return { valid: false, error: `Tier ${i + 1} serials must be a non-empty array` };
+      }
+      const parsed = serials.map((s: unknown) => Number(s));
+      if (parsed.some((s: number) => !Number.isInteger(s) || s < 0)) {
+        return { valid: false, error: `Tier ${i + 1} serials must be non-negative integers` };
+      }
+      normalized.push({ name, type: 'specific', serials: parsed, reward_rate_per_day: rate });
+    }
+  }
+
+  return { valid: true, normalized };
+}
+
+/** Find the first tier matching a serial. Returns undefined if no tier matches. */
+export function findTierForSerial(
+  serial: number,
+  tiers: TierConfigItem[],
+): TierConfigItem | undefined {
+  for (const tier of tiers) {
+    if (tier.type === 'range' && tier.range && serial >= tier.range.start && serial <= tier.range.end) {
+      return tier;
+    }
+    if (tier.type === 'specific' && tier.serials && tier.serials.includes(serial)) {
+      return tier;
+    }
+  }
+  return undefined;
+}
+
+/** Calculate whole-token reward for a list of serials using tiers, falling back to defaultRate. */
+export function calcTieredReward(
+  serials: number[],
+  tiers: TierConfigItem[] | undefined,
+  defaultRate: number,
+  days: number,
+): { wholeReward: number; breakdown: Record<string, TierBreakdownItem> } {
+  let wholeReward = 0;
+  const breakdown: Record<string, TierBreakdownItem> = {};
+
+  if (!tiers || tiers.length === 0) {
+    wholeReward = serials.length * defaultRate * days;
+    return { wholeReward, breakdown: {} };
+  }
+
+  for (const serial of serials) {
+    const tier = findTierForSerial(serial, tiers);
+    const rate = tier ? tier.reward_rate_per_day : defaultRate;
+    wholeReward += rate * days;
+
+    if (tier) {
+      const key = tier.name || (tier.type === 'range' ? `range-${tier.range!.start}-${tier.range!.end}` : `specific-${tier.serials!.length}-serials`);
+      if (!breakdown[key]) {
+        breakdown[key] = { count: 0, rate, reward: 0 };
+      }
+      breakdown[key].count++;
+      breakdown[key].reward += rate * days;
+    }
+  }
+
+  return { wholeReward, breakdown };
+}
+
 /** Fetch NFT serial numbers for an account on a given token (handles pagination). */
 export async function fetchNftSerials(accountId: string, tokenId: string): Promise<number[]> {
   const serials: number[] = [];
@@ -134,7 +265,7 @@ export async function createStakingProgram(req: Request, res: Response): Promise
     const {
       createdBy, name, description, stakeTokenId, stakeTokenType,
       rewardTokenId, treasuryAccountId, rewardRatePerDay,
-      minStakeAmount, frequency, totalRewardSupply,
+      minStakeAmount, frequency, totalRewardSupply, tierConfig,
     } = req.body;
 
     if (!createdBy || !name || !stakeTokenId || !stakeTokenType || !rewardTokenId ||
@@ -152,6 +283,12 @@ export async function createStakingProgram(req: Request, res: Response): Promise
       return;
     }
 
+    const tierValidation = validateTierConfig(tierConfig, stakeTokenType);
+    if (!tierValidation.valid) {
+      res.status(400).json({ success: false, error: tierValidation.error });
+      return;
+    }
+
     // Fetch reward token fees so the response can include them for the creator's informed consent
     const customFees = await fetchTokenFees(rewardTokenId);
 
@@ -159,13 +296,14 @@ export async function createStakingProgram(req: Request, res: Response): Promise
       `INSERT INTO staking_programs
          (created_by, name, description, stake_token_id, stake_token_type,
           reward_token_id, treasury_account_id, reward_rate_per_day,
-          min_stake_amount, frequency, total_reward_supply, allowance_granted)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,false)
+          min_stake_amount, frequency, total_reward_supply, allowance_granted, tier_config)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,false,$12)
        RETURNING *`,
       [
         createdBy, name, description || null, stakeTokenId, stakeTokenType,
         rewardTokenId, treasuryAccountId, rewardRatePerDay,
         minStakeAmount || 0, frequency, totalRewardSupply || null,
+        tierValidation.normalized ? JSON.stringify(tierValidation.normalized) : null,
       ]
     );
 
@@ -224,7 +362,7 @@ export async function listPublicStakingPrograms(_req: Request, res: Response): P
     const result = await pool.query(
       `SELECT id, name, description, stake_token_id, stake_token_type, reward_token_id,
               treasury_account_id, reward_rate_per_day, min_stake_amount, frequency,
-              total_reward_supply, last_distributed_at, status, created_at
+              total_reward_supply, last_distributed_at, status, created_at, tier_config
        FROM staking_programs WHERE status = 'active' ORDER BY created_at DESC`
     );
     res.json({ success: true, programs: result.rows });
@@ -321,7 +459,7 @@ export async function updateStakingStatus(req: Request, res: Response): Promise<
 export async function updateStakingProgram(req: Request, res: Response): Promise<void> {
   try {
     const { id } = req.params;
-    const { createdBy, name, description, rewardRatePerDay, minStakeAmount, frequency } = req.body;
+    const { createdBy, name, description, rewardRatePerDay, minStakeAmount, frequency, tierConfig } = req.body;
 
     if (!createdBy) {
       res.status(400).json({ success: false, error: 'createdBy is required' });
@@ -353,6 +491,43 @@ export async function updateStakingProgram(req: Request, res: Response): Promise
     if (rewardRatePerDay !== undefined) { setClauses.push(`reward_rate_per_day = $${paramIdx++}`); values.push(rewardRatePerDay); }
     if (minStakeAmount !== undefined) { setClauses.push(`min_stake_amount = $${paramIdx++}`); values.push(minStakeAmount); }
     if (frequency !== undefined) { setClauses.push(`frequency = $${paramIdx++}`); values.push(frequency); }
+
+    if (tierConfig !== undefined) {
+      // Lock the row to ensure ownership and read current tier state.
+      const current = await pool.query(
+        `SELECT stake_token_type, tier_config FROM staking_programs WHERE id = $1 AND created_by = $2`,
+        [id, createdBy]
+      );
+      if (current.rowCount === 0) {
+        res.status(404).json({ success: false, error: 'Program not found or not owned by you' });
+        return;
+      }
+      const existing = current.rows[0].tier_config;
+      const hasExistingTiers = existing && Array.isArray(existing) && existing.length > 0;
+
+      // Only allow adding tiers to a flat program if it has no participants/distributions yet.
+      if (!hasExistingTiers) {
+        const [pCount, dCount] = await Promise.all([
+          pool.query('SELECT COUNT(*) FROM staking_participants WHERE program_id = $1', [id]),
+          pool.query('SELECT COUNT(*) FROM staking_distributions WHERE program_id = $1', [id]),
+        ]);
+        if (parseInt(pCount.rows[0].count) > 0 || parseInt(dCount.rows[0].count) > 0) {
+          res.status(400).json({
+            success: false,
+            error: 'Cannot convert an existing flat-rate program to tiered rewards once it has participants or distributions.',
+          });
+          return;
+        }
+      }
+
+      const tv = validateTierConfig(tierConfig, current.rows[0].stake_token_type);
+      if (!tv.valid) {
+        res.status(400).json({ success: false, error: tv.error });
+        return;
+      }
+      setClauses.push(`tier_config = $${paramIdx++}`);
+      values.push(tv.normalized && tv.normalized.length > 0 ? JSON.stringify(tv.normalized) : null);
+    }
 
     if (setClauses.length === 0) {
       res.status(400).json({ success: false, error: 'No fields provided to update' });
@@ -531,7 +706,7 @@ export async function listDistributions(req: Request, res: Response): Promise<vo
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT account_id, amount, units_held, tx_id, distributed_at
+      `SELECT account_id, amount, units_held, tx_id, distributed_at, tier_breakdown
        FROM staking_distributions WHERE program_id=$1 ORDER BY distributed_at DESC LIMIT 200`,
       [id]
     );
@@ -639,7 +814,16 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
       }
 
       // 3. Calculate reward (plain number — NOT bigint; SDK's Long.fromValue rejects bigint)
-      const rewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals);
+      let rewardRaw: number;
+      let tierBreakdown: Record<string, TierBreakdownItem> | null = null;
+      const hasTiers = prog.stake_token_type === 'NFT' && Array.isArray(prog.tier_config) && prog.tier_config.length > 0;
+      if (hasTiers) {
+        const tiered = calcTieredReward(newSerials, prog.tier_config as TierConfigItem[], Number(prog.reward_rate_per_day), days);
+        rewardRaw = Math.floor(tiered.wholeReward * Math.pow(10, rewardDecimals));
+        tierBreakdown = Object.keys(tiered.breakdown).length > 0 ? tiered.breakdown : null;
+      } else {
+        rewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals);
+      }
       if (rewardRaw <= 0) { skipped++; continue; }
       console.log(`[drip] ${accountId} holds ${unitsHeld} units → rewardRaw=${rewardRaw} (rewardDecimals=${rewardDecimals})`);
 
@@ -660,9 +844,9 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
 
       // 5. Record distribution
       await pool.query(
-        `INSERT INTO staking_distributions (program_id, account_id, amount, units_held, tx_id)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [programId, accountId, rewardRaw / Math.pow(10, rewardDecimals), unitsHeld, txId]
+        `INSERT INTO staking_distributions (program_id, account_id, amount, units_held, tx_id, tier_breakdown)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [programId, accountId, rewardRaw / Math.pow(10, rewardDecimals), unitsHeld, txId, tierBreakdown]
       );
       await pool.query(
         `UPDATE staking_participants SET last_distributed_at=NOW() WHERE program_id=$1 AND account_id=$2`,

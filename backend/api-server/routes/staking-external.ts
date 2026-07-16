@@ -8,6 +8,8 @@ import {
   fetchTokenDecimals,
   frequencyDays,
   calcReward,
+  calcTieredReward,
+  type TierConfigItem,
 } from './staking';
 
 // ─── External staking API for third-party integrations ──────────────────────
@@ -25,7 +27,7 @@ export async function externalListPrograms(req: Request, res: Response): Promise
     const result = await pool.query(
       `SELECT id, name, description, stake_token_id, stake_token_type, reward_token_id,
               treasury_account_id, reward_rate_per_day, min_stake_amount, frequency,
-              total_reward_supply, last_distributed_at, status, created_at
+              total_reward_supply, last_distributed_at, status, created_at, tier_config
        FROM staking_programs WHERE created_by = $1 AND status = 'active' ORDER BY created_at DESC`,
       [req.apiKey.account_id]
     );
@@ -46,7 +48,7 @@ export async function externalGetProgram(req: Request, res: Response): Promise<v
     const progResult = await pool.query(
       `SELECT id, name, description, stake_token_id, stake_token_type, reward_token_id,
               treasury_account_id, reward_rate_per_day, min_stake_amount, frequency,
-              total_reward_supply, last_distributed_at, status, created_at
+              total_reward_supply, last_distributed_at, status, created_at, tier_config
        FROM staking_programs WHERE id = $1`,
       [id]
     );
@@ -80,7 +82,7 @@ export async function externalGetPosition(req: Request, res: Response): Promise<
     const { id, accountId } = req.params;
     const progResult = await pool.query(
       `SELECT stake_token_id, stake_token_type, reward_token_id, reward_rate_per_day,
-              frequency, min_stake_amount, last_distributed_at, status
+              frequency, min_stake_amount, last_distributed_at, status, tier_config
        FROM staking_programs WHERE id = $1`,
       [id]
     );
@@ -116,9 +118,18 @@ export async function externalGetPosition(req: Request, res: Response): Promise<
       : new Date();
 
     const rewardDecimals = await fetchTokenDecimals(prog.reward_token_id);
-    const estRewardRaw = unitsHeld > 0 && unitsHeld >= Number(prog.min_stake_amount)
-      ? calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals)
-      : 0;
+    let estRewardRaw = 0;
+    if (unitsHeld > 0 && unitsHeld >= Number(prog.min_stake_amount)) {
+      if (prog.stake_token_type === 'NFT' && Array.isArray(prog.tier_config) && prog.tier_config.length > 0) {
+        const allSerials = serialsHeld || await fetchNftSerials(accountId, prog.stake_token_id);
+        estRewardRaw = Math.floor(
+          calcTieredReward(allSerials, prog.tier_config as TierConfigItem[], Number(prog.reward_rate_per_day), days).wholeReward *
+            Math.pow(10, rewardDecimals)
+        );
+      } else {
+        estRewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals);
+      }
+    }
     const estReward = estRewardRaw / Math.pow(10, rewardDecimals);
 
     res.json({
@@ -157,7 +168,7 @@ export async function externalGetEligibility(req: Request, res: Response): Promi
     const { id, accountId } = req.params;
     const progResult = await pool.query(
       `SELECT stake_token_id, stake_token_type, reward_token_id, reward_rate_per_day,
-              frequency, min_stake_amount, status
+              frequency, min_stake_amount, status, tier_config
        FROM staking_programs WHERE id = $1`,
       [id]
     );
@@ -181,9 +192,18 @@ export async function externalGetEligibility(req: Request, res: Response): Promi
     const meetsMinimum = unitsHeld >= Number(prog.min_stake_amount);
     const rewardDecimals = await fetchTokenDecimals(prog.reward_token_id);
     const days = frequencyDays(prog.frequency);
-    const estRewardRaw = meetsMinimum
-      ? calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals)
-      : 0;
+    let estRewardRaw = 0;
+    if (meetsMinimum) {
+      if (prog.stake_token_type === 'NFT' && Array.isArray(prog.tier_config) && prog.tier_config.length > 0) {
+        const serials = await fetchNftSerials(accountId, prog.stake_token_id);
+        estRewardRaw = Math.floor(
+          calcTieredReward(serials, prog.tier_config as TierConfigItem[], Number(prog.reward_rate_per_day), days).wholeReward *
+            Math.pow(10, rewardDecimals)
+        );
+      } else {
+        estRewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals);
+      }
+    }
     const estReward = estRewardRaw / Math.pow(10, rewardDecimals);
 
     res.json({
@@ -238,7 +258,7 @@ export async function externalListDistributions(req: Request, res: Response): Pr
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT account_id, amount, units_held, tx_id, distributed_at
+      `SELECT account_id, amount, units_held, tx_id, distributed_at, tier_breakdown
        FROM staking_distributions WHERE program_id = $1 ORDER BY distributed_at DESC LIMIT 200`,
       [id]
     );
