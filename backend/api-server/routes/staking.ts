@@ -342,25 +342,30 @@ export async function updateStakingProgram(req: Request, res: Response): Promise
       return;
     }
 
+    // Build a dynamic SET clause so provided fields are persisted exactly as sent,
+    // including null values (e.g. clearing a description).
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    let paramIdx = 1;
+
+    if (name !== undefined) { setClauses.push(`name = $${paramIdx++}`); values.push(name); }
+    if (description !== undefined) { setClauses.push(`description = $${paramIdx++}`); values.push(description); }
+    if (rewardRatePerDay !== undefined) { setClauses.push(`reward_rate_per_day = $${paramIdx++}`); values.push(rewardRatePerDay); }
+    if (minStakeAmount !== undefined) { setClauses.push(`min_stake_amount = $${paramIdx++}`); values.push(minStakeAmount); }
+    if (frequency !== undefined) { setClauses.push(`frequency = $${paramIdx++}`); values.push(frequency); }
+
+    if (setClauses.length === 0) {
+      res.status(400).json({ success: false, error: 'No fields provided to update' });
+      return;
+    }
+
+    values.push(id, createdBy);
     const result = await pool.query(
       `UPDATE staking_programs
-       SET name = COALESCE($1, name),
-           description = COALESCE($2, description),
-           reward_rate_per_day = COALESCE($3, reward_rate_per_day),
-           min_stake_amount = COALESCE($4, min_stake_amount),
-           frequency = COALESCE($5, frequency),
-           updated_at = NOW()
-       WHERE id = $6 AND created_by = $7
+       SET ${setClauses.join(', ')}, updated_at = NOW()
+       WHERE id = $${paramIdx++} AND created_by = $${paramIdx++}
        RETURNING *`,
-      [
-        name ?? null,
-        description ?? null,
-        rewardRatePerDay ?? null,
-        minStakeAmount ?? null,
-        frequency ?? null,
-        id,
-        createdBy,
-      ]
+      values
     );
 
     if (result.rowCount === 0) {

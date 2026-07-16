@@ -781,6 +781,10 @@ export class StakingTool {
   private static renderProgramPanel(): void {
     const right = document.querySelector('.art-gen-right')
     if (!right) return
+    // Don't clobber the edit form while the user is actively editing.
+    // Allowance/state updates continue in the background and will render
+    // once the user exits edit mode.
+    if (this.editingProgramId) return
     right.innerHTML = this.renderRight()
   }
 
@@ -861,10 +865,22 @@ export class StakingTool {
     const ws = WalletConnectService.getState()
     if (!ws.connected || !ws.accountId) { this.error = 'Connect your wallet first.'; this.refresh(); return }
 
-    if (!this.editName.trim()) { this.error = 'Program name is required.'; this.refresh(); return }
-    const rate = parseFloat(this.editRewardRatePerDay)
+    // Read the live DOM values as the source of truth. This protects the save
+    // from any background re-renders that may have detached the input listeners.
+    const nameInput = document.getElementById('stk-edit-name') as HTMLInputElement | null
+    const descInput = document.getElementById('stk-edit-description') as HTMLInputElement | null
+    const rateInput = document.getElementById('stk-edit-rate') as HTMLInputElement | null
+    const freqInput = document.getElementById('stk-edit-frequency') as HTMLSelectElement | null
+    const minInput = document.getElementById('stk-edit-min-stake') as HTMLInputElement | null
+
+    const name = (nameInput?.value ?? this.editName).trim()
+    const description = (descInput?.value ?? this.editDescription).trim() || null
+    const rate = parseFloat(rateInput?.value ?? this.editRewardRatePerDay)
+    const minStake = parseInt(minInput?.value ?? this.editMinStakeAmount) || 0
+    const frequency = (freqInput?.value as Frequency) ?? this.editFrequency
+
+    if (!name) { this.error = 'Program name is required.'; this.refresh(); return }
     if (isNaN(rate) || rate < 0) { this.error = 'Daily reward rate must be 0 or greater.'; this.refresh(); return }
-    const minStake = parseInt(this.editMinStakeAmount) || 0
     if (minStake < 0) { this.error = 'Minimum holdings cannot be negative.'; this.refresh(); return }
 
     try {
@@ -873,11 +889,11 @@ export class StakingTool {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           createdBy: ws.accountId,
-          name: this.editName.trim(),
-          description: this.editDescription.trim() || null,
+          name,
+          description,
           rewardRatePerDay: rate,
           minStakeAmount: minStake,
-          frequency: this.editFrequency,
+          frequency,
         }),
       })
       const data = await res.json()
@@ -887,6 +903,8 @@ export class StakingTool {
       if (idx >= 0) this.programs[idx] = data.program
       this.editingProgramId = null
       this.refresh()
+      // Refresh allowance immediately so the UI reflects current state right away.
+      await this.fetchAllowance(id).catch(err => console.error('fetchAllowance after save error:', err))
     } catch (err: any) {
       this.error = err.message || 'Failed to update program'; this.refresh()
     }
