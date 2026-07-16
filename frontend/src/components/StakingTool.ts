@@ -524,12 +524,6 @@ export class StakingTool {
             Community members register at: <code>POST /api/staking-programs/${this.createdProgramId}/register</code>
           </p>
         </div>
-        <div style="padding:0.8rem;background:rgba(255,165,0,0.08);border:1px solid rgba(255,165,0,0.3);border-radius:6px;margin-bottom:1rem">
-          <p style="font-size:0.77rem;color:#ffa500;margin:0">
-            ⚠ <strong>Schedule drips:</strong> Call <code>POST /api/staking-programs/run-all-drips</code>
-            with <code>Authorization: Bearer YOUR_DRIP_SECRET</code> from a Railway Cron job or external scheduler.
-          </p>
-        </div>
         <button class="terminal-button" id="stk-new" style="width:100%">CREATE ANOTHER PROGRAM</button>
       </div>`
   }
