@@ -328,8 +328,14 @@ export class StakingTool {
 
   private static renderTierSummary(tiers: TierConfigItem[]): string {
     const items = tiers.map(t => {
-      const label = t.name || (t.type === 'range' ? `Range ${t.range!.start}-${t.range!.end}` : `${t.serials!.length} serial(s)`)
-      return `<li style="margin:0.15rem 0">${this.escapeHtml(label)}: ${t.reward_rate_per_day}/day</li>`
+      let scope = ''
+      if (t.type === 'range' && t.range) {
+        scope = `serials ${t.range.start}-${t.range.end}`
+      } else if (t.serials) {
+        scope = `serials ${t.serials.slice(0, 8).join(', ')}${t.serials.length > 8 ? ` (+${t.serials.length - 8} more)` : ''}`
+      }
+      const label = t.name ? `${this.escapeHtml(t.name)} (${scope})` : scope
+      return `<li style="margin:0.15rem 0">${label}: ${t.reward_rate_per_day}/day</li>`
     }).join('')
     return `<ul style="font-size:0.72rem;opacity:0.65;margin:0 0 0.3rem 1rem;padding:0">${items}</ul>`
   }
