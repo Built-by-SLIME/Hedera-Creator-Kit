@@ -15,7 +15,6 @@ import WalletConnectService from '../services/WalletConnectService'
 import { API_BASE_URL, BACKEND_MINTER_ACCOUNT, MIRROR_NODE_URL, getHederaClient } from '../config'
 import {
   AccountAllowanceApproveTransaction,
-  AccountAllowanceAdjustTransaction,
   AccountId,
   TokenId,
   TransactionId,
@@ -1267,13 +1266,15 @@ export class StakingTool {
       const acctId = AccountId.fromString(ws.accountId)
       const operatorId = AccountId.fromString(BACKEND_MINTER_ACCOUNT)
       const decimals = await this.getTokenDecimals(p.reward_token_id)
-      const rawAmount = Math.floor(amount * Math.pow(10, decimals))
+      const addRaw = Math.floor(amount * Math.pow(10, decimals))
+      const remainingRaw = Math.floor((this.allowances[p.id]?.remaining ?? 0) * Math.pow(10, decimals))
+      const newTotalRaw = remainingRaw + addRaw
 
-      const adjustTx = new AccountAllowanceAdjustTransaction()
-        .grantTokenAllowance(TokenId.fromString(p.reward_token_id), acctId, operatorId, rawAmount)
+      const approveTx = new AccountAllowanceApproveTransaction()
+        .approveTokenAllowance(TokenId.fromString(p.reward_token_id), acctId, operatorId, newTotalRaw)
         .setTransactionId(TransactionId.generate(acctId))
-      adjustTx.freezeWith(getHederaClient())
-      await adjustTx.executeWithSigner(signer)
+      approveTx.freezeWith(getHederaClient())
+      await approveTx.executeWithSigner(signer)
 
       this.topUpAmount = ''
       this.toppingUpProgramId = null
