@@ -1054,10 +1054,10 @@ export class StakingTool {
   private static renderProgramPanel(): void {
     const right = document.querySelector('.art-gen-right')
     if (!right) return
-    // Don't clobber the edit form while the user is actively editing.
+    // Don't clobber active forms while the user is typing.
     // Allowance/state updates continue in the background and will render
-    // once the user exits edit mode.
-    if (this.editingProgramId) return
+    // once the user exits edit or top-up mode.
+    if (this.editingProgramId || this.toppingUpProgramId) return
     right.innerHTML = this.renderRight()
   }
 
@@ -1250,7 +1250,9 @@ export class StakingTool {
     const ws = WalletConnectService.getState()
     if (!ws.connected || !ws.accountId) { this.error = 'Connect your wallet first.'; this.refresh(); return }
 
-    const amount = parseFloat(this.topUpAmount)
+    // Read directly from the DOM so re-renders can't clobber the typed value.
+    const topUpInput = document.getElementById('stk-top-up-amount') as HTMLInputElement | null
+    const amount = parseFloat(topUpInput?.value ?? this.topUpAmount)
     if (isNaN(amount) || amount <= 0) { this.error = 'Please enter a valid amount to add.'; this.refresh(); return }
 
     const p = this.programs.find(prog => prog.id === id)

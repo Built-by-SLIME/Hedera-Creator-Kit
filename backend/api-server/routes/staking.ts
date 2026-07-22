@@ -371,6 +371,100 @@ export async function listPublicStakingPrograms(_req: Request, res: Response): P
   }
 }
 
+// ─── PUBLIC: Wallet position / tier-aware estimate ────────────────────────────
+
+/**
+ * GET /api/staking-programs/:id/position/:accountId
+ * Returns the connected wallet's staking position and tier-aware next reward estimate.
+ * Does NOT require an API key — intended for the official builtbyslime.org UI.
+ */
+export async function getPublicPosition(req: Request, res: Response): Promise<void> {
+  try {
+    const { id, accountId } = req.params;
+
+    const progResult = await pool.query(
+      `SELECT id, name, stake_token_id, stake_token_type, reward_token_id, reward_rate_per_day,
+              frequency, min_stake_amount, last_distributed_at, tier_config
+       FROM staking_programs WHERE id = $1 AND status = 'active'`,
+      [id]
+    );
+    if (progResult.rowCount === 0) {
+      res.status(404).json({ success: false, error: 'Staking program not found or not active' });
+      return;
+    }
+    const prog = progResult.rows[0];
+
+    const regResult = await pool.query(
+      'SELECT registered_at, last_distributed_at FROM staking_participants WHERE program_id = $1 AND account_id = $2',
+      [id, accountId]
+    );
+    const isRegistered = regResult.rowCount !== null && regResult.rowCount > 0;
+
+    const distResult = await pool.query(
+      'SELECT COALESCE(SUM(amount), 0) as total FROM staking_distributions WHERE program_id = $1 AND account_id = $2',
+      [id, accountId]
+    );
+    const totalEarned = parseFloat(distResult.rows[0].total);
+
+    let unitsHeld = 0;
+    let serialsHeld: number[] | undefined;
+    if (prog.stake_token_type === 'NFT') {
+      serialsHeld = await fetchNftSerials(accountId, prog.stake_token_id);
+      unitsHeld = serialsHeld.length;
+    } else {
+      const stakeDecimals = await fetchTokenDecimals(prog.stake_token_id);
+      const rawBalance = await fetchFtBalance(accountId, prog.stake_token_id);
+      unitsHeld = Number(rawBalance) / Math.pow(10, stakeDecimals);
+    }
+
+    const lastDist = regResult.rows[0]?.last_distributed_at || prog.last_distributed_at;
+    const days = frequencyDays(prog.frequency);
+    const nextDrip = lastDist
+      ? new Date(new Date(lastDist).getTime() + days * 86400000)
+      : new Date();
+
+    const rewardDecimals = await fetchTokenDecimals(prog.reward_token_id);
+    let estRewardRaw = 0;
+    if (unitsHeld > 0 && unitsHeld >= Number(prog.min_stake_amount)) {
+      if (prog.stake_token_type === 'NFT' && Array.isArray(prog.tier_config) && prog.tier_config.length > 0) {
+        const allSerials = serialsHeld || await fetchNftSerials(accountId, prog.stake_token_id);
+        estRewardRaw = Math.floor(
+          calcTieredReward(allSerials, prog.tier_config as TierConfigItem[], Number(prog.reward_rate_per_day), days).wholeReward *
+            Math.pow(10, rewardDecimals)
+        );
+      } else {
+        estRewardRaw = calcReward(unitsHeld, Number(prog.reward_rate_per_day), days, rewardDecimals);
+      }
+    }
+    const estReward = estRewardRaw / Math.pow(10, rewardDecimals);
+
+    res.json({
+      success: true,
+      accountId,
+      programId: id,
+      isRegistered,
+      registeredAt: regResult.rows[0]?.registered_at || null,
+      holdings: {
+        unitsHeld,
+        serialsHeld: prog.stake_token_type === 'NFT' ? serialsHeld : undefined,
+        meetsMinimum: unitsHeld >= Number(prog.min_stake_amount),
+      },
+      totalEarned,
+      nextDripAt: nextDrip.toISOString(),
+      estimatedNextReward: estReward,
+      program: {
+        stakeTokenType: prog.stake_token_type,
+        frequency: prog.frequency,
+        rewardRatePerDay: prog.reward_rate_per_day,
+        minStakeAmount: prog.min_stake_amount,
+      },
+    });
+  } catch (err: any) {
+    console.error('getPublicPosition error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // ─── ADMIN: Check remaining token allowance ───────────────────────────────────
 
 /**
