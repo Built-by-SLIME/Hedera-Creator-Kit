@@ -46,7 +46,6 @@ export class UpdateNftMetadata {
     image: '',
   }
   private static metadataKey: string | null = null
-  private static txId: string | null = null
   private static error: string | null = null
   private static statusMessage = ''
   private static newMetadataCID = ''
@@ -460,13 +459,17 @@ export class UpdateNftMetadata {
         .freezeWith(getHederaClient())
 
       const txResponse = await frozenTx.executeWithSigner(signer)
-      this.txId = txResponse.transactionId?.toString() || null
 
       this.statusMessage = 'Transaction submitted. Confirming...'
       this.refresh()
 
-      // 3. Poll mirror node for confirmation
-      await this.pollForConfirmation()
+      // 3. Wait for consensus confirmation from the network
+      this.statusMessage = 'Confirming on Hedera network...'
+      this.refresh()
+      const receipt = await txResponse.getReceipt(getHederaClient())
+      if (receipt.status.toString() !== 'SUCCESS') {
+        throw new Error(`Transaction failed on-chain: ${receipt.status}`)
+      }
 
       this.step = 'success'
       this.statusMessage = ''
@@ -477,28 +480,6 @@ export class UpdateNftMetadata {
       this.statusMessage = ''
       this.refresh()
     }
-  }
-
-  private static async pollForConfirmation(): Promise<void> {
-    if (!this.txId) return
-    const formattedId = this.txId.replace('@', '-')
-
-    for (let i = 0; i < 20; i++) {
-      await new Promise(r => setTimeout(r, 3000))
-      try {
-        const res = await fetch(`${MIRROR_NODE_URL}/api/v1/transactions/${formattedId}`)
-        if (res.ok) {
-          const data = await res.json()
-          const tx = data.transactions?.[0]
-          if (tx?.result === 'SUCCESS') return
-          if (tx?.result && tx.result !== 'SUCCESS') throw new Error(`Transaction failed: ${tx.result}`)
-        }
-      } catch (err: any) {
-        if (err.message?.includes('Transaction failed')) throw err
-      }
-    }
-
-    throw new Error('Timed out waiting for transaction confirmation. Check HashScan for status.')
   }
 
   // ─── HELPERS ──────────────────────────────────────────────
@@ -532,7 +513,6 @@ export class UpdateNftMetadata {
     this.currentMetadataUri = ''
     this.metadata = { name: '', image: '' }
     this.metadataKey = null
-    this.txId = null
     this.error = null
     this.statusMessage = ''
     this.newMetadataCID = ''
