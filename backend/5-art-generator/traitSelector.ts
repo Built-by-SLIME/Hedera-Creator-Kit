@@ -69,12 +69,15 @@ export class TraitSelector {
   }
 
   /**
-   * Select random traits with rarity rules, exclusions, and forced pairings
+   * Select random traits with rarity rules, exclusions, and forced pairings.
+   * The selection order is topologically sorted so forced pairings are satisfied
+   * even when the visual layer order places the dependent category first.
    */
   private selectRandomTraits(nftNumber: number): SelectedTraits | null {
     const selectedTraits: SelectedTraits = {};
+    const selectionOrder = this.getSelectionOrder();
 
-    for (const traitCategory of this.traitOrder) {
+    for (const traitCategory of selectionOrder) {
       // Check if a forced pairing applies based on already-selected traits
       const forcedValue = this.getForcedPairing(traitCategory, selectedTraits);
       if (forcedValue) {
@@ -211,6 +214,66 @@ export class TraitSelector {
         rule.assignedNFTs.add(nftNumber);
       }
     }
+  }
+
+  /**
+   * Compute a trait selection order that respects forced-pairing dependencies.
+   * If a rule says "If A then B", A is selected before B even when the visual
+   * compositing order has B layered underneath A. Kahn's algorithm is used
+   * with a stable tie-break so the original order is preserved as much as
+   * possible. Cycles fall back to the original trait order.
+   */
+  private getSelectionOrder(): string[] {
+    if (!this.rarityConfig.forcedPairings || this.rarityConfig.forcedPairings.length === 0) {
+      return this.traitOrder;
+    }
+
+    // Build dependency graph: category -> categories that must be selected after it
+    const dependencies = new Map<string, Set<string>>();
+    for (const category of this.traitOrder) {
+      dependencies.set(category, new Set());
+    }
+
+    for (const pairing of this.rarityConfig.forcedPairings) {
+      const ifCategory = pairing.ifTrait.category;
+      const thenCategory = pairing.thenTrait.category;
+      if (ifCategory === thenCategory) continue;
+      if (dependencies.has(ifCategory) && dependencies.has(thenCategory)) {
+        dependencies.get(ifCategory)!.add(thenCategory);
+      }
+    }
+
+    // Compute in-degree for each category
+    const inDegree = new Map<string, number>();
+    for (const category of this.traitOrder) {
+      inDegree.set(category, 0);
+    }
+    for (const toSet of dependencies.values()) {
+      for (const toCategory of toSet) {
+        inDegree.set(toCategory, (inDegree.get(toCategory) || 0) + 1);
+      }
+    }
+
+    // Stable topological sort (Kahn's algorithm), preferring original order
+    const result: string[] = [];
+    const remaining = [...this.traitOrder];
+
+    while (remaining.length > 0) {
+      const index = remaining.findIndex(category => (inDegree.get(category) || 0) === 0);
+      if (index === -1) {
+        console.warn('⚠️  Warning: Cycle detected in forced pairings; using original trait order');
+        return this.traitOrder;
+      }
+
+      const [category] = remaining.splice(index, 1);
+      result.push(category);
+
+      for (const toCategory of dependencies.get(category) || []) {
+        inDegree.set(toCategory, (inDegree.get(toCategory) || 0) - 1);
+      }
+    }
+
+    return result;
   }
 
   /**
