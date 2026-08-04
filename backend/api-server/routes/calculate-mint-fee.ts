@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import { Client, PrivateKey, TokenMintTransaction, Hbar } from '@hashgraph/sdk';
 
 const BACKEND_ACCOUNT_ID = process.env.BACKEND_ACCOUNT_ID || process.env.TREASURY_ID;
 const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY || process.env.TREASURY_PK;
@@ -7,6 +6,8 @@ const MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
 
 const BATCH_SIZE = 10;
 const HOUR_MS = 60 * 60 * 1000;
+const USD_PER_BATCH = 0.25;
+const FALLBACK_HBAR_USD = 0.07;
 
 interface CalculateFeeRequest {
   tokenId: string;
@@ -118,47 +119,38 @@ function average(values: number[]): number {
   return values.reduce((sum, v) => sum + v, 0) / values.length;
 }
 
-async function sdkFallbackFee(
-  tokenId: string,
-  metadataCIDs: string[],
+async function fetchHbarUsdRate(): Promise<number> {
+  try {
+    const response = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=hedera-hashgraph&vs_currencies=usd'
+    );
+    if (!response.ok) {
+      throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json() as Record<string, any>;
+    const rate = data['hedera-hashgraph']?.usd;
+    if (typeof rate !== 'number' || rate <= 0) {
+      throw new Error('Invalid HBAR/USD rate from CoinGecko');
+    }
+    return rate;
+  } catch (err: any) {
+    console.warn('[calculate-mint-fee] Failed to fetch HBAR/USD rate, using fallback:', err.message);
+    return FALLBACK_HBAR_USD;
+  }
+}
+
+async function usdFallbackFee(
   totalBatches: number
 ): Promise<{ feePerBatch: number; totalFee: number; totalFeeWithBuffer: number }> {
-  let backendPrivateKey: PrivateKey;
-  try {
-    backendPrivateKey = PrivateKey.fromStringECDSA(BACKEND_PRIVATE_KEY!);
-  } catch {
-    backendPrivateKey = PrivateKey.fromString(BACKEND_PRIVATE_KEY!);
-  }
-  const client = Client.forMainnet();
-  client.setOperator(BACKEND_ACCOUNT_ID!, backendPrivateKey);
+  const hbarUsdRate = await fetchHbarUsdRate();
+  const feePerBatch = USD_PER_BATCH / hbarUsdRate;
+  const totalFee = feePerBatch * totalBatches;
 
-  try {
-    const sampleBatch = metadataCIDs.slice(0, Math.min(BATCH_SIZE, metadataCIDs.length));
-    const metadataList = sampleBatch.map((cid) => {
-      const uri = cid.startsWith('ipfs://') ? cid : `ipfs://${cid}`;
-      return Buffer.from(uri);
-    });
-
-    const tx = new TokenMintTransaction()
-      .setTokenId(tokenId)
-      .setMetadata(metadataList)
-      .setMaxTransactionFee(new Hbar(10));
-
-    const frozenTx = tx.freezeWith(client);
-    const maxFee = frozenTx.maxTransactionFee;
-
-    if (!maxFee) {
-      throw new Error('Failed to get max transaction fee from SDK');
-    }
-
-    const feePerBatch = maxFee.toBigNumber().toNumber();
-    const totalFee = feePerBatch * totalBatches;
-    const totalFeeWithBuffer = totalFee * 1.5; // 50% buffer when falling back
-
-    return { feePerBatch, totalFee, totalFeeWithBuffer };
-  } finally {
-    client.close();
-  }
+  return {
+    feePerBatch,
+    totalFee,
+    totalFeeWithBuffer: totalFee
+  };
 }
 
 /**
@@ -167,8 +159,9 @@ async function sdkFallbackFee(
  *
  * Uses the Hedera mirror node to sample real, recent successful TOKENMINT
  * transactions. Fees automatically track the current network fee schedule and
- * HBAR price. Falls back to the SDK default fee with a larger buffer if mirror
- * node data is unavailable.
+ * HBAR price. Falls back to a USD-denominated estimate ($0.25 per batch,
+ * converted to HBAR at the current market rate) if mirror node data is
+ * unavailable.
  */
 export async function calculateMintFee(req: Request, res: Response): Promise<void> {
   try {
@@ -213,12 +206,13 @@ export async function calculateMintFee(req: Request, res: Response): Promise<voi
         }
       }
     } catch (mirrorErr) {
-      console.warn('[calculate-mint-fee] Mirror-node estimation failed, falling back to SDK:', mirrorErr);
-      source = 'sdk-fallback';
-      const fallback = await sdkFallbackFee(tokenId, metadataCIDs, totalBatches);
+      console.warn('[calculate-mint-fee] Mirror-node estimation failed, falling back to USD-based fee:', mirrorErr);
+      source = 'usd-fallback';
+      const fallback = await usdFallbackFee(totalBatches);
       res.json({
         success: true,
         source,
+        hasCustomFees: await tokenHasCustomFees(tokenId),
         feePerBatch: fallback.feePerBatch,
         totalBatches,
         totalFee: fallback.totalFee,
