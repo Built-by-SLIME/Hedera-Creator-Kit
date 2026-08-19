@@ -596,23 +596,34 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
   }
 }
 
-// ─── PUBLIC: Execute a swap — legacy NFT flow ───────────────────────────────
+// ─── PUBLIC: Execute a swap — operator-executed allowance model ───────────────
 
 /**
  * POST /api/swap-programs/:id/execute
  *
- * NFT swap flow (operator-executed, requires user pre-approved NFT allowances):
- *   1. User has already approved their old NFT serials to the operator (done client-side).
- *   2. Operator transfers new NFTs from treasury → user (creator's allowance).
- *   3. Operator transfers old NFTs from user → treasury (user's NFT allowance).
+ * Operator-executed swap. This is the robust path for both NFT and fungible swaps.
  *
- * Fungible swaps should use /prepare + /submit instead, which does not require
- * a pre-approved user allowance and correctly charges the HBAR fee to the user.
+ * Requires:
+ *   1. User has approved the backend operator to spend their FROM tokens/NFTs.
+ *   2. Treasury has approved the backend operator to spend the TO tokens/NFTs
+ *      (done in the Creator Kit when the program is created).
+ *
+ * The operator builds and submits a single TransferTransaction where every leg is
+ * an approved transfer signed by the operator. Because the user's wallet does not
+ * sign the swap transaction itself, there is no wallet-signer normalization that
+ * can break signatures or node selection.
+ *
+ * NFT swaps:
+ *   Body: { userAccountId: string, serialNumbers: number[] }
+ *   Supports both 1:1 and random serial modes configured on the program.
+ *
+ * Fungible swaps:
+ *   Body: { userAccountId: string, amount: string | number }
  */
 export async function executeSwap(req: Request, res: Response): Promise<void> {
   try {
     const { id } = req.params;
-    const { userAccountId, serialNumbers } = req.body;
+    const { userAccountId, serialNumbers, amount } = req.body;
 
     if (!userAccountId) {
       res.status(400).json({ success: false, error: 'userAccountId is required' });
@@ -636,6 +647,9 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
     const userAcct = AccountId.fromString(userAccountId);
     const treasuryAcct = AccountId.fromString(program.treasury_account_id);
 
+    const fromToken = TokenId.fromString(program.from_token_id);
+    const toToken = TokenId.fromString(program.to_token_id);
+
     let txId: string | null = null;
 
     if (program.swap_type === 'nft') {
@@ -644,16 +658,33 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
         return;
       }
 
-      const fromToken = TokenId.fromString(program.from_token_id);
-      const toToken = TokenId.fromString(program.to_token_id);
+      // Determine which toToken serials to send back.
+      let treasurySerials: number[];
+      if (program.serial_mode === 'random') {
+        const available = await fetchTreasuryNftSerials(program.treasury_account_id, program.to_token_id);
+        if (available.length < serialNumbers.length) {
+          res.status(400).json({
+            success: false,
+            error: `Treasury only holds ${available.length} serials of ${program.to_token_id} but ${serialNumbers.length} were requested.`,
+          });
+          return;
+        }
+        treasurySerials = available.sort(() => Math.random() - 0.5).slice(0, serialNumbers.length);
+        console.log('[executeSwap NFT] random mode — assigned treasury serials:', treasurySerials);
+      } else {
+        treasurySerials = serialNumbers;
+        console.log('[executeSwap NFT] 1:1 mode — treasury serials:', treasurySerials);
+      }
 
       const transferTx = new TransferTransaction();
 
-      for (const serial of serialNumbers) {
-        // Old NFT: user → treasury (approved by user)
-        transferTx.addApprovedNftTransfer(new NftId(fromToken, serial), userAcct, treasuryAcct);
-        // New NFT: treasury → user (approved by creator for operator)
-        transferTx.addApprovedNftTransfer(new NftId(toToken, serial), treasuryAcct, userAcct);
+      for (let i = 0; i < serialNumbers.length; i++) {
+        const userSerial = serialNumbers[i];
+        const treasurySerial = treasurySerials[i];
+        // Old NFT: user → treasury using the user's pre-approved allowance to the operator.
+        transferTx.addApprovedNftTransfer(new NftId(fromToken, userSerial), userAcct, treasuryAcct);
+        // New NFT: treasury → user using the treasury's pre-approved allowance to the operator.
+        transferTx.addApprovedNftTransfer(new NftId(toToken, treasurySerial), treasuryAcct, userAcct);
       }
 
       const frozenTx = transferTx.freezeWith(client);
@@ -675,10 +706,47 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
       });
 
     } else {
-      // Fungible: redirect callers to the /prepare + /submit flow
-      res.status(400).json({
-        success: false,
-        error: 'Fungible swaps must use POST /prepare then POST /submit. See API docs.',
+      // Fungible swap
+      if (amount == null) {
+        res.status(400).json({ success: false, error: 'amount is required for fungible swaps' });
+        return;
+      }
+
+      const rawAmount = BigInt(amount);
+      const outputAmount = BigInt(
+        Math.floor((Number(rawAmount) * Number(program.rate_to)) / Number(program.rate_from))
+      );
+
+      console.log('[executeSwap fungible] amounts:', {
+        rawAmount: rawAmount.toString(),
+        outputAmount: outputAmount.toString(),
+      });
+
+      const transferTx = new TransferTransaction()
+        // FROM tokens: user → treasury using the user's pre-approved token allowance.
+        .addApprovedTokenTransfer(fromToken, userAcct, -rawAmount)
+        .addApprovedTokenTransfer(fromToken, treasuryAcct, rawAmount)
+        // TO tokens: treasury → user using the treasury's pre-approved token allowance.
+        .addApprovedTokenTransfer(toToken, treasuryAcct, -outputAmount)
+        .addApprovedTokenTransfer(toToken, userAcct, outputAmount);
+
+      const frozenTx = transferTx.freezeWith(client);
+      const txResponse = await frozenTx.execute(client);
+      await txResponse.getReceipt(client);
+      txId = txResponse.transactionId.toString();
+
+      await pool.query(
+        `INSERT INTO swap_transactions (swap_program_id, user_account_id, amount, tx_id, status)
+         VALUES ($1, $2, $3, $4, 'completed')`,
+        [id, userAccountId, rawAmount.toString(), txId]
+      );
+
+      res.json({
+        success: true,
+        txId,
+        amountIn: rawAmount.toString(),
+        amountOut: outputAmount.toString(),
+        message: `Successfully swapped ${rawAmount.toString()} tokens`,
       });
     }
   } catch (err: any) {
