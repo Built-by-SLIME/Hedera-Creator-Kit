@@ -326,27 +326,26 @@ export async function deleteSwapProgram(req: Request, res: Response): Promise<vo
 /**
  * POST /api/swap-programs/:id/prepare
  *
- * Fungible swap — step 1 of 2.
+ * Step 1 of 2 for both NFT and fungible swaps.
  *
  * Builds an atomic TransferTransaction and returns the UNSIGNED frozen bytes
  * to the dApp. The operator does NOT sign here — it signs last in /submit
  * after the user's signature has been collected, which avoids wallets
  * stripping pre-existing signatures during their own signing step.
  *
+ * The user is the TransactionId payer so wallet signers will accept and sign
+ * the prepared bytes without rewriting the transaction. The operator signs as
+ * the approved spender for the treasury → user transfer.
+ *
  * The dApp must then:
  *   1. Deserialise the bytes: Transaction.fromBytes(...)
  *   2. Have the user sign-only in their wallet (signer.signTransaction, NOT executeWithSigner)
- *      — the user's signature authorises the FROM-token debit AND the HBAR reimbursement.
+ *      — the user's signature authorises the FROM-token debit and, for NFT swaps,
+ *        the 1 ℏ transfer that satisfies royalty calculation.
  *   3. POST the user-signed bytes to /api/swap-programs/:id/submit
  *
- * Fee responsibility:
- *   Hedera requires the approved SPENDER (operator) to be the TransactionId payer.
- *   The operator nominally pays the network fee, but the transaction includes a small
- *   HBAR transfer (user → operator, ~0.01 HBAR) so the user reimburses the operator.
- *   Net cost to the operator: zero.
- *
- * Body:  { userAccountId: string, amount: string | number }  (amount in raw units)
- * Returns: { success, txBytes, txId, amountIn, amountOut, fromToken, toToken }
+ * Body:  { userAccountId: string, amount?: string | number, serialNumbers?: number[] }
+ * Returns: { success, txBytes, txId, amountIn?, amountOut?, serialNumbers?, fromToken, toToken }
  */
 export async function prepareSwap(req: Request, res: Response): Promise<void> {
   try {
@@ -385,7 +384,6 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
 
       const fromToken = TokenId.fromString(program.from_token_id);
       const toToken   = TokenId.fromString(program.to_token_id);
-      const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
 
       console.log('[prepareSwap NFT]', { serials: serialNumbers });
 
@@ -414,9 +412,10 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       for (let i = 0; i < serialNumbers.length; i++) {
         const userSerial = serialNumbers[i];
         const treasurySerial = treasurySerials[i];
-        // Old NFT (fromToken): user → treasury using the user's pre-approved allowance
-        transferTx.addApprovedNftTransfer(new NftId(fromToken, userSerial), userAcct, treasuryAcct);
-        // New NFT (toToken): treasury → user using the treasury's pre-approved allowance
+        // Old NFT (fromToken): user → treasury, signed directly by the user.
+        transferTx.addNftTransfer(new NftId(fromToken, userSerial), userAcct, treasuryAcct);
+        // New NFT (toToken): treasury → user using the treasury's pre-approved allowance.
+        // The operator signs as the approved spender.
         transferTx.addApprovedNftTransfer(new NftId(toToken, treasurySerial), treasuryAcct, userAcct);
       }
 
@@ -424,13 +423,14 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       // Hedera interprets this as fungible value exchanged from the NFT receiver (user)
       // to the NFT sender (treasury), which satisfies the royalty condition — the 5%
       // royalty (~0.05 ℏ) is applied and the fallback fee is NOT triggered.
-      // This means: user pays exactly 1 ℏ, operator does NOT absorb the 1 ℏ fallback.
+      // The user is the payer, so the user pays the network fee directly.
       const swapFee = new Hbar(1);
       transferTx
         .addHbarTransfer(userAcct, swapFee.negated())   // swapper pays
         .addHbarTransfer(treasuryAcct, swapFee)         // treasury receives (royalty deducted by Hedera)
-        // Operator must be the payer (Hedera requirement for approved transfers)
-        .setTransactionId(TransactionId.generate(operatorAcct))
+        // User is the payer so wallet signers won't rewrite the transaction.
+        // Operator signs as the approved spender for the treasury → user NFT transfer.
+        .setTransactionId(TransactionId.generate(userAcct))
         // Pin to a single node so wallet and backend sign the same bytes
         .setNodeAccountIds([new AccountId(3)]);
 
@@ -438,7 +438,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       const txId = frozenTx.transactionId!.toString();
       const txBytes = Buffer.from(frozenTx.toBytes()).toString('base64');
 
-      console.log('[prepareSwap NFT] built tx:', { txId, payer: operatorAcct.toString() });
+      console.log('[prepareSwap NFT] built tx:', { txId, payer: userAcct.toString() });
 
       res.json({
         success: true,
@@ -476,31 +476,21 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       outputAmount: outputAmount.toString(),
     });
 
-    // Hedera protocol requirement: when using addApprovedTokenTransfer, the approved
-    // SPENDER must be the TransactionId payer. The operator (0.0.9348822) holds the
-    // treasury's token allowance and is therefore the spender — so the operator must
-    // be the payer account in the TransactionId.
-    //
-    // To keep the operator whole, the user reimburses the operator for the exact network
-    // fee via a small HBAR transfer included in this same atomic transaction. The user's
-    // wallet signature covers both the FROM-token debit and the HBAR reimbursement.
-    //
     // Transaction legs:
-    //   1. FROM tokens (user → treasury):   standard transfer, user signs
-    //   2. TO tokens (treasury → user):     approved transfer, operator signs (uses allowance)
-    //   3. HBAR reimbursement (user → operator): covers the operator's network fee
-    const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
-    const networkFee = await getNetworkFeeEstimate();
+    //   1. FROM tokens (user → treasury):   standard transfer, user signs directly
+    //   2. TO tokens (treasury → user):     approved transfer, operator signs as spender
+    //
+    // The user is the payer so wallet signers won't rewrite the transaction. The operator
+    // still signs as the approved spender for the treasury → user transfer.
 
     const transferTx = new TransferTransaction()
       .addTokenTransfer(fromToken, userAcct, -rawAmount)
       .addTokenTransfer(fromToken, treasuryAcct, rawAmount)
       .addApprovedTokenTransfer(toToken, treasuryAcct, -outputAmount)
       .addTokenTransfer(toToken, userAcct, outputAmount)
-      .addHbarTransfer(userAcct, networkFee.negated())
-      .addHbarTransfer(operatorAcct, networkFee)
-      // Operator is the TransactionId payer (Hedera requirement for approved transfers).
-      .setTransactionId(TransactionId.generate(operatorAcct))
+      // User is the payer so wallet signers won't rewrite the transaction.
+      // Operator signs as the approved spender for the treasury → user transfer.
+      .setTransactionId(TransactionId.generate(userAcct))
       // Pin to a single node so the wallet receives exactly one transaction version.
       // Without this, the SDK creates one version per node; the wallet signs only one,
       // and if the backend submits to a different node the signatures won't match.
@@ -512,7 +502,6 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
     console.log('[prepareSwap] built tx:', {
       txId,
       payer: frozenTx.transactionId?.accountId?.toString(),
-      networkFee: networkFee.toString(),
     });
 
     // Return unsigned bytes — operator signs LAST in /submit after the user
@@ -539,17 +528,16 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
 /**
  * POST /api/swap-programs/:id/submit
  *
- * Fungible swap — step 2 of 2.
+ * Step 2 of 2 for both NFT and fungible swaps.
  *
  * Receives user-signed transaction bytes from the dApp. The operator signs
  * last here (preserving the user's signature), then submits to Hedera.
  * Signing order: user first (wallet) → operator last (backend) → submit.
  *
- * HBAR fee is nominally charged to the operator (TransactionId payer), but the
- * transaction includes a user→operator reimbursement transfer so the net cost
- * to the operator is zero.
+ * The user is the TransactionId payer and pays the network fee directly.
+ * The operator signs as the approved spender for the treasury → user transfer.
  *
- * Body:  { txBytes: string, userAccountId: string, amount: string | number }
+ * Body:  { txBytes: string, userAccountId: string, amount: string | number, serialNumbers?: number[] }
  * Returns: { success, txId }
  */
 export async function submitSwap(req: Request, res: Response): Promise<void> {
@@ -618,7 +606,7 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
  * POST /api/swap-programs/:id/execute
  *
  * NFT swap flow (operator-executed, requires user pre-approved NFT allowances):
- *   1. User has already approved their old NFT serials to the treasury (done client-side).
+ *   1. User has already approved their old NFT serials to the operator (done client-side).
  *   2. Operator transfers new NFTs from treasury → user (creator's allowance).
  *   3. Operator transfers old NFTs from user → treasury (user's NFT allowance).
  *
