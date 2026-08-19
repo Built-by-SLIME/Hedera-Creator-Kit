@@ -333,9 +333,11 @@ export async function deleteSwapProgram(req: Request, res: Response): Promise<vo
  * after the user's signature has been collected, which avoids wallets
  * stripping pre-existing signatures during their own signing step.
  *
- * The user is the TransactionId payer so wallet signers will accept and sign
- * the prepared bytes without rewriting the transaction. The operator signs as
- * the approved spender for the treasury → user transfer.
+ * The user is the TransactionId payer so wallet signers accept the prepared
+ * transaction. Node account IDs are intentionally not pinned here; the wallet
+ * may select its preferred node, and the backend signs and submits the exact
+ * bytes returned by the dApp. The operator signs as the approved spender for the
+ * treasury → user transfer.
  *
  * The dApp must then:
  *   1. Deserialise the bytes: Transaction.fromBytes(...)
@@ -430,9 +432,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
         .addHbarTransfer(treasuryAcct, swapFee)         // treasury receives (royalty deducted by Hedera)
         // User is the payer so wallet signers won't rewrite the transaction.
         // Operator signs as the approved spender for the treasury → user NFT transfer.
-        .setTransactionId(TransactionId.generate(userAcct))
-        // Pin to a single node so wallet and backend sign the same bytes
-        .setNodeAccountIds([new AccountId(3)]);
+        .setTransactionId(TransactionId.generate(userAcct));
 
       const frozenTx = transferTx.freezeWith(client);
       const txId = frozenTx.transactionId!.toString();
@@ -490,11 +490,7 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       .addTokenTransfer(toToken, userAcct, outputAmount)
       // User is the payer so wallet signers won't rewrite the transaction.
       // Operator signs as the approved spender for the treasury → user transfer.
-      .setTransactionId(TransactionId.generate(userAcct))
-      // Pin to a single node so the wallet receives exactly one transaction version.
-      // Without this, the SDK creates one version per node; the wallet signs only one,
-      // and if the backend submits to a different node the signatures won't match.
-      .setNodeAccountIds([new AccountId(3)]);
+      .setTransactionId(TransactionId.generate(userAcct));
 
     const frozenTx = transferTx.freezeWith(client);
 
