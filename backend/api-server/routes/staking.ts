@@ -203,14 +203,19 @@ export function calcTieredReward(
   return { wholeReward, breakdown };
 }
 
-/** Fetch NFT serial numbers for an account on a given token (handles pagination). */
+/** Fetch NFT serial numbers for an account on a given token (handles pagination).
+ *  THROWS on mirror-node failure — an account that genuinely holds zero NFTs returns
+ *  HTTP 200 with an empty list, so any non-OK response means "unknown", NOT "zero".
+ *  Treating a failed fetch as zero holdings caused holders to be silently skipped. */
 export async function fetchNftSerials(accountId: string, tokenId: string): Promise<number[]> {
   const serials: number[] = [];
   let url: string | null =
     `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/nfts?token.id=${tokenId}&limit=100`;
   while (url) {
     const res = await fetch(url);
-    if (!res.ok) break;
+    if (!res.ok) {
+      throw new Error(`Mirror node HTTP ${res.status} fetching NFTs for ${accountId} (token ${tokenId}) — refusing to treat as zero holdings`);
+    }
     const data = await res.json() as { nfts: Array<{ serial_number: number }>; links?: { next?: string } };
     for (const nft of data.nfts || []) {
       serials.push(nft.serial_number);
@@ -226,21 +231,52 @@ async function fetchNftCount(accountId: string, tokenId: string): Promise<number
   return serials.length;
 }
 
-/** Fetch fungible token balance (raw units) for an account. */
+/** Fetch fungible token balance (raw units) for an account.
+ *  THROWS on mirror-node failure — a non-associated account legitimately returns
+ *  HTTP 200 with an empty tokens array (= balance 0), so a non-OK response means
+ *  "unknown", NOT "zero". */
 export async function fetchFtBalance(accountId: string, tokenId: string): Promise<bigint> {
   const url = `${MIRROR_NODE_URL}/api/v1/accounts/${accountId}/tokens?token.id=${tokenId}&limit=1`;
   const res = await fetch(url);
-  if (!res.ok) return 0n;
+  if (!res.ok) {
+    throw new Error(`Mirror node HTTP ${res.status} fetching FT balance for ${accountId} (token ${tokenId}) — refusing to treat as zero holdings`);
+  }
   const data = await res.json() as { tokens?: Array<{ balance: number }> };
   return BigInt(data.tokens?.[0]?.balance ?? 0);
 }
 
-/** Fetch reward token decimals from Mirror Node. */
+/**
+ * Fetch token decimals from Mirror Node, with retries.
+ * THROWS on failure — callers must never guess decimals. A wrong value either dusts
+ * recipients (as on 2026-09-15, when a silent 0 turned 70 SLIME into 0.0000007) or
+ * wildly overpays. NOTE: 0 is a legitimate decimals value (e.g. STASH, HPRIME) —
+ * only throw when the mirror node cannot give an authoritative answer.
+ */
 export async function fetchTokenDecimals(tokenId: string): Promise<number> {
-  const res = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${tokenId}`);
-  if (!res.ok) return 0;
-  const data = await res.json() as { decimals?: string };
-  return parseInt(data.decimals ?? '0');
+  const url = `${MIRROR_NODE_URL}/api/v1/tokens/${tokenId}`;
+  let lastError = 'unknown';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json() as { decimals?: string };
+        const decimals = parseInt(data.decimals ?? '', 10);
+        if (Number.isInteger(decimals) && decimals >= 0 && decimals <= 19) {
+          return decimals;
+        }
+        lastError = `malformed decimals field: ${JSON.stringify(data.decimals)}`;
+      } else {
+        lastError = `HTTP ${res.status}`;
+      }
+    } catch (err: any) {
+      lastError = err.message;
+    }
+    if (attempt < 3) {
+      console.warn(`[fetchTokenDecimals] ${tokenId} attempt ${attempt} failed (${lastError}) — retrying`);
+      await new Promise(r => setTimeout(r, 1000 * attempt));
+    }
+  }
+  throw new Error(`Failed to fetch decimals for token ${tokenId} after 3 attempts (${lastError}). Aborting run — refusing to guess decimals.`);
 }
 
 /** Fetch custom_fees for a token so we can warn creators about fractional fees. */
@@ -979,16 +1015,29 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
   // Only update program's last_distributed_at on a full run (not a single-participant registration drip)
   // If we update it on every registration, the cron will never see the program as "due"
   if (!targetAccountId) {
-    // Set last_distributed_at to the cron schedule time (05:12 UTC) to prevent timing drift
-    // This ensures the program is always "due" at the same time each cycle, regardless of
-    // how long the drip processing takes (which can vary from 5 minutes to 1.5+ hours)
-    const cronScheduleTime = new Date();
-    cronScheduleTime.setUTCHours(5, 12, 0, 0);
+    // Clock advancement policy:
+    //  - NFT programs: advance ONLY when the run had zero failures. Serial credits
+    //    make retries safe (already-paid serials stay blocked for the dedup window),
+    //    so a partially-failed run keeps the program "due" and the next daily cron
+    //    re-attempts ONLY the unpaid wallets.
+    //  - FT programs: keep legacy behavior (always advance). Without per-account
+    //    period credits, re-running a partially-failed FT run would double-pay the
+    //    successes. (Planned follow-up: staking_ft_period_credits.)
+    const canAdvanceClock = prog.stake_token_type !== 'NFT' || failed === 0;
+    if (canAdvanceClock) {
+      // Set last_distributed_at to the cron schedule time (05:12 UTC) to prevent timing drift
+      // This ensures the program is always "due" at the same time each cycle, regardless of
+      // how long the drip processing takes (which can vary from 5 minutes to 1.5+ hours)
+      const cronScheduleTime = new Date();
+      cronScheduleTime.setUTCHours(5, 12, 0, 0);
 
-    await pool.query(
-      `UPDATE staking_programs SET last_distributed_at=$1, updated_at=NOW() WHERE id=$2`,
-      [cronScheduleTime, programId]
-    );
+      await pool.query(
+        `UPDATE staking_programs SET last_distributed_at=$1, updated_at=NOW() WHERE id=$2`,
+        [cronScheduleTime, programId]
+      );
+    } else {
+      console.warn(`[processDrip] NOT advancing last_distributed_at for program ${programId}: ${failed} participant(s) failed. Program stays due so the next run retries the unpaid.`);
+    }
   }
 
   return { distributed, skipped, failed, errors };
