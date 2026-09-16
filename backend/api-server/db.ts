@@ -150,6 +150,18 @@ export async function initDb(): Promise<void> {
     ALTER TABLE staking_distributions
       ADD COLUMN IF NOT EXISTS tier_breakdown      JSONB       DEFAULT NULL;
 
+    CREATE TABLE IF NOT EXISTS staking_ft_period_credits (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      program_id       UUID         NOT NULL REFERENCES staking_programs(id) ON DELETE CASCADE,
+      account_id       VARCHAR(50)  NOT NULL,
+      period_start     TIMESTAMPTZ  NOT NULL,
+      credited_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      UNIQUE (program_id, account_id, period_start)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ft_period_credits_program_account
+      ON staking_ft_period_credits (program_id, account_id);
+
     ALTER TABLE swap_programs
       ADD COLUMN IF NOT EXISTS serial_mode VARCHAR(10) DEFAULT '1:1'
         CHECK (serial_mode IN ('1:1', 'random'));

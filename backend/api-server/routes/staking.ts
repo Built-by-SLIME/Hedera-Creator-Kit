@@ -859,7 +859,7 @@ export async function listDistributions(req: Request, res: Response): Promise<vo
  *  4. Build TransferTransaction using addApprovedTokenTransfer (operator spends creator's allowance).
  *  5. Operator signs + submits; record in staking_distributions.
  */
-async function processDrip(programId: string, targetAccountId?: string): Promise<{
+async function processDripLocked(programId: string, targetAccountId?: string): Promise<{
   distributed: number; skipped: number; failed: number; errors: string[];
 }> {
   console.log(`[processDrip] ENTER programId=${programId} targetAccountId=${targetAccountId ?? 'ALL'}`);
@@ -931,6 +931,24 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
 
         console.log(`[drip] ${accountId}: ${allSerials.length} total NFTs, ${creditedSet.size} already credited in last ${days}d, ${newSerials.length} new`);
       } else {
+        // FT per-account period credit — the fungible equivalent of NFT serial
+        // credits, using the same dedup window (frequency*24h - 4h). Prevents the
+        // registration drip + scheduled run from paying an account twice in one
+        // period (LENNY S4 launch-day double-drip, 2026-09-15).
+        const dedupHours = days * 24 - 4;
+        const alreadyCredited = await pool.query(
+          `SELECT 1 FROM staking_ft_period_credits
+            WHERE program_id = $1 AND account_id = $2
+              AND credited_at > NOW() - make_interval(hours => $3)
+            LIMIT 1`,
+          [programId, accountId, dedupHours]
+        );
+        if ((alreadyCredited.rowCount ?? 0) > 0) {
+          console.log(`[drip] Skipping ${accountId}: already credited within the last ${dedupHours}h`);
+          skipped++;
+          continue;
+        }
+
         const rawBalance = await fetchFtBalance(accountId, prog.stake_token_id);
         // Use STAKE token decimals to convert raw balance to whole units
         unitsHeld = Number(rawBalance) / Math.pow(10, stakeDecimals);
@@ -1002,6 +1020,20 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
         console.log(`[drip] Recorded ${newSerials.length} serials as credited (period_start ${todayUtc}, credited_at ${normalizedCreditedAt.toISOString()})`);
       }
 
+      // For FT programs: mark the account as credited for this period (mirror of the
+      // NFT serial credits above). Same 05:12 UTC normalization so the dedup window
+      // opens exactly at the next cron tick.
+      if (prog.stake_token_type === 'FT') {
+        const todayUtc = new Date().toISOString().split('T')[0] + 'T00:00:00Z';
+        const normalizedCreditedAt = new Date();
+        normalizedCreditedAt.setUTCHours(5, 12, 0, 0);
+        await pool.query(
+          `INSERT INTO staking_ft_period_credits (program_id, account_id, period_start, credited_at)
+           VALUES ($1, $2, $3, $4) ON CONFLICT (program_id, account_id, period_start) DO UPDATE SET credited_at = EXCLUDED.credited_at`,
+          [programId, accountId, todayUtc, normalizedCreditedAt]
+        );
+      }
+
       console.log(`[drip] Sent ${rewardRaw / Math.pow(10, rewardDecimals)} reward to ${accountId} (tx: ${txId})`);
       distributed++;
     } catch (err: any) {
@@ -1015,15 +1047,11 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
   // Only update program's last_distributed_at on a full run (not a single-participant registration drip)
   // If we update it on every registration, the cron will never see the program as "due"
   if (!targetAccountId) {
-    // Clock advancement policy:
-    //  - NFT programs: advance ONLY when the run had zero failures. Serial credits
-    //    make retries safe (already-paid serials stay blocked for the dedup window),
-    //    so a partially-failed run keeps the program "due" and the next daily cron
-    //    re-attempts ONLY the unpaid wallets.
-    //  - FT programs: keep legacy behavior (always advance). Without per-account
-    //    period credits, re-running a partially-failed FT run would double-pay the
-    //    successes. (Planned follow-up: staking_ft_period_credits.)
-    const canAdvanceClock = prog.stake_token_type !== 'NFT' || failed === 0;
+    // Clock advancement policy: advance ONLY when the run had zero failures.
+    // NFT serial credits and FT account credits both make retries safe (already-paid
+    // wallets stay blocked for the dedup window), so a partially-failed run keeps
+    // the program "due" and the next daily cron re-attempts ONLY the unpaid wallets.
+    const canAdvanceClock = failed === 0;
     if (canAdvanceClock) {
       // Set last_distributed_at to the cron schedule time (05:12 UTC) to prevent timing drift
       // This ensures the program is always "due" at the same time each cycle, regardless of
@@ -1044,6 +1072,33 @@ async function processDrip(programId: string, targetAccountId?: string): Promise
 }
 
 /**
+ * Entry point for ALL drip processing (cron run-all, manual trigger, registration drip).
+ * Serializes runs per program via a Postgres advisory lock — database-global, so it
+ * covers cron vs manual trigger vs multiple replicas, unlike the in-process
+ * dripRunning flag. The lock is held on a dedicated pool client for the entire run
+ * (pg advisory locks are connection-scoped) and always released in `finally`.
+ */
+async function processDrip(programId: string, targetAccountId?: string): Promise<{
+  distributed: number; skipped: number; failed: number; errors: string[];
+}> {
+  const lockKey = `drip:${programId}`;
+  const lockClient = await pool.connect();
+  try {
+    const lockRes = await lockClient.query('SELECT pg_try_advisory_lock(hashtext($1)) AS acquired', [lockKey]);
+    if (!lockRes.rows[0]?.acquired) {
+      const msg = `Another drip run is already in progress for program ${programId} — skipping`;
+      console.warn(`[processDrip] ${msg}`);
+      return { distributed: 0, skipped: 0, failed: 0, errors: [msg] };
+    }
+    return await processDripLocked(programId, targetAccountId);
+  } finally {
+    await lockClient.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey])
+      .catch((e: any) => console.warn('[processDrip] advisory unlock failed:', e.message));
+    lockClient.release();
+  }
+}
+
+/**
  * POST /api/staking-programs/:id/drip
  * Manually trigger a drip for a specific program.
  * Protected: only the program creator can trigger it.
@@ -1053,6 +1108,18 @@ export async function triggerDrip(req: Request, res: Response): Promise<void> {
   try {
     const { id } = req.params;
     const { createdBy } = req.body;
+
+    // Require the operator secret. A createdBy match alone is not authentication —
+    // account IDs are public information. Fail closed if the secret is unset.
+    const secret = process.env.DRIP_SECRET;
+    if (!secret) {
+      res.status(500).json({ success: false, error: 'DRIP_SECRET is not configured on the server' });
+      return;
+    }
+    if (req.headers.authorization !== `Bearer ${secret}`) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
 
     // Verify ownership
     const check = await pool.query(
@@ -1078,13 +1145,16 @@ export async function triggerDrip(req: Request, res: Response): Promise<void> {
  * pass it as Bearer token in your cron's Authorization header.
  */
 export async function runAllDrips(req: Request, res: Response): Promise<void> {
+  // Fail closed: if DRIP_SECRET is not configured, this endpoint must be dead — not public.
   const secret = process.env.DRIP_SECRET;
-  if (secret) {
-    const auth = req.headers.authorization;
-    if (auth !== `Bearer ${secret}`) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
+  if (!secret) {
+    res.status(500).json({ success: false, error: 'DRIP_SECRET is not configured on the server' });
+    return;
+  }
+  const auth = req.headers.authorization;
+  if (auth !== `Bearer ${secret}`) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
   }
 
   // Prevent concurrent drip runs (race condition protection)
@@ -1149,12 +1219,14 @@ export async function runAllDrips(req: Request, res: Response): Promise<void> {
  * Secured by DRIP_SECRET.
  */
 export async function resetDistributionClock(req: Request, res: Response) {
+  // Fail closed: if DRIP_SECRET is not configured, this endpoint must be dead — not public.
   const secret = process.env.DRIP_SECRET;
-  if (secret) {
-    const auth = req.headers['authorization'];
-    if (!auth || auth !== `Bearer ${secret}`) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+  if (!secret) {
+    return res.status(500).json({ error: 'DRIP_SECRET is not configured on the server' });
+  }
+  const auth = req.headers['authorization'];
+  if (!auth || auth !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
   try {
     const result = await pool.query(
