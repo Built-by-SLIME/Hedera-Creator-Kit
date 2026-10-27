@@ -105,12 +105,6 @@ const spenderRegistry: Record<string, KnownSpender> = {
     url: 'https://saucerswap.finance',
     note: 'Superseded by the V2 manager — safe to revoke if no open V2 positions',
   },
-  '0.0.9348822': {
-    name: 'SentX Marketplace — Legacy Operator',
-    category: 'marketplace',
-    url: 'https://sentx.io',
-    note: 'SentX operator account used between Jul 2025 and May 2026, superseded by the current multisig (0.0.10479056). NFT approvals granted in that window — including approved-for-all — may still point here. Safe to revoke if your listings from that era are done.',
-  },
   '0.0.1064038': {
     name: 'SentX Treasury',
     category: 'marketplace',
@@ -129,9 +123,9 @@ const spenderRegistry: Record<string, KnownSpender> = {
 // recognize why it appears in their allowance list.
 if (BACKEND_MINTER_ACCOUNT) {
   spenderRegistry[BACKEND_MINTER_ACCOUNT] = {
-    name: 'Creator Toolkit — Reward Drip',
+    name: 'SLIME Tools',
     category: 'toolkit',
-    note: 'The Creator Toolkit operator. Your treasury granted this allowance so staking rewards can be distributed — in practice it only sends rewards out. Revoking it stops reward distributions for your programs.',
+    note: 'The SLIME Tools operator. Token allowances fund staking reward drips; NFT allowances power swap programs (new NFTs sent to migrating holders). It only ever sends out — revoking stops those programs for your projects.',
   }
 }
 
