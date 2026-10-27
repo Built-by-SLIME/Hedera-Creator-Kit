@@ -105,6 +105,18 @@ const spenderRegistry: Record<string, KnownSpender> = {
     url: 'https://saucerswap.finance',
     note: 'Superseded by the V2 manager — safe to revoke if no open V2 positions',
   },
+  '0.0.9348822': {
+    name: 'SentX Marketplace — Legacy Operator',
+    category: 'marketplace',
+    url: 'https://sentx.io',
+    note: 'SentX operator account used between Jul 2025 and May 2026, superseded by the current multisig (0.0.10479056). NFT approvals granted in that window — including approved-for-all — may still point here. Safe to revoke if your listings from that era are done.',
+  },
+  '0.0.1064038': {
+    name: 'SentX Treasury',
+    category: 'marketplace',
+    url: 'https://sentx.io',
+    note: 'SentX treasury — issuer of the $SENTX token (0.0.2672057) and their oldest account (since July 2022). Runs the buyback-and-burn. If this appears as a spender it likely dates from SentX early marketplace era (pre-2025).',
+  },
   '0.0.10479056': {
     name: 'SentX Marketplace',
     category: 'marketplace',
