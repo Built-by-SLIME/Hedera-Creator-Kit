@@ -73,7 +73,43 @@ const spenderRegistry: Record<string, KnownSpender> = {
     name: 'SaucerSwap V1 Router',
     category: 'dex',
     url: 'https://saucerswap.finance',
-    note: 'SaucerSwap decentralized exchange router',
+    note: 'SaucerSwap V1 (AMM) router — current version per official deployment docs',
+  },
+  '0.0.6755814': {
+    name: 'SaucerSwap Router (Fee Variant)',
+    category: 'dex',
+    url: 'https://saucerswap.finance',
+    note: 'SaucerSwap V1 fee-enabled router variant',
+  },
+  '0.0.3949434': {
+    name: 'SaucerSwap V2 SwapRouter',
+    category: 'dex',
+    url: 'https://saucerswap.finance',
+    note: 'SaucerSwap V2 (concentrated liquidity) swap router',
+  },
+  '0.0.4053945': {
+    name: 'SaucerSwap V2 Position Manager',
+    category: 'dex',
+    url: 'https://saucerswap.finance',
+    note: 'Manages SaucerSwap V2 LP positions (position NFTs)',
+  },
+  '0.0.1461860': {
+    name: 'SaucerSwap V1 Router (Deprecated)',
+    category: 'dex',
+    url: 'https://saucerswap.finance',
+    note: 'Superseded by the V1 RouterV3 — safe to revoke',
+  },
+  '0.0.3949448': {
+    name: 'SaucerSwap V2 Position Manager (Deprecated)',
+    category: 'dex',
+    url: 'https://saucerswap.finance',
+    note: 'Superseded by the V2 manager — safe to revoke if no open V2 positions',
+  },
+  '0.0.10479056': {
+    name: 'SentX Marketplace',
+    category: 'marketplace',
+    url: 'https://sentx.io',
+    note: 'SentX operator account (2-of-3 multisig). NFT listings create per-serial or approved-for-all allowances; offers create HBAR allowances. Cancelled listings usually delete them — stale approvals can linger.',
   },
 }
 
