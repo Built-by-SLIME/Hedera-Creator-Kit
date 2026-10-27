@@ -151,6 +151,13 @@ export class HelpPage {
       { type: 'output', content: '       Register .hbar domains via Kabuto Name Service (KNS).' },
       { type: 'output', content: '' },
 
+      { type: 'success', content: '  [15] Allowance Manager' },
+      { type: 'output', content: '       See everything that can be taken from your wallet:' },
+      { type: 'output', content: '       HBAR, token, and NFT allowances — incl. per-serial NFTs.' },
+      { type: 'output', content: '       Revoke any spender with one signature. Free — you pay' },
+      { type: 'output', content: '       only the Hedera network fee (~$0.01).' },
+      { type: 'output', content: '' },
+
       // --- VIDEOS ---
       { type: 'warning', content: '  ── INSTRUCTIONAL VIDEOS ────────────────────────────────────' },
       { type: 'output', content: '' },

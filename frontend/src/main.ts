@@ -17,6 +17,7 @@ import { StakingTool } from './components/StakingTool'
 import { DomainTool } from './components/DomainTool'
 import { HelpPage } from './components/HelpPage'
 import { AdminTool } from './components/AdminTool'
+import { AllowanceTool } from './components/AllowanceTool'
 
 // Initialize the application
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -127,6 +128,10 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       DomainTool.init()
       console.log('DomainTool initialized')
       break
+    case 'allowance-manager':
+      app.innerHTML = AllowanceTool.render()
+      AllowanceTool.init()
+      break
     case 'help':
       app.innerHTML = HelpPage.render()
       HelpPage.init()
@@ -154,6 +159,7 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       StakingTool.resetState()
       AdminTool.resetState()
       DomainTool.resetForm()
+      AllowanceTool.resetState()
 
       console.log('App element:', app)
       const rendered = Terminal.render()

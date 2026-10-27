@@ -17,6 +17,7 @@ An all-in-one tool kit for creators on Hedera Hashgraph.
 - ✅ **Token Swap** - Migrate holders between tokens
 - ✅ **Token Viewer** - Viewer details of any token on Hedera (keys, holders, etc.).
 - ✅ **Domain Registration** - Register .hedera, .slime, .gib, .tigers, & .buds domains
+- ✅ **Allowance Manager** - View & revoke HBAR, token, and NFT allowances (incl. per-serial) — network fees only
 
 ## 📁 Project Structure
 

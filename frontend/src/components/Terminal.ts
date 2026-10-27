@@ -60,7 +60,8 @@ export class Terminal {
     { id: 'burn', number: 11, title: 'Burn Tool', description: 'Permanently burn tokens/NFTs', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'staking', number: 12, title: 'Staking Tool', description: 'Soft-stake rewards for holders', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'domain-registration', number: 13, title: 'Domain Registration', description: 'Register .hedera / .slime / .gib domains', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'update-nft-metadata', number: 14, title: 'Update NFT Metadata', description: 'Update metadata of an existing NFT', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' }
+    { id: 'update-nft-metadata', number: 14, title: 'Update NFT Metadata', description: 'Update metadata of an existing NFT', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'allowance-manager', number: 15, title: 'Allowance Manager', description: 'View & revoke wallet allowances', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' }
   ]
 
   private static isTokenGateVerified(): boolean {
@@ -186,7 +187,7 @@ export class Terminal {
     lines.push({ type: 'output', content: '' })
     lines.push(...this.getToolsList())
     lines.push({ type: 'output', content: '' })
-    lines.push({ type: 'prompt', content: 'Type a number (1-14) or tool name to begin...' })
+    lines.push({ type: 'prompt', content: 'Type a number (1-15) or tool name to begin...' })
 
     return lines
   }
@@ -377,8 +378,8 @@ export class Terminal {
       return
     }
 
-    // Check for number input (1-14) — navigate to tool, no history
-    if (/^([1-9]|1[0-4])$/.test(cmd)) {
+    // Check for number input (1-15) — navigate to tool, no history
+    if (/^([1-9]|1[0-5])$/.test(cmd)) {
       const toolNumber = parseInt(cmd)
       const tool = this.tools.find(t => t.number === toolNumber)
       if (tool) {

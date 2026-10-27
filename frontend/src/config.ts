@@ -58,6 +58,43 @@ export type DomainTld = typeof DOMAIN_SUPPORTED_TLDS[number]
 export const DOMAIN_ADMIN_ACCOUNT = '0.0.9463056'
 
 // ---------------------------------------------------------------------------
+// Spender label registry — curated known spenders for the Allowance Manager
+// ---------------------------------------------------------------------------
+
+export interface KnownSpender {
+  name: string
+  category: 'toolkit' | 'marketplace' | 'dex' | 'wallet' | 'other'
+  url?: string
+  note?: string
+}
+
+const spenderRegistry: Record<string, KnownSpender> = {
+  [SAUCER_V1_ROUTER]: {
+    name: 'SaucerSwap V1 Router',
+    category: 'dex',
+    url: 'https://saucerswap.finance',
+    note: 'SaucerSwap decentralized exchange router',
+  },
+}
+
+// Toolkit operator account — only labelled when configured so creators
+// recognize why it appears in their allowance list.
+if (BACKEND_MINTER_ACCOUNT) {
+  spenderRegistry[BACKEND_MINTER_ACCOUNT] = {
+    name: 'Creator Toolkit — Reward Drip',
+    category: 'toolkit',
+    note: 'The Creator Toolkit operator. Your treasury granted this allowance so staking rewards can be distributed — in practice it only sends rewards out. Revoking it stops reward distributions for your programs.',
+  }
+}
+
+export const KNOWN_SPENDERS: Record<string, KnownSpender> = spenderRegistry
+
+/** HashScan account page (verification status & trust score live there) */
+export function hashscanAccountUrl(accountId: string): string {
+  return `https://hashscan.io/mainnet/account/${accountId}`
+}
+
+// ---------------------------------------------------------------------------
 // Hedera SDK helpers
 // ---------------------------------------------------------------------------
 
