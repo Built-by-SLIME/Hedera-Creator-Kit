@@ -109,7 +109,7 @@ const spenderRegistry: Record<string, KnownSpender> = {
     name: 'SentX Marketplace',
     category: 'marketplace',
     url: 'https://sentx.io',
-    note: 'SentX operator account (2-of-3 multisig). NFT listings create per-serial or approved-for-all allowances; offers create HBAR allowances. Cancelled listings usually delete them — stale approvals can linger.',
+    note: 'SentX operator account (2-of-3 multisig, in use since May 2026 — marketplaces rotate operator keys for security, so this address is newer than the company itself). NFT listings create per-serial or approved-for-all allowances; offers create HBAR allowances. Cancelled listings usually delete them — stale approvals can linger. Approvals granted before May 2026 may point to an older SentX operator account.',
   },
 }
 

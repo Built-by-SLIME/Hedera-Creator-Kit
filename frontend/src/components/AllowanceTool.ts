@@ -215,20 +215,20 @@ export class AllowanceTool {
       </div>`
     }
 
-    if (this.error) {
-      return `<div class="error-state">
-        <p class="error-message">⚠ ${this.error}</p>
-      </div>`
-    }
+    // Never hide data behind an error — if anything loaded, show it with a banner.
+    const banner = this.error
+      ? `<div class="alv-warning-banner">⚠ ${this.escapeHtml(this.error)}</div>`
+      : ''
 
     if (!this.loadedAccount) {
-      return `<div class="empty-state">
+      return `${banner}<div class="empty-state">
         <p>Connect a wallet to inspect its allowances.</p>
       </div>`
     }
 
     const cards = this.spenderCards()
     if (cards.length === 0) {
+      if (this.error) return banner
       const filtered = this.hasAnyData() && (this.activeTab !== 'all' || this.riskOnly || this.search.trim())
       return `<div class="empty-state">
         <p>${filtered
@@ -237,7 +237,7 @@ export class AllowanceTool {
       </div>`
     }
 
-    return cards.map(card => this.renderSpenderCard(card)).join('')
+    return banner + cards.map(card => this.renderSpenderCard(card)).join('')
   }
 
   // -------------------------------------------------------------------------
@@ -600,6 +600,9 @@ export class AllowanceTool {
 
     while (next) {
       const res: any = await fetch(next)
+      // Mirror returns 404 (instead of an empty list) when the account has no
+      // allowances of this type — that is a normal, healthy state.
+      if (res.status === 404) return
       if (!res.ok) throw new Error(`Mirror node returned ${res.status} for ${kind} allowances`)
       const data: any = await res.json()
 

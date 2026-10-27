@@ -2967,3 +2967,12 @@ w3m-modal, wcm-modal {
     padding-bottom: 2rem;
   }
 }
+
+.alv-warning-banner {
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--warning-yellow);
+  color: var(--warning-yellow);
+  font-size: 0.78rem;
+  background: var(--terminal-bg-light);
+}
