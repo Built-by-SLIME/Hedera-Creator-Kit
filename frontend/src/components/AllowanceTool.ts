@@ -50,7 +50,7 @@ interface TokenMeta {
 }
 
 type Tab = 'all' | 'hbar' | 'tokens' | 'nfts'
-type Risk = 'high' | 'elevated' | 'info' | 'none'
+type Risk = 'high' | 'access' | 'elevated' | 'stale' | 'info'
 
 const MAX_ALLOWANCE = BigInt('9223372036854775807')
 
@@ -119,7 +119,6 @@ export class AllowanceTool {
     const unlimitedTokens = this.tokenRows.filter(r => this.isUnlimited(r.amountRaw)).length
     const allNfts = this.nftRows.filter(r => r.approvedForAll).length
     const highRisk = this.spenderCards().reduce((n, c) => n + c.rows.filter(r => r.risk === 'high').length, 0)
-
     return `
       <div class="token-input-section">
         <h3 class="section-title">Allowance Manager</h3>
@@ -310,7 +309,7 @@ export class AllowanceTool {
         asset: `${symbol}${meta && meta.name ? ` · ${meta.name}` : ''} (${row.tokenId})`,
         detail: amount,
         grantedAt: row.grantedAt,
-        risk: unlimited ? 'high' : 'none',
+        risk: unlimited ? 'high' : 'elevated',
       })
     }
 
@@ -334,24 +333,30 @@ export class AllowanceTool {
 
     const cards = [...map.values()]
 
+    // Risk reflects exposure class + whether we can vouch for the spender:
+    //   stale  — known but superseded → actionable, not dangerous
+    //   high   — full access held by an UNKNOWN spender → the only red
+    //   access — full access held by a known spender → amber, be aware
+    //   info   — known spender, limited exposure → green
+    //   elevated — unknown spender, limited exposure → amber caution
     for (const card of cards) {
-      const info = this.spenderCache.get(card.spender) ?? null
-      const known = info?.known ?? KNOWN_SPENDERS[card.spender] ?? null
-      const unlabeled = !known
-      const isContract = info?.kind === 'contract'
+      const known = KNOWN_SPENDERS[card.spender] ?? null
       for (const row of card.rows) {
-        if (row.risk === 'none' && unlabeled && isContract) row.risk = 'elevated'
-        if (row.risk === 'none' && unlabeled && !isContract) row.risk = 'elevated'
-      }
-      if (known) {
-        card.rows.forEach(r => { if (r.risk === 'none') r.risk = 'info' })
+        const fullAccess = row.risk === 'high'
+        if (known?.stale) {
+          row.risk = 'stale'
+        } else if (known) {
+          row.risk = fullAccess ? 'access' : 'info'
+        } else if (!fullAccess) {
+          row.risk = 'elevated'
+        }
       }
     }
 
     let filtered = cards
     if (this.riskOnly) {
       filtered = filtered
-        .map(c => ({ ...c, rows: c.rows.filter(r => r.risk === 'high' || r.risk === 'elevated') }))
+        .map(c => ({ ...c, rows: c.rows.filter(r => r.risk !== 'info') }))
         .filter(c => c.rows.length > 0)
     }
 
@@ -380,7 +385,7 @@ export class AllowanceTool {
   }
 
   private static riskWeight(risk: Risk): number {
-    return risk === 'high' ? 3 : risk === 'elevated' ? 2 : risk === 'info' ? 1 : 0
+    return risk === 'high' ? 4 : risk === 'stale' ? 3 : risk === 'access' ? 2 : risk === 'elevated' ? 1 : 0
   }
 
   private static renderSpenderCard(card: SpenderCard): string {
@@ -426,11 +431,13 @@ export class AllowanceTool {
   private static renderRow(row: CardRow, spender: string): string {
     const riskChip = row.risk === 'high'
       ? `<span class="alv-risk alv-risk-high">HIGH RISK</span>`
-      : row.risk === 'elevated'
-        ? `<span class="alv-risk alv-risk-elevated">CAUTION</span>`
-        : row.risk === 'info'
-          ? `<span class="alv-risk alv-risk-info">KNOWN</span>`
-          : ''
+      : row.risk === 'access'
+        ? `<span class="alv-risk alv-risk-access">FULL ACCESS</span>`
+        : row.risk === 'stale'
+          ? `<span class="alv-risk alv-risk-stale">STALE — SAFE TO REVOKE</span>`
+          : row.risk === 'elevated'
+            ? `<span class="alv-risk alv-risk-elevated">CAUTION</span>`
+            : `<span class="alv-risk alv-risk-info">KNOWN</span>`
 
     const serialKey = row.tokenId ? `${row.tokenId}|${spender}` : ''
     const expanded = serialKey && this.expandedSerials.has(serialKey)

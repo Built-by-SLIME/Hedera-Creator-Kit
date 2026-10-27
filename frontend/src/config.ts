@@ -66,6 +66,8 @@ export interface KnownSpender {
   category: 'toolkit' | 'marketplace' | 'dex' | 'wallet' | 'other'
   url?: string
   note?: string
+  /** superseded/deprecated — flag rows as safe-to-revoke rather than risky */
+  stale?: boolean
 }
 
 const spenderRegistry: Record<string, KnownSpender> = {
@@ -98,12 +100,14 @@ const spenderRegistry: Record<string, KnownSpender> = {
     category: 'dex',
     url: 'https://saucerswap.finance',
     note: 'Superseded by the V1 RouterV3 — safe to revoke',
+    stale: true,
   },
   '0.0.3949448': {
     name: 'SaucerSwap V2 Position Manager (Deprecated)',
     category: 'dex',
     url: 'https://saucerswap.finance',
     note: 'Superseded by the V2 manager — safe to revoke if no open V2 positions',
+    stale: true,
   },
   '0.0.1064038': {
     name: 'SentX Treasury',

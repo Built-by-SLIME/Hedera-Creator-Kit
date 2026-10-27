@@ -2976,3 +2976,13 @@ w3m-modal, wcm-modal {
   font-size: 0.78rem;
   background: var(--terminal-bg-light);
 }
+
+.alv-risk-access {
+  color: #ff9f1c;
+  border-color: #ff9f1c;
+}
+
+.alv-risk-stale {
+  color: var(--terminal-blue);
+  border-color: var(--terminal-blue-dim);
+}
