@@ -39,6 +39,10 @@ import {
   renewDomain,
   resolveDomain,
   purgeRegistrations,
+  listSupportedTlds,
+  adminListTlds,
+  adminAddTld,
+  adminSetTldActive,
 } from './routes/domains';
 import {
   createStakingProgram,
@@ -288,7 +292,12 @@ app.post('/api/domains/renew',                        (req, res, next) => renewD
 app.get('/api/domains/resolve/:name/:tld',            (req, res, next) => resolveDomain(req, res).catch(next));
 app.get('/api/domains/list/:tld',                     (req, res, next) => listDomainsByTld(req, res).catch(next));
 app.get('/api/domains/owned/:accountId',              (req, res, next) => listDomainsByOwner(req, res).catch(next));
+app.get('/api/domains/tlds',                          (req, res, next) => listSupportedTlds(req, res).catch(next));
 app.post('/api/domains/admin/purge-registrations',    (req, res, next) => purgeRegistrations(req, res).catch(next));
+app.get('/api/domains/admin/tlds',                    (req, res, next) => adminListTlds(req, res).catch(next));
+app.post('/api/domains/admin/tlds',                   (req, res, next) => adminAddTld(req, res).catch(next));
+app.post('/api/domains/admin/tlds/:tld/enable',       (req, res, next) => adminSetTldActive(req, res).catch(next));
+app.post('/api/domains/admin/tlds/:tld/disable',      (req, res, next) => adminSetTldActive(req, res).catch(next));
 
 // ─── External API (v1) ────────────────────────────────────────────────────
 // Staking — external endpoints for third-party integrations (API key + program ownership required)

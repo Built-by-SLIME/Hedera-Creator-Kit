@@ -181,7 +181,51 @@ export async function initDb(): Promise<void> {
 
     ALTER TABLE api_keys
       ADD COLUMN IF NOT EXISTS raw_key VARCHAR(64);
+
+    ALTER TABLE domain_registrations
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS domain_tlds (
+      tld           VARCHAR(20) PRIMARY KEY,
+      hcs_topic_id  VARCHAR(50),
+      active        BOOLEAN      NOT NULL DEFAULT true,
+      created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
   `);
+
+  // Backstop against double-registration races: one row per name+tld.
+  // Skipped automatically if historical duplicates exist (never enforced before).
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_domain_registrations_name_tld') THEN
+        IF NOT EXISTS (SELECT 1 FROM (
+             SELECT 1 FROM domain_registrations GROUP BY name, tld HAVING count(*) > 1
+           ) dup) THEN
+          ALTER TABLE domain_registrations
+            ADD CONSTRAINT uq_domain_registrations_name_tld UNIQUE (name, tld);
+        ELSE
+          RAISE NOTICE 'duplicate (name, tld) rows exist — unique constraint not added';
+        END IF;
+      END IF;
+    END $$;
+  `);
+
+  // Seed the TLD table from env config on first boot (one-time, idempotent).
+  // Existing rows are never touched, so previously configured TLDs stay as-is.
+  const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM domain_tlds`);
+  if (rows[0]?.n === 0) {
+    const legacyTlds = ['hedera', 'slime', 'gib', 'tigers', 'buds'];
+    for (const tld of legacyTlds) {
+      const topicId = process.env[`DOMAIN_TOPIC_ID_${tld.toUpperCase()}`] || null;
+      await pool.query(
+        `INSERT INTO domain_tlds (tld, hcs_topic_id, active) VALUES ($1, $2, true)
+         ON CONFLICT (tld) DO NOTHING`,
+        [tld, topicId]
+      );
+    }
+    console.log('domain_tlds seeded from env config');
+  }
 
   // Data correction: SLIME program was created with stake_token_type='FT' but it is an NFT program.
   // This UPDATE is idempotent — it only fires when the wrong value is present.

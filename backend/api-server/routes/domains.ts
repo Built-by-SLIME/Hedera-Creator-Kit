@@ -36,8 +36,97 @@ const PINATA_API_SECRET     = process.env.PINATA_API_SECRET;
 const DOMAIN_BASE_IMAGE_CID = process.env.DOMAIN_NFT_BASE_IMAGE_CID
   || 'QmZ3LyEANVuKBjPtjCvKBMTEV2rqWrB8VS839wTbS1hyZp';
 
-const SUPPORTED_TLDS = ['hedera', 'slime', 'gib', 'tigers', 'buds'] as const;
-type SupportedTld = typeof SUPPORTED_TLDS[number];
+// ─── TLD configuration (DB-backed, env fallback) ────────────────────────────
+// The domain_tlds table is the source of config truth. On first boot it is
+// seeded from the legacy DOMAIN_TOPIC_ID_<TLD> env vars (see db.ts), so
+// existing deployments keep working with no manual step. If the DB is
+// unreachable, the legacy env-based list is used as a fallback.
+
+const LEGACY_TLDS = ['hedera', 'slime', 'gib', 'tigers', 'buds'];
+
+interface TldConfig { tld: string; topicId: string | null; active: boolean; }
+
+let tldConfigCache: { tlds: TldConfig[]; fetchedAt: number } | null = null;
+const TLD_CONFIG_TTL_MS = 60_000;
+
+async function loadTldConfig(): Promise<TldConfig[]> {
+  if (tldConfigCache && Date.now() - tldConfigCache.fetchedAt < TLD_CONFIG_TTL_MS) {
+    return tldConfigCache.tlds;
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT tld, hcs_topic_id, active FROM domain_tlds ORDER BY tld`
+    );
+    if (rows.length > 0) {
+      const tlds: TldConfig[] = rows.map((r: any) => ({
+        tld:     r.tld,
+        topicId: r.hcs_topic_id
+          || process.env[`DOMAIN_TOPIC_ID_${String(r.tld).toUpperCase()}`]
+          || null,
+        active:  r.active !== false,
+      }));
+      tldConfigCache = { tlds, fetchedAt: Date.now() };
+      return tlds;
+    }
+  } catch (err: any) {
+    console.warn(`[domains] TLD config unavailable from DB — using env fallback: ${err.message}`);
+  }
+  const legacy: TldConfig[] = LEGACY_TLDS.map(tld => ({
+    tld,
+    topicId: process.env[`DOMAIN_TOPIC_ID_${tld.toUpperCase()}`] || null,
+    active:  true,
+  }));
+  tldConfigCache = { tlds: legacy, fetchedAt: Date.now() };
+  return legacy;
+}
+
+function invalidateTldConfigCache(): void {
+  tldConfigCache = null;
+}
+
+async function getActiveTlds(): Promise<string[]> {
+  const cfg = await loadTldConfig();
+  return cfg.filter(t => t.active).map(t => t.tld);
+}
+
+async function resolveTld(tld: string): Promise<TldConfig | null> {
+  const cfg = await loadTldConfig();
+  return cfg.find(t => t.tld === tld && t.active) ?? null;
+}
+
+// ─── Registration lock ──────────────────────────────────────────────────────
+// Prevents two concurrent registrations of the same name from both passing
+// the HCS availability check before either write lands. Held only for the
+// duration of a single registration attempt; stale entries self-expire.
+
+const REGISTRATION_LOCK_TTL_MS = 90_000;
+const registrationLocks = new Map<string, number>();
+
+function acquireRegistrationLock(key: string): boolean {
+  const now = Date.now();
+  const heldUntil = registrationLocks.get(key);
+  if (heldUntil && heldUntil > now) return false;
+  registrationLocks.set(key, now + REGISTRATION_LOCK_TTL_MS);
+  return true;
+}
+
+function releaseRegistrationLock(key: string): void {
+  registrationLocks.delete(key);
+}
+
+// ─── HCS topic message cache ────────────────────────────────────────────────
+// Mirror Node topic scans back every resolution call. Raw messages are cached
+// per topic for a short TTL; expiry filtering still happens at read time, so
+// a cached record can never outlive a domain's real expiry. Register/renew
+// writes invalidate the topic's entry so reads are immediately consistent
+// with our own writes.
+
+const HCS_CACHE_TTL_MS = 60_000;
+const hcsMessageCache = new Map<string, { messages: HcsMessage[]; fetchedAt: number }>();
+
+function invalidateHcsCache(topicId: string): void {
+  hcsMessageCache.delete(topicId);
+}
 
 // ─── Operator helpers ──────────────────────────────────────────────────────
 
@@ -57,10 +146,6 @@ function getOperatorKey(): PrivateKey {
   if (!BACKEND_PRIVATE_KEY) throw new Error('Backend private key not configured');
   try { return PrivateKey.fromStringECDSA(BACKEND_PRIVATE_KEY); }
   catch { return PrivateKey.fromStringED25519(BACKEND_PRIVATE_KEY); }
-}
-
-function getTopicId(tld: SupportedTld): string | undefined {
-  return process.env[`DOMAIN_TOPIC_ID_${tld.toUpperCase()}`];
 }
 
 function getDomainSupplyKey(): PrivateKey {
@@ -352,8 +437,8 @@ export async function initTopics(req: Request, res: Response): Promise<void> {
     const operatorKey = getOperatorKey();
     const results: Record<string, string> = {};
 
-    for (const tld of SUPPORTED_TLDS) {
-      const existing = getTopicId(tld);
+    const tlds = await loadTldConfig();
+    for (const { tld, topicId: existing } of tlds) {
       if (existing) {
         results[tld] = existing;
         console.log(`[initTopics] .${tld} already configured: ${existing}`);
@@ -369,16 +454,23 @@ export async function initTopics(req: Request, res: Response): Promise<void> {
       const topicId    = receipt.topicId!.toString();
       console.log(`[initTopics] Created .${tld} topic: ${topicId}`);
       results[tld] = topicId;
+      // Persist so future boots/envs pick it up without manual env wiring
+      await pool.query(
+        `INSERT INTO domain_tlds (tld, hcs_topic_id, active)
+         VALUES ($1, $2, true)
+         ON CONFLICT (tld) DO UPDATE SET hcs_topic_id = EXCLUDED.hcs_topic_id`,
+        [tld, topicId]
+      );
     }
+    invalidateTldConfigCache();
 
     res.json({
       success: true,
       topics: results,
       instructions:
-        'Set these as env vars and redeploy: ' +
-        Object.entries(results)
-          .map(([tld, id]) => `DOMAIN_TOPIC_ID_${tld.toUpperCase()}=${id}`)
-          .join('  '),
+        'Topic ids are stored in the domain_tlds table. Keeping the matching ' +
+        'DOMAIN_TOPIC_ID_<TLD> env vars set is optional — they serve as a fallback ' +
+        'if the DB row has no hcs_topic_id.',
     });
   } catch (err: any) {
     console.error('[initTopics] error:', err);
@@ -400,8 +492,9 @@ export async function checkDomain(req: Request, res: Response): Promise<void> {
       res.status(400).json({ success: false, error: 'name and tld query params are required' });
       return;
     }
-    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
-      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
+    const activeTlds = await getActiveTlds();
+    if (!activeTlds.includes(tld)) {
+      res.status(400).json({ success: false, error: `tld must be one of: ${activeTlds.join(', ')}` });
       return;
     }
 
@@ -422,7 +515,7 @@ export async function checkDomain(req: Request, res: Response): Promise<void> {
     }
 
     // Availability is determined by HCS (Mirror Node), not the DB
-    const hcsRecord  = await resolveFromHcs(name, tld as SupportedTld);
+    const hcsRecord  = await resolveFromHcs(name, tld);
     const available  = hcsRecord === null;
     const owner      = hcsRecord?.owner ?? hcsRecord?.new_owner ?? null;
     const expiresAt  = hcsRecord?.expires_at ?? null;
@@ -470,8 +563,9 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       res.status(400).json({ success: false, error: 'paymentTxId is required' });
       return;
     }
-    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
-      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
+    const tldConfig = await resolveTld(tld);
+    if (!tldConfig) {
+      res.status(400).json({ success: false, error: `tld must be one of: ${(await getActiveTlds()).join(', ')}` });
       return;
     }
 
@@ -487,7 +581,7 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       return;
     }
 
-    const topicId = getTopicId(tld as SupportedTld);
+    const topicId = tldConfig.topicId;
     if (!topicId) {
       res.status(503).json({ success: false, error: `HCS topic for .${tld} is not configured yet. Contact admin.` });
       return;
@@ -497,10 +591,19 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
       return;
     }
 
+    // Claim the registration lock — two concurrent requests for the same name
+    // must not both pass the availability check below.
+    const lockKey = `${tld}:${name.toLowerCase()}`;
+    if (!acquireRegistrationLock(lockKey)) {
+      res.status(409).json({ success: false, error: `A registration for ${name}.${tld} is already in progress — try again shortly` });
+      return;
+    }
+
+    try {
     // Check domain is still available — source of truth is HCS, not the DB
     // Admin can override (e.g. NFT was burned, re-registering the same name)
     if (!isAdmin) {
-      const hcsExisting = await resolveFromHcs(name, tld as SupportedTld);
+      const hcsExisting = await resolveFromHcs(name, tld);
       if (hcsExisting !== null) {
         res.status(409).json({ success: false, error: `${name}.${tld} is already registered` });
         return;
@@ -603,6 +706,7 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
     const submitResponse  = await submitTx.execute(client);
     const submitReceipt   = await submitResponse.getReceipt(client);
     const sequenceNumber  = submitReceipt.topicSequenceNumber?.toString() ?? null;
+    invalidateHcsCache(topicId);
 
     // Persist to DB
     const dbResult = await pool.query(
@@ -629,6 +733,9 @@ export async function registerDomain(req: Request, res: Response): Promise<void>
         nftSerial,
       }),
     });
+    } finally {
+      releaseRegistrationLock(lockKey);
+    }
   } catch (err: any) {
     console.error('[registerDomain] error:', err);
     res.status(500).json({ success: false, error: err.message });
@@ -685,8 +792,9 @@ export async function renewDomain(req: Request, res: Response): Promise<void> {
       res.status(400).json({ success: false, error: 'name, tld, ownerAccountId, years, and paymentTxId are required' });
       return;
     }
-    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
-      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
+    const tldConfig = await resolveTld(tld);
+    if (!tldConfig) {
+      res.status(400).json({ success: false, error: `tld must be one of: ${(await getActiveTlds()).join(', ')}` });
       return;
     }
 
@@ -696,7 +804,7 @@ export async function renewDomain(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const topicId = getTopicId(tld as SupportedTld);
+    const topicId = tldConfig.topicId;
     if (!topicId) {
       res.status(503).json({ success: false, error: `HCS topic for .${tld} is not configured` });
       return;
@@ -790,6 +898,7 @@ export async function renewDomain(req: Request, res: Response): Promise<void> {
     const submitResponse = await submitTx.execute(client);
     const submitReceipt  = await submitResponse.getReceipt(client);
     const sequenceNumber = submitReceipt.topicSequenceNumber?.toString() ?? null;
+    invalidateHcsCache(topicId);
 
     // Update DB cache
     await pool.query(
@@ -843,6 +952,11 @@ interface HcsDomainRecord {
  * following pagination until exhausted.
  */
 async function fetchAllTopicMessages(topicId: string): Promise<HcsMessage[]> {
+  const cached = hcsMessageCache.get(topicId);
+  if (cached && Date.now() - cached.fetchedAt < HCS_CACHE_TTL_MS) {
+    return cached.messages;
+  }
+
   const results: HcsMessage[] = [];
   let url: string = `${MIRROR_NODE_URL}/api/v1/topics/${topicId}/messages?limit=100&order=asc`;
 
@@ -854,6 +968,7 @@ async function fetchAllTopicMessages(topicId: string): Promise<HcsMessage[]> {
     url = next ? (next.startsWith('http') ? next : `${MIRROR_NODE_URL}${next}`) : '';
   }
 
+  hcsMessageCache.set(topicId, { messages: results, fetchedAt: Date.now() });
   return results;
 }
 
@@ -864,9 +979,10 @@ async function fetchAllTopicMessages(topicId: string): Promise<HcsMessage[]> {
  */
 async function resolveFromHcs(
   name: string,
-  tld: SupportedTld,
+  tld: string,
 ): Promise<HcsDomainRecord | null> {
-  const topicId = getTopicId(tld);
+  const cfg = await resolveTld(tld);
+  const topicId = cfg?.topicId;
   if (!topicId) return null;
 
   const rawMessages = await fetchAllTopicMessages(topicId);
@@ -913,18 +1029,19 @@ export async function resolveDomain(req: Request, res: Response): Promise<void> 
       res.status(400).json({ success: false, error: 'name and tld are required' });
       return;
     }
-    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
-      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
+    const tldConfig = await resolveTld(tld);
+    if (!tldConfig) {
+      res.status(400).json({ success: false, error: `tld must be one of: ${(await getActiveTlds()).join(', ')}` });
       return;
     }
 
-    const topicId = getTopicId(tld as SupportedTld);
+    const topicId = tldConfig.topicId;
     if (!topicId) {
       res.status(500).json({ success: false, error: `HCS topic for .${tld} is not configured` });
       return;
     }
 
-    const latest = await resolveFromHcs(name, tld as SupportedTld);
+    const latest = await resolveFromHcs(name, tld);
 
     if (!latest) {
       res.status(404).json({ success: false, error: `${name}.${tld} is not registered or has expired` });
@@ -973,11 +1090,12 @@ export async function resolveDomain(req: Request, res: Response): Promise<void> 
 export async function listDomainsByTld(req: Request, res: Response): Promise<void> {
   try {
     const { tld } = req.params;
-    if (!SUPPORTED_TLDS.includes(tld as SupportedTld)) {
-      res.status(400).json({ success: false, error: `tld must be one of: ${SUPPORTED_TLDS.join(', ')}` });
+    const tldConfig = await resolveTld(tld);
+    if (!tldConfig) {
+      res.status(400).json({ success: false, error: `tld must be one of: ${(await getActiveTlds()).join(', ')}` });
       return;
     }
-    const topicId = getTopicId(tld as SupportedTld);
+    const topicId = tldConfig.topicId;
     if (!topicId) {
       res.status(503).json({ success: false, error: `HCS topic for .${tld} is not configured` });
       return;
@@ -1056,8 +1174,10 @@ export async function listDomainsByOwner(req: Request, res: Response): Promise<v
     const domains: object[] = [];
     const now = new Date();
 
-    for (const tld of SUPPORTED_TLDS) {
-      const topicId = getTopicId(tld);
+    const activeTlds = await getActiveTlds();
+    for (const tld of activeTlds) {
+      const tldCfg = await resolveTld(tld);
+      const topicId = tldCfg?.topicId;
       if (!topicId) continue;
 
       const rawMessages = await fetchAllTopicMessages(topicId);
@@ -1102,6 +1222,141 @@ export async function listDomainsByOwner(req: Request, res: Response): Promise<v
     res.json({ success: true, accountId, count: domains.length, domains });
   } catch (err: any) {
     console.error('[listDomainsByOwner] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── PUBLIC: List Active TLDs ────────────────────────────────────────────────
+
+/**
+ * GET /api/domains/tlds
+ * Returns the currently active top-level domains. Used by the frontend to
+ * populate the TLD selector without a redeploy.
+ */
+export async function listSupportedTlds(req: Request, res: Response): Promise<void> {
+  try {
+    const tlds = await getActiveTlds();
+    res.json({ success: true, tlds });
+  } catch (err: any) {
+    console.error('[listSupportedTlds] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─── ADMIN: TLD Management ───────────────────────────────────────────────────
+
+function isAuthorizedAdmin(req: Request): boolean {
+  const { adminKey } = (req.body ?? {}) as { adminKey?: string };
+  return !!DOMAIN_ADMIN_KEY && adminKey === DOMAIN_ADMIN_KEY;
+}
+
+const TLD_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+/**
+ * GET /api/domains/admin/tlds
+ * Body: { adminKey: string } — returns all TLD rows (active and disabled).
+ */
+export async function adminListTlds(req: Request, res: Response): Promise<void> {
+  if (!isAuthorizedAdmin(req)) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT tld, hcs_topic_id AS "topicId", active, created_at AS "createdAt"
+         FROM domain_tlds ORDER BY tld`
+    );
+    res.json({ success: true, tlds: rows });
+  } catch (err: any) {
+    console.error('[adminListTlds] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+/**
+ * POST /api/domains/admin/tlds
+ * Body: { adminKey: string, tld: string, topicId?: string }
+ * Adds a new TLD (or re-activates an existing one). If topicId is omitted,
+ * an HCS topic with the operator's submit key is created automatically and
+ * its id stored on the row.
+ */
+export async function adminAddTld(req: Request, res: Response): Promise<void> {
+  if (!isAuthorizedAdmin(req)) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+  try {
+    const { tld, topicId } = (req.body ?? {}) as { tld?: string; topicId?: string };
+
+    if (!tld || !TLD_NAME_RE.test(tld)) {
+      res.status(400).json({
+        success: false,
+        error: 'tld is required and must be lowercase letters, numbers, or hyphens',
+      });
+      return;
+    }
+
+    let resolvedTopicId = topicId || null;
+
+    // Create an HCS topic for the new TLD if one wasn't supplied
+    if (!resolvedTopicId) {
+      const client      = getOperatorClient();
+      const operatorKey = getOperatorKey();
+      const topicTx     = await new TopicCreateTransaction()
+        .setTopicMemo(`Hedera Creator Kit — .${tld} domain registry`)
+        .setSubmitKey(operatorKey.publicKey)
+        .freezeWith(client)
+        .sign(operatorKey);
+      const txResponse = await topicTx.execute(client);
+      const receipt    = await txResponse.getReceipt(client);
+      resolvedTopicId  = receipt.topicId!.toString();
+      console.log(`[adminAddTld] Created .${tld} topic: ${resolvedTopicId}`);
+    }
+
+    await pool.query(
+      `INSERT INTO domain_tlds (tld, hcs_topic_id, active)
+         VALUES ($1, $2, true)
+       ON CONFLICT (tld) DO UPDATE
+          SET active        = true,
+              hcs_topic_id  = COALESCE(EXCLUDED.hcs_topic_id, domain_tlds.hcs_topic_id)`,
+      [tld, resolvedTopicId]
+    );
+    invalidateTldConfigCache();
+
+    res.json({ success: true, tld, topicId: resolvedTopicId });
+  } catch (err: any) {
+    console.error('[adminAddTld] error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+/**
+ * POST /api/domains/admin/tlds/:tld/enable  |  .../disable
+ * Body: { adminKey: string }
+ * Toggles whether a TLD accepts registrations/resolutions.
+ */
+export async function adminSetTldActive(req: Request, res: Response): Promise<void> {
+  if (!isAuthorizedAdmin(req)) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+  try {
+    const { tld } = req.params;
+    const active  = req.path.endsWith('/enable');
+
+    const result = await pool.query(
+      `UPDATE domain_tlds SET active = $2 WHERE tld = $1 RETURNING tld, hcs_topic_id AS "topicId", active`,
+      [tld, active]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, error: `Unknown tld: ${tld}` });
+      return;
+    }
+    invalidateTldConfigCache();
+
+    res.json({ success: true, tld: result.rows[0].tld, active: result.rows[0].active });
+  } catch (err: any) {
+    console.error('[adminSetTldActive] error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 }
