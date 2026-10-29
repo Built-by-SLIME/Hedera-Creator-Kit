@@ -6,9 +6,9 @@ Documentation for the SLIME toolkit on Hedera — starting with the HCS-backed d
 
 ```bash
 cd docs-site
-npm install
-npm run dev      # local preview at http://localhost:5173
-npm run build    # static output in .vitepress/dist
+npm ci         # or: npm install
+npm run dev    # local preview at http://localhost:5173
+npm run build  # static output in .vitepress/dist
 ```
 
 The site is deployed to GitHub Pages automatically on every push to `main`
