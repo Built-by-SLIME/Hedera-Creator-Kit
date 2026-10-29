@@ -32,7 +32,7 @@ the flat 0.5 ℏ network fee, paid as a wallet-signed transfer with memo
 1. Payment is verified on the Mirror Node (same rules as registration:
    SUCCESS, < 15 min old, ≥ 95% of quoted amount).
 2. A `renew` HCS message is submitted with `prev_expires_at` and the new
-   `expires_at` — the full renewal history stays auditable on-chain.
+   `expires_at` - the full renewal history stays auditable on-chain.
 3. The Postgres cache row is updated.
 
 ## Frontend flow

@@ -11,9 +11,9 @@ outline: deep
 1. Read every message in the TLD's HCS topic.
 2. Keep records for this `name`/`tld`, latest sequence number wins.
 3. If the latest record is expired (or has no `expires_at`), the name
-   resolves as **404 — not registered or expired**.
+   resolves as **404 - not registered or expired**.
 4. Otherwise, if the record has an NFT serial, look up the **live holder** of
-   that serial on the Mirror Node. The holder is the owner — so secondary
+   that serial on the Mirror Node. The holder is the owner - so secondary
    market sales resolve automatically with no transfer step.
 
 Response:

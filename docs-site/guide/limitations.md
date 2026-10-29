@@ -15,7 +15,7 @@ outline: deep
 
 - HCS topic messages and TLD config are cached for **60 seconds**. Expiry
   filtering happens at read time, so an expired domain can never appear active
-  from cache — but a registration made by *someone else* may take up to 60 s
+  from cache - but a registration made by *someone else* may take up to 60 s
   to show up in your availability checks (our own writes invalidate
   immediately).
 - The HBAR price is cached for 5 minutes; on CoinGecko errors a stale price is
@@ -40,7 +40,7 @@ outline: deep
 - If the domain NFT is **burned**, the name stays registered until expiry and
   the HCS owner remains the resolution fallback. An admin registration can
   re-register the name for the treasury.
-- If the NFT is transferred, resolution follows the new holder automatically —
+- If the NFT is transferred, resolution follows the new holder automatically -
   there is deliberately **no transfer endpoint** (`410 Gone`).
 
 ## Renewals of never-registered names

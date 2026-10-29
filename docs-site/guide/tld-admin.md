@@ -4,7 +4,7 @@ outline: deep
 
 # TLD Administration
 
-TLDs are configured in the `domain_tlds` Postgres table — no redeploy needed
+TLDs are configured in the `domain_tlds` Postgres table - no redeploy needed
 to add, retire, or reactivate a TLD. All admin endpoints require the
 `DOMAIN_ADMIN_KEY` in the request body.
 
@@ -52,7 +52,7 @@ curl -X POST https://<api-host>/api/domains/admin/tlds/pandas/disable \
 ```
 
 Disabled TLDs reject registration, renewal, resolution, and listing requests
-("tld must be one of: ..."), but their HCS topics and DB rows are untouched —
+("tld must be one of: ..."), but their HCS topics and DB rows are untouched -
 re-enabling is instant.
 
 ## One-time topic initialization

@@ -6,14 +6,14 @@ outline: deep
 
 This page is the complete specification a wallet or explorer needs to resolve
 SLIME domain names. Everything here is deterministic and verifiable against
-the public Mirror Node — no API keys, no private infrastructure.
+the public Mirror Node - no API keys, no private infrastructure.
 
 There are two supported integration paths:
 
 | Path | When to use |
 |---|---|
-| **A. Server API** | Quickest integration — one HTTP call per lookup. |
-| **B. Direct Mirror Node** | Fully trustless — read the HCS topics yourself. Use this if you don't want to depend on our server. |
+| **A. Server API** | Quickest integration - one HTTP call per lookup. |
+| **B. Direct Mirror Node** | Fully trustless - read the HCS topics yourself. Use this if you don't want to depend on our server. |
 
 Both paths return the same answer by construction.
 
@@ -26,9 +26,9 @@ A domain registration is two on-chain artifacts:
 2. A **domain NFT** serial that is the live ownership record.
 
 **Ownership = whoever currently holds the NFT serial.** The HCS `owner` field
-is history, not authority — it's only a fallback if the NFT lookup fails.
+is history, not authority - it's only a fallback if the NFT lookup fails.
 
-## Path A — Server API (one call)
+## Path A - Server API (one call)
 
 ```
 GET <api-host>/api/domains/resolve/{name}/{tld}
@@ -40,9 +40,9 @@ the live NFT holder when resolvable, HCS owner otherwise.)
 The server response is cached for at most 60 seconds; our own writes
 (register/renew) invalidate immediately.
 
-## Path B — Direct Mirror Node resolution
+## Path B - Direct Mirror Node resolution
 
-### Step 1 — Enumerate TLDs and topics
+### Step 1 - Enumerate TLDs and topics
 
 ```
 GET <api-host>/api/domains/tlds
@@ -62,7 +62,7 @@ GET <api-host>/api/domains/tlds
 `topicId` is the HCS topic for that TLD. This list changes rarely; cache it
 (we recommend 5–15 minutes).
 
-### Step 2 — Read the topic
+### Step 2 - Read the topic
 
 ```
 GET https://mainnet-public.mirrornode.hedera.com/api/v1/topics/{topicId}/messages?limit=100&order=asc
@@ -73,7 +73,7 @@ Follow `links.next` until exhausted (the public mirror paginates at 100).
 Each `message` field is **base64-encoded JSON**. Decode, parse, and skip any
 malformed message silently.
 
-### Step 3 — HCS message schema
+### Step 3 - HCS message schema
 
 | Field | Present on | Meaning |
 |---|---|---|
@@ -89,7 +89,7 @@ malformed message silently.
 | `nft_token_id` | register/renew (when minted) | Domain NFT collection |
 | `nft_serial` | register/renew (when minted) | The ownership NFT serial |
 
-### Step 4 — Resolve (deterministic algorithm)
+### Step 4 - Resolve (deterministic algorithm)
 
 ```
 records = all decoded messages where lower(name) == lower(queryName)
@@ -117,7 +117,7 @@ return { owner, expiresAt: latest.expires_at, nftSerial, nftTokenId }
 Matching is **case-insensitive** on both name and TLD (registrations are
 lowercase anyway; this just makes lookups forgiving).
 
-### Step 5 — The NFT holder override
+### Step 5 - The NFT holder override
 
 ```
 GET https://mainnet-public.mirrornode.hedera.com/api/v1/tokens/{nftTokenId}/nfts/{serial}
@@ -125,7 +125,7 @@ GET https://mainnet-public.mirrornode.hedera.com/api/v1/tokens/{nftTokenId}/nfts
 ```
 
 If this call fails (network error, serial burned), **fall back to the HCS
-`owner`** — never fail the resolution just because the NFT lookup did.
+`owner`** - never fail the resolution just because the NFT lookup did.
 
 ### Worked example
 
@@ -158,12 +158,12 @@ Topic `0.0.98zzzzz` (.hedera) contains, in order:
 | Latest record expired | Not registered (or display as expired-to-owner) |
 | NFT burned / holder lookup fails | Fall back to HCS `owner` |
 | Unknown or disabled TLD | Not registered (see `GET /api/domains/tlds` for the active set) |
-| Topic id null in the tlds list | TLD is configured but its topic hasn't been initialized — treat as not registered |
+| Topic id null in the tlds list | TLD is configured but its topic hasn't been initialized - treat as not registered |
 
 ## Caching guidance
 
 - The public mirror node is rate-limited; don't poll per keystroke.
-- Topic messages only change on register/renew — **cache aggressively**
+- Topic messages only change on register/renew - **cache aggressively**
   (minutes, not seconds) and apply the expiry check at read time. A cached
   message can never make an expired domain look active because expiry is a
   property of the message itself.
@@ -210,5 +210,5 @@ async function resolveName(name: string, tld: string, topicId: string) {
 
 The registry is operated by SLIME (Built by SLIME). TLD additions, message
 schema changes, and new endpoints are announced via the
-[TLD administration](./tld-admin) channel — the `GET /api/domains/tlds`
+[TLD administration](./tld-admin) channel - the `GET /api/domains/tlds`
 endpoint is the runtime source of truth for which names resolve.

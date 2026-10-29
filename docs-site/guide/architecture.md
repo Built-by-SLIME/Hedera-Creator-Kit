@@ -28,7 +28,7 @@ outline: deep
 └────────────────┘   └────────────────────┘   └───────────────┘
 ```
 
-## HCS topics — the source of truth
+## HCS topics - the source of truth
 
 Each active TLD has its own HCS topic, created with the operator's submit key
 so only the operator can write. Every registration and renewal appends a JSON
@@ -55,21 +55,21 @@ message in the TLD topic, keep the ones for that `name`/`tld`, and take the one
 with the highest consensus sequence number. If its `expires_at` is in the past,
 the name is treated as unregistered.
 
-## Domain NFT — the ownership record
+## Domain NFT - the ownership record
 
 Registration mints a new serial on a single HTS NFT collection (HIP-412
 metadata) and transfers it from the treasury to the registrant.
 
 This makes the **live NFT holder** the owner. If the NFT is sold on SentX or
-any secondary market, resolution automatically follows the NFT — the HCS
+any secondary market, resolution automatically follows the NFT - the HCS
 `owner` field is only a fallback when the Mirror Node can't be reached.
 
-## Postgres — a write-through cache
+## Postgres - a write-through cache
 
 `domain_registrations` mirrors each HCS write for fast reads, guarded by:
 
-- `UNIQUE (payment_tx_id)` — a payment transaction can never fund two names.
-- `UNIQUE (name, tld)` — enforced at the DB level as a second line of defense
+- `UNIQUE (payment_tx_id)` - a payment transaction can never fund two names.
+- `UNIQUE (name, tld)` - enforced at the DB level as a second line of defense
   behind the HCS availability check.
 
 The `domain_tlds` table holds TLD configuration (`tld`, `hcs_topic_id`,

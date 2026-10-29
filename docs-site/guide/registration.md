@@ -23,18 +23,18 @@ User            Frontend (DomainTool)        api-server           Hedera / Mirro
  │◀── success ──────────│◀── domain + NFT serial │                       │
 ```
 
-## Step 1 — Availability check
+## Step 1 - Availability check
 
 `GET /api/domains/check?name=alice&tld=hedera&years=1`
 
 The backend scans the TLD's HCS topic and returns:
 
-- `available` — true if no non-expired HCS record exists for the name
-- `priceUsd` / `priceHbar` — computed from the [pricing table](./pricing)
-- `feeAccount`, `operatorAccount`, `networkFeeHbar` — where the payment goes
-- `nftTokenId` — the domain NFT collection
+- `available` - true if no non-expired HCS record exists for the name
+- `priceUsd` / `priceHbar` - computed from the [pricing table](./pricing)
+- `feeAccount`, `operatorAccount`, `networkFeeHbar` - where the payment goes
+- `nftTokenId` - the domain NFT collection
 
-## Step 2 — Wallet-signed payment
+## Step 2 - Wallet-signed payment
 
 The frontend builds a single `TransferTransaction` (signed by the user's
 wallet) containing:
@@ -44,7 +44,7 @@ wallet) containing:
    costs)
 3. **Memo:** `domain:name.tld:Xyr` (e.g. `domain:alice.hedera:1yr`)
 
-## Step 3 — Server-side verification
+## Step 3 - Server-side verification
 
 On `POST /api/domains/register` the backend:
 
@@ -52,7 +52,7 @@ On `POST /api/domains/register` the backend:
 2. Claims the in-memory registration lock for `tld:name` (returns **409** if a
    registration for that name is already in progress).
 3. Re-checks availability against HCS (the source of truth, not the DB).
-4. Rejects replayed payments — `payment_tx_id` must be unused.
+4. Rejects replayed payments - `payment_tx_id` must be unused.
 5. Verifies the payment on the Mirror Node:
    - transaction must be `SUCCESS` and **less than 15 minutes old**
    - retries up to 5× on 404 (indexing lag)
@@ -61,7 +61,7 @@ On `POST /api/domains/register` the backend:
 7. Submits the HCS registration message.
 8. Inserts the row into Postgres and returns the registration record.
 
-If NFT minting fails, the whole registration aborts — no HCS message, no DB
+If NFT minting fails, the whole registration aborts - no HCS message, no DB
 row, and the user keeps their payment.
 
 ::: tip Admin registrations

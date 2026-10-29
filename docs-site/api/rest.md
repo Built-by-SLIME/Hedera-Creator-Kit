@@ -41,7 +41,7 @@ Availability + pricing preview.
 }
 ```
 
-**Errors** — `400` invalid name/tld/years · `500` pricing feed failure
+**Errors** - `400` invalid name/tld/years · `500` pricing feed failure
 
 ## `POST /api/domains/register`
 
@@ -54,25 +54,25 @@ Registers a domain after verifying HBAR payment.
 | `name` | ✓ | |
 | `tld` | ✓ | Active TLD |
 | `years` | ✓ | 1, 3, 5, or 10 |
-| `ownerAccountId` | ✓ | Registrant — also receives the NFT |
+| `ownerAccountId` | ✓ | Registrant - also receives the NFT |
 | `paymentTxId` | ✓* | Wallet-signed transfer tx id (`0.0.X-seconds-nanos`) |
 
 \* Skipped when `ownerAccountId` is the treasury admin account.
 
-**Response** `200` — registration record, HCS topic/sequence, NFT token id + serial.
+**Response** `200` - registration record, HCS topic/sequence, NFT token id + serial.
 
-**Errors** — `400` validation/payment failure · `409` already registered,
+**Errors** - `400` validation/payment failure · `409` already registered,
 payment replay, or registration in progress · `500` NFT minting failure
 
 ## `POST /api/domains/renew`
 
 Renews an existing (or recently expired) domain.
 
-**Body** — same as register; `ownerAccountId` must be the current owner.
+**Body** - same as register; `ownerAccountId` must be the current owner.
 
-**Response** `200` — `newExpiresAt`, HCS topic/sequence.
+**Response** `200` - `newExpiresAt`, HCS topic/sequence.
 
-**Errors** — `403` not the owner · `404` never registered · `409` payment
+**Errors** - `403` not the owner · `404` never registered · `409` payment
 replay · `400` payment failure
 
 ## `GET /api/domains/resolve/:name/:tld`
@@ -94,25 +94,25 @@ Resolves a name to its current owner (live NFT holder when available).
 }
 ```
 
-**Errors** — `400` unknown/inactive TLD · `404` not registered or expired
+**Errors** - `400` unknown/inactive TLD · `404` not registered or expired
 
 ## `GET /api/domains/list/:tld`
 
 All active (non-expired) domains in a TLD.
 
-**Response** `200` — `{ success, tld, count, domains: [{ domain, name, tld, owner, expiresAt, nftTokenId, nftSerial, hcsSequenceNumber }] }`
+**Response** `200` - `{ success, tld, count, domains: [{ domain, name, tld, owner, expiresAt, nftTokenId, nftSerial, hcsSequenceNumber }] }`
 
 ## `GET /api/domains/owned/:accountId`
 
 All active domains whose NFT the account currently holds (across all active
 TLDs). Reflects secondary market transfers automatically.
 
-**Response** `200` — `{ success, accountId, count, domains: [...] }`
+**Response** `200` - `{ success, accountId, count, domains: [...] }`
 
 ## `GET /api/domains/tlds`
 
 Active TLDs with their HCS topic ids (integrators use `topicId` to resolve
-names directly against the Mirror Node — see the
+names directly against the Mirror Node - see the
 [Wallet Integration Spec](/guide/integrator)):
 
 ```json

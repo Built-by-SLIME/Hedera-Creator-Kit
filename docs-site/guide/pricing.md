@@ -24,7 +24,7 @@ Names containing non-ASCII characters (including emoji) are **2.5×** standard.
 | 2 characters | $150 |
 | 3+ characters | $50 |
 
-Premium names must be single "words" — whitespace is rejected.
+Premium names must be single "words" - whitespace is rejected.
 
 ## Terms
 
