@@ -55,6 +55,11 @@ export class DomainTool {
   private static renewIsChecking   = false
   private static renewSuccess: { domain: string; newExpiresAt: string; hcsSeq: string | null } | null = null
 
+  // TLD list — fetched from the backend once, falls back to the config list
+  private static availableTlds: string[] = [...DOMAIN_SUPPORTED_TLDS]
+  private static tldsFetched = false
+  private static capsLockOn  = false
+
   // ─── RENDER ────────────────────────────────────────────────
 
   static render(): string {
@@ -123,7 +128,7 @@ export class DomainTool {
 
         <div style="margin:0.75rem 0;padding:0.6rem 0.8rem;background:rgba(107,255,158,0.06);border:1px solid rgba(107,255,158,0.2);border-radius:6px">
           <p style="font-size:0.78rem;color:#6bff9e;margin:0 0 0.25rem">◆ <strong>HCS Domain Registry</strong> — Proprietary on-chain registry. Fully decentralized, no third-party dependency.</p>
-          <p style="font-size:0.78rem;color:var(--terminal-text);opacity:0.6;margin:0">TLDs: .hedera / .slime / .gib &nbsp;|&nbsp; Pricing: 1 char $100 • 2 chars $50 • 3+ chars $10/yr (standard)</p>
+          <p style="font-size:0.78rem;color:var(--terminal-text);opacity:0.6;margin:0">TLDs: ${this.availableTlds.map(t => `.${t}`).join(' / ')} &nbsp;|&nbsp; Pricing: 1 char $100 • 2 chars $50 • 3+ chars $10/yr (standard)</p>
         </div>
 
         <div class="filter-divider"></div>
@@ -133,9 +138,10 @@ export class DomainTool {
           <div class="input-row" style="gap:0.5rem;align-items:center">
             <input type="text" id="domain-name" class="token-input" placeholder="yourname" value="${this.escapeHtml(this.domainInput)}" style="flex:1" />
             <select id="domain-tld" class="token-input" style="width:auto;min-width:100px">
-              ${DOMAIN_SUPPORTED_TLDS.map(t => `<option value="${t}" ${this.selectedTld === t ? 'selected' : ''}>.${t}</option>`).join('')}
+              ${this.availableTlds.map(t => `<option value="${t}" ${this.selectedTld === t ? 'selected' : ''}>.${t}</option>`).join('')}
             </select>
           </div>
+          <p id="domain-caps-hint" style="display:${this.capsLockOn ? '' : 'none'};font-size:0.72rem;color:#ff6b6b;margin:0.3rem 0 0">⚠ Caps Lock is on — domain names are lowercase only</p>
         </div>
 
         <div class="input-group">
@@ -298,9 +304,10 @@ export class DomainTool {
             <div class="input-row" style="gap:0.5rem;align-items:center">
               <input type="text" id="renew-name" class="token-input" placeholder="yourdomain" value="${this.escapeHtml(this.renewName)}" style="flex:1"/>
               <select id="renew-tld" class="token-input" style="width:auto;min-width:100px">
-                ${DOMAIN_SUPPORTED_TLDS.map(t => `<option value="${t}" ${this.renewTld === t ? 'selected' : ''}>.${t}</option>`).join('')}
+                ${this.availableTlds.map(t => `<option value="${t}" ${this.renewTld === t ? 'selected' : ''}>.${t}</option>`).join('')}
               </select>
             </div>
+            <p id="renew-caps-hint" style="display:${this.capsLockOn ? '' : 'none'};font-size:0.72rem;color:#ff6b6b;margin:0.3rem 0 0">⚠ Caps Lock is on — domain names are lowercase only</p>
           </div>
           <div class="input-group">
             <label>Renewal Period</label>
@@ -424,17 +431,51 @@ export class DomainTool {
 
   // ─── INIT ──────────────────────────────────────────────────
 
+  /** Fetches the active TLD list once per session; falls back to config on error. */
+  private static async fetchTlds(): Promise<void> {
+    if (this.tldsFetched) return
+    this.tldsFetched = true
+    try {
+      const res  = await fetch(`${API_BASE_URL}/api/domains/tlds`)
+      const data = await res.json() as { success: boolean; tlds?: string[] }
+      if (data.success && Array.isArray(data.tlds) && data.tlds.length > 0) {
+        this.availableTlds = data.tlds
+        if (!this.availableTlds.includes(this.selectedTld)) this.selectedTld = this.availableTlds[0] as DomainTld
+        if (!this.availableTlds.includes(this.renewTld))    this.renewTld    = this.availableTlds[0] as DomainTld
+        this.refresh()
+      }
+    } catch {
+      // Backend unreachable — keep the config fallback list
+    }
+  }
+
+  /** Updates the caps-lock hint in place (no re-render, to preserve input focus). */
+  private static trackCapsLock(e: KeyboardEvent, hintId: string): void {
+    const on = typeof e.getModifierState === 'function' && e.getModifierState('CapsLock')
+    if (on === this.capsLockOn) return
+    this.capsLockOn = on
+    const hint = document.getElementById(hintId)
+    if (hint) hint.style.display = on ? '' : 'none'
+  }
+
   static init(): void {
+    this.fetchTlds()
+
     document.getElementById('domain-back')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }))
     })
 
     const nameInput = document.getElementById('domain-name') as HTMLInputElement
     nameInput?.addEventListener('input', () => {
-      this.domainInput = nameInput.value
+      // Domain names are lowercase-only — normalize as the user types
+      const lower = nameInput.value.toLowerCase()
+      if (lower !== nameInput.value) nameInput.value = lower
+      this.domainInput = lower
       this.checkResult = null
     })
     nameInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.checkAvailability() })
+    nameInput?.addEventListener('keydown', (e) => this.trackCapsLock(e, 'domain-caps-hint'))
+    nameInput?.addEventListener('keyup',   (e) => this.trackCapsLock(e, 'domain-caps-hint'))
 
     const tldSelect = document.getElementById('domain-tld') as HTMLSelectElement
     tldSelect?.addEventListener('change', () => {
@@ -462,8 +503,15 @@ export class DomainTool {
 
     // Renew inputs
     const renewName = document.getElementById('renew-name') as HTMLInputElement
-    renewName?.addEventListener('input', () => { this.renewName = renewName.value; this.renewRecord = null })
+    renewName?.addEventListener('input', () => {
+      const lower = renewName.value.toLowerCase()
+      if (lower !== renewName.value) renewName.value = lower
+      this.renewName = lower
+      this.renewRecord = null
+    })
     renewName?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.checkRenew() })
+    renewName?.addEventListener('keydown', (e) => this.trackCapsLock(e, 'renew-caps-hint'))
+    renewName?.addEventListener('keyup',   (e) => this.trackCapsLock(e, 'renew-caps-hint'))
     const renewTld = document.getElementById('renew-tld') as HTMLSelectElement
     renewTld?.addEventListener('change', () => { this.renewTld = renewTld.value as DomainTld; this.renewRecord = null })
     const renewYears = document.getElementById('renew-years') as HTMLSelectElement
