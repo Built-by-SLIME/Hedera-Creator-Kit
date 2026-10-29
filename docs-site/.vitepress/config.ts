@@ -21,6 +21,7 @@ export default defineConfig({
             { text: 'Pricing', link: '/guide/pricing' },
             { text: 'Renewals', link: '/guide/renewals' },
             { text: 'Resolution & Listing', link: '/guide/resolution' },
+            { text: 'Wallet Integration Spec', link: '/guide/integrator' },
             { text: 'TLD Administration', link: '/guide/tld-admin' },
             { text: 'Known Limitations', link: '/guide/limitations' },
           ],

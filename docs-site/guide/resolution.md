@@ -54,6 +54,8 @@ time. Always query with lowercase.
 
 ## Listing active TLDs
 
-`GET /api/domains/tlds` returns the currently active TLD list. The frontend
-uses this to populate its TLD selector without a redeploy; on error it falls
-back to the hardcoded config list.
+`GET /api/domains/tlds` returns the currently active TLDs **with their HCS
+topic ids**. The frontend uses this to populate its TLD selector without a
+redeploy; wallets and explorers use it to resolve names directly against the
+Mirror Node (see the [Wallet Integration Spec](/guide/integrator)). On error
+the frontend falls back to the hardcoded config list.

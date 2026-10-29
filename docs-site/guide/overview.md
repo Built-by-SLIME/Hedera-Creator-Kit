@@ -49,4 +49,5 @@ page load.
 
 - [Architecture](./architecture) — how the pieces fit together
 - [Registration flow](./registration) — what happens when someone registers a name
+- [Wallet Integration Spec](./integrator) — everything a wallet/explorer needs to resolve names
 - [API Reference](/api/rest) — endpoint-by-endpoint reference

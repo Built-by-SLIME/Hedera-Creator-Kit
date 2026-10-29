@@ -1,0 +1,22 @@
+/* SLIME green brand overrides for the VitePress default theme */
+
+:root {
+  /* Light mode: darker green for readable link text on white */
+  --vp-c-brand-1: #259b57;
+  --vp-c-brand-2: #6bff9e;
+  --vp-c-brand-3: #4acc79;
+  --vp-c-brand-soft: rgba(107, 255, 158, 0.16);
+}
+
+.dark {
+  /* Dark mode: the full SLIME green */
+  --vp-c-brand-1: #6bff9e;
+  --vp-c-brand-2: #57e68b;
+  --vp-c-brand-3: #4acc79;
+  --vp-c-brand-soft: rgba(107, 255, 158, 0.14);
+}
+
+/* Home hero name */
+.VPHero .name {
+  color: var(--vp-c-brand-1);
+}

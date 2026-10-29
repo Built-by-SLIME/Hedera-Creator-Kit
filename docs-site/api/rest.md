@@ -111,4 +111,17 @@ TLDs). Reflects secondary market transfers automatically.
 
 ## `GET /api/domains/tlds`
 
-Active TLD list: `{ "success": true, "tlds": ["buds", "gib", "hedera", "slime", "tigers"] }`
+Active TLDs with their HCS topic ids (integrators use `topicId` to resolve
+names directly against the Mirror Node — see the
+[Wallet Integration Spec](/guide/integrator)):
+
+```json
+{
+  "success": true,
+  "tlds": [
+    { "tld": "buds", "topicId": "0.0.98xxxxx" },
+    { "tld": "gib", "topicId": "0.0.98yyyyy" },
+    { "tld": "hedera", "topicId": "0.0.98zzzzz" }
+  ]
+}
+```
