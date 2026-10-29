@@ -1230,12 +1230,16 @@ export async function listDomainsByOwner(req: Request, res: Response): Promise<v
 
 /**
  * GET /api/domains/tlds
- * Returns the currently active top-level domains. Used by the frontend to
- * populate the TLD selector without a redeploy.
+ * Returns the currently active top-level domains with their HCS topic ids.
+ * Used by the frontend TLD selector and by third-party integrators (wallets,
+ * explorers) that resolve names directly against the Mirror Node.
  */
 export async function listSupportedTlds(req: Request, res: Response): Promise<void> {
   try {
-    const tlds = await getActiveTlds();
+    const cfg  = await loadTldConfig();
+    const tlds = cfg
+      .filter(t => t.active)
+      .map(t => ({ tld: t.tld, topicId: t.topicId }));
     res.json({ success: true, tlds });
   } catch (err: any) {
     console.error('[listSupportedTlds] error:', err);
