@@ -437,9 +437,11 @@ export class DomainTool {
     this.tldsFetched = true
     try {
       const res  = await fetch(`${API_BASE_URL}/api/domains/tlds`)
-      const data = await res.json() as { success: boolean; tlds?: string[] }
+      const data = await res.json() as { success: boolean; tlds?: Array<string | { tld: string }> }
       if (data.success && Array.isArray(data.tlds) && data.tlds.length > 0) {
-        this.availableTlds = data.tlds
+        // Newer API returns {tld, topicId} objects; older returns plain strings
+        const names = data.tlds.map(t => (typeof t === 'string' ? t : t.tld)).filter(Boolean)
+        this.availableTlds = names
         if (!this.availableTlds.includes(this.selectedTld)) this.selectedTld = this.availableTlds[0] as DomainTld
         if (!this.availableTlds.includes(this.renewTld))    this.renewTld    = this.availableTlds[0] as DomainTld
         this.refresh()
