@@ -118,7 +118,7 @@ export class Terminal {
           ✗ No SLIME NFT found in wallet <strong>${this.walletData.accountId}</strong>
         </div>
         <div class="token-gate-status error" style="margin-top: 0.75rem;">
-          A <strong>SLIME NFT</strong> is required to access the Creator Kit tools.
+          A <strong>SLIME NFT</strong> is required to access the SLIME Tools.
         </div>
         <div class="token-gate-status" style="margin-top: 1rem;">
           <a href="https://sentx.io/nft-marketplace/0.0.9474754" target="_blank" rel="noopener">
@@ -137,7 +137,7 @@ export class Terminal {
           <div class="token-gate-icon">🔒</div>
           <div class="token-gate-title">Token-Gated Access</div>
           <div class="token-gate-subtitle">
-            The Hedera Creator Kit is exclusively available to<br/>
+            SLIME Tools is exclusively available to<br/>
             <strong>SLIME NFT</strong> holders (Token ID: 0.0.9474754).
           </div>
           <hr class="token-gate-divider" />
@@ -155,7 +155,7 @@ export class Terminal {
           <div class="window-dot minimize"></div>
           <div class="window-dot maximize"></div>
         </div>
-        <div class="window-title">hedera-creator-kit</div>
+        <div class="window-title">slime-tools</div>
       </div>
     `
   }
@@ -197,24 +197,25 @@ export class Terminal {
 
   private static getASCIIArt(): string {
     return `
- ██╗  ██╗███████╗██████╗ ███████╗██████╗  █████╗     ██████╗██████╗ ███████╗ █████╗ ████████╗ ██████╗ ██████╗     ██╗  ██╗██╗████████╗
- ██║  ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗   ██╔════╝██╔══██╗██╔════╝██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗    ██║ ██╔╝██║╚══██╔══╝
- ███████║█████╗  ██║  ██║█████╗  ██████╔╝███████║   ██║     ██████╔╝█████╗  ███████║   ██║   ██║   ██║██████╔╝    █████╔╝ ██║   ██║
- ██╔══██║██╔══╝  ██║  ██║██╔══╝  ██╔══██╗██╔══██║   ██║     ██╔══██╗██╔══╝  ██╔══██║   ██║   ██║   ██║██╔══██╗    ██╔═██╗ ██║   ██║
- ██║  ██║███████╗██████╔╝███████╗██║  ██║██║  ██║   ╚██████╗██║  ██║███████╗██║  ██║   ██║   ╚██████╔╝██║  ██║    ██║  ██╗██║   ██║
- ╚═╝  ╚═╝╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝    ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝    ╚═╝  ╚═╝╚═╝   ╚═╝
+███████╗██╗     ██╗███╗   ███╗███████╗    ████████╗ ██████╗  ██████╗ ██╗     ███████╗
+██╔════╝██║     ██║████╗ ████║██╔════╝    ╚══██╔══╝██╔═══██╗██╔═══██╗██║     ██╔════╝
+███████╗██║     ██║██╔████╔██║█████╗         ██║   ██║   ██║██║   ██║██║     ███████╗
+╚════██║██║     ██║██║╚██╔╝██║██╔══╝         ██║   ██║   ██║██║   ██║██║     ╚════██║
+███████║███████╗██║██║ ╚═╝ ██║███████╗       ██║   ╚██████╔╝╚██████╔╝███████╗███████║
+╚══════╝╚══════╝╚═╝╚═╝     ╚═╝╚══════╝       ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝╚══════╝
     `
   }
 
   private static getToolsList(): TerminalLine[] {
-    // Two-column layout: tools 1..N/2 down the left, the rest down the right,
-    // so the whole menu fits without scrolling. Cells are monospace-padded.
+    // Two-column layout: left column is filled first (one more row than the
+    // right for even counts) so the menu stays compact without scrolling.
+    // Cells are monospace-padded.
     const cell = (tool: Tool): string => {
       const desc = tool.status === 'coming-soon' ? `${tool.description}  (coming soon)` : tool.description
       const left = `  [${tool.number}] ${tool.icon} ${tool.title}`
       return (left.padEnd(34) + this.truncateLine(desc, 36)).padEnd(74)
     }
-    const half = Math.ceil(this.tools.length / 2)
+    const half = Math.floor(this.tools.length / 2) + 1
     const lines: TerminalLine[] = []
     for (let i = 0; i < half; i++) {
       const right = this.tools[i + half] ? cell(this.tools[i + half]).trimEnd() : ''
@@ -236,7 +237,7 @@ export class Terminal {
   private static renderInputArea(): string {
     const promptUser = this.walletData.connected && this.walletData.accountId
       ? this.walletData.accountId
-      : 'hedera-creator-kit'
+      : 'slime-tools'
 
     return `
       <div class="terminal-input-area">
@@ -264,7 +265,7 @@ export class Terminal {
             <span class="status-item">Built by SLIME</span>
           </div>
           <div class="status-right">
-            <span class="status-item">HEDERA CREATOR KIT v1.0</span>
+            <span class="status-item">SLIME TOOLS v1.0</span>
             <span class="status-item">${this.walletData.network}</span>
           </div>
         </div>
@@ -286,7 +287,7 @@ export class Terminal {
           <span class="status-item">Built by SLIME</span>
         </div>
         <div class="status-right">
-          <span class="status-item">HEDERA CREATOR KIT v1.0</span>
+          <span class="status-item">SLIME TOOLS v1.0</span>
           <span class="status-item">${this.walletData.network}</span>
         </div>
       </div>
@@ -390,8 +391,8 @@ export class Terminal {
       return
     }
 
-    // Check for number input (1-15) — navigate to tool, no history
-    if (/^([1-9]|1[0-5])$/.test(cmd)) {
+    // Check for number input (1-18) — navigate to tool, no history
+    if (/^([1-9]|1[0-8])$/.test(cmd)) {
       const toolNumber = parseInt(cmd)
       const tool = this.tools.find(t => t.number === toolNumber)
       if (tool) {

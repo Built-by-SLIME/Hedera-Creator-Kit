@@ -52,21 +52,33 @@ export class TopicViewer {
 
   static render(): string {
     return `
-      <div class="art-gen-layout">
-        <div class="art-gen-left">
-          <div class="art-gen-section">
-            <div class="back-link" id="topic-back"><span class="back-arrow">←</span><span>Back to Home</span></div>
-            <h3 class="section-title">◆ Topic Viewer</h3>
-            <p class="cc-hip-badge">⬡ HCS-1 / HCS-6 · read-only mirror explorer</p>
-            ${this.renderLookup()}
-            ${this.info ? this.renderInfo() : ''}
-            ${this.messages.length ? this.renderMessages() : ''}
-            ${this.registryEntries.length ? this.renderRegistry() : ''}
-            ${this.error ? `<div class="cc-error-banner" style="margin-top:1rem">✗ ${this.escapeHtml(this.error)}</div>` : ''}
+      <div class="terminal-window">
+        <div class="window-chrome">
+          <div class="window-dots"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div>
+          <div class="window-title">SLIME TOOLS</div>
+        </div>
+        <div class="terminal-content">
+          <div class="art-gen-layout">
+            <div class="art-gen-left">
+              <div class="art-gen-section">
+                <div class="back-link" id="topic-back"><span class="back-arrow">←</span><span>Back to Home</span></div>
+                <h3 class="section-title">◆ Topic Viewer</h3>
+                <p class="cc-hip-badge">⬡ HCS-1 / HCS-6 · read-only mirror explorer</p>
+                ${this.renderLookup()}
+                ${this.info ? this.renderInfo() : ''}
+                ${this.messages.length ? this.renderMessages() : ''}
+                ${this.registryEntries.length ? this.renderRegistry() : ''}
+                ${this.error ? `<div class="cc-error-banner" style="margin-top:1rem">✗ ${this.escapeHtml(this.error)}</div>` : ''}
+              </div>
+            </div>
+            <div class="art-gen-right" style="padding:1.25rem">
+              ${this.renderRightPanel()}
+            </div>
           </div>
         </div>
-        <div class="art-gen-right" style="padding:1.25rem">
-          ${this.renderRightPanel()}
+        <div class="status-bar">
+          <span class="status-left">⬡ Read-only explorer</span>
+          <span class="status-right">Mainnet</span>
         </div>
       </div>
     `

@@ -64,7 +64,7 @@ export class AirdropTool {
           <div class="window-dot minimize"></div>
           <div class="window-dot maximize"></div>
         </div>
-        <div class="window-title">hedera-creator-kit</div>
+        <div class="window-title">slime-tools</div>
       </div>
     `
   }
@@ -947,7 +947,7 @@ export class AirdropTool {
           <span class="status-item">${this.statusMessage || 'Built by SLIME'}</span>
         </div>
         <div class="status-right">
-          <span class="status-item">HEDERA CREATOR KIT v1.0</span>
+          <span class="status-item">SLIME TOOLS v1.0</span>
           <span class="status-item">MAINNET</span>
         </div>
       </div>

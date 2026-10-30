@@ -22,7 +22,7 @@ export class HelpPage {
           <div class="window-dot minimize"></div>
           <div class="window-dot maximize"></div>
         </div>
-        <div class="window-title">hedera-creator-kit -- help</div>
+        <div class="window-title">slime-tools -- help</div>
       </div>
     `
   }
@@ -33,7 +33,7 @@ export class HelpPage {
         ${this.lines().map(l => `<div class="terminal-line terminal-${l.type}">${l.content}</div>`).join('')}
       </div>
       <div class="terminal-input-area">
-        <span class="input-prompt">hedera-creator-kit@hedera:~$</span>
+        <span class="input-prompt">slime-tools@hedera:~$</span>
         <input
           type="text"
           class="terminal-input"
@@ -50,7 +50,7 @@ export class HelpPage {
     return [
       { type: 'output', content: '' },
       { type: 'success', content: '╔════════════════════════════════════════════════════════════╗' },
-      { type: 'success', content: '║   HEDERA CREATOR KIT  -  Help & Documentation              ║' },
+      { type: 'success', content: '║   SLIME TOOLS  -  Help & Documentation                     ║' },
       { type: 'success', content: '╚════════════════════════════════════════════════════════════╝' },
       { type: 'output', content: '' },
 
@@ -227,7 +227,7 @@ export class HelpPage {
           <span class="status-item">Built by SLIME</span>
         </div>
         <div class="status-right">
-          <span class="status-item">HEDERA CREATOR KIT v1.0</span>
+          <span class="status-item">SLIME TOOLS v1.0</span>
           <span class="status-item">MAINNET</span>
         </div>
       </div>

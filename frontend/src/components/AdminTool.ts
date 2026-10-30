@@ -64,7 +64,7 @@ export class AdminTool {
           <div class="window-dot minimize"></div>
           <div class="window-dot maximize"></div>
         </div>
-        <div class="window-title">hedera-creator-kit — api key management</div>
+        <div class="window-title">slime-tools — api key management</div>
       </div>`
   }
 

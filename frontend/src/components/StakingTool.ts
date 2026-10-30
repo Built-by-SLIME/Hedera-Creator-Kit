@@ -138,7 +138,7 @@ export class StakingTool {
           <div class="window-dot minimize"></div>
           <div class="window-dot maximize"></div>
         </div>
-        <div class="window-title">hedera-creator-kit — staking tool</div>
+        <div class="window-title">slime-tools — staking tool</div>
       </div>`
   }
 
@@ -150,7 +150,7 @@ export class StakingTool {
         <div class="status-left"><span class="status-item">${walletInfo}</span></div>
         <div class="status-center"><span class="status-item">${this.statusMessage || 'Built by SLIME'}</span></div>
         <div class="status-right">
-          <span class="status-item">HEDERA CREATOR KIT v1.0</span>
+          <span class="status-item">SLIME TOOLS v1.0</span>
           <span class="status-item">MAINNET</span>
         </div>
       </div>`

@@ -81,7 +81,7 @@ export class BurnTool {
   }
 
   private static renderChrome(): string {
-    return `<div class="window-chrome"><div class="window-controls"><div class="window-dot close"></div><div class="window-dot minimize"></div><div class="window-dot maximize"></div></div><div class="window-title">hedera-creator-kit — burn tool</div></div>`
+    return `<div class="window-chrome"><div class="window-controls"><div class="window-dot close"></div><div class="window-dot minimize"></div><div class="window-dot maximize"></div></div><div class="window-title">slime-tools — burn tool</div></div>`
   }
 
   private static renderStatusBar(): string {
@@ -92,7 +92,7 @@ export class BurnTool {
         <div class="status-left"><span class="status-item">${walletInfo}</span></div>
         <div class="status-center"><span class="status-item">${this.statusMessage || 'Built by SLIME'}</span></div>
         <div class="status-right">
-          <span class="status-item">HEDERA CREATOR KIT v1.0</span>
+          <span class="status-item">SLIME TOOLS v1.0</span>
           <span class="status-item">MAINNET</span>
         </div>
       </div>`

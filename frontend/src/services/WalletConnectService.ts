@@ -51,7 +51,7 @@ class WalletConnectService {
     console.log('Initializing WalletConnect DAppConnector...')
 
     const metadata = {
-      name: 'Hedera Creator Kit',
+      name: 'SLIME Tools',
       description: 'NFT & Token Creation Toolkit for Hedera',
       url: window.location.origin,
       icons: ['https://avatars.githubusercontent.com/u/31002956'],

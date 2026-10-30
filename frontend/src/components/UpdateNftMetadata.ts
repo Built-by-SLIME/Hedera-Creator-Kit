@@ -59,7 +59,7 @@ export class UpdateNftMetadata {
       <div class="terminal-window">
         <div class="window-chrome">
           <div class="window-controls"><div class="window-dot close"></div><div class="window-dot minimize"></div><div class="window-dot maximize"></div></div>
-          <div class="window-title">hedera-creator-kit — update nft metadata</div>
+          <div class="window-title">slime-tools — update nft metadata</div>
         </div>
         <div class="terminal-content">
           <div class="art-gen-layout">

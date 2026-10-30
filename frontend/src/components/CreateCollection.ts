@@ -83,7 +83,7 @@ export class CreateCollection {
   }
 
   private static renderChrome(): string {
-    return `<div class="window-chrome"><div class="window-controls"><div class="window-dot close"></div><div class="window-dot minimize"></div><div class="window-dot maximize"></div></div><div class="window-title">hedera-creator-kit — create collection</div></div>`;
+    return `<div class="window-chrome"><div class="window-controls"><div class="window-dot close"></div><div class="window-dot minimize"></div><div class="window-dot maximize"></div></div><div class="window-title">slime-tools — create collection</div></div>`;
   }
 
   private static renderStatusBar(): string {

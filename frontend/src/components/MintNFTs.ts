@@ -112,7 +112,7 @@ export class MintNFTs {
       <div class="terminal-window">
         <div class="window-chrome">
           <div class="window-dots"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div>
-          <div class="window-title">HEDERA CREATOR KIT</div>
+          <div class="window-title">SLIME TOOLS</div>
         </div>
         <div class="terminal-content">
           <div class="art-gen-layout">

@@ -89,17 +89,29 @@ export class InscribeNFTs {
   static render(): string {
     const ws = WalletConnectService.getState()
     return `
-      <div class="art-gen-layout">
-        <div class="art-gen-left">
-          <div class="art-gen-section">
-            <div class="back-link" id="inscribe-back"><span class="back-arrow">←</span><span>Back to Home</span></div>
-            <h3 class="section-title">◆ Inscribe NFTs (Hashinal)</h3>
-            <p class="cc-hip-badge">⬡ HCS-1 On-Chain Inscription · media lives on the ledger, not IPFS</p>
-            ${!ws.connected ? this.renderConnectPrompt() : this.renderContent()}
+      <div class="terminal-window">
+        <div class="window-chrome">
+          <div class="window-dots"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div>
+          <div class="window-title">SLIME TOOLS</div>
+        </div>
+        <div class="terminal-content">
+          <div class="art-gen-layout">
+            <div class="art-gen-left">
+              <div class="art-gen-section">
+                <div class="back-link" id="inscribe-back"><span class="back-arrow">←</span><span>Back to Home</span></div>
+                <h3 class="section-title">◆ Inscribe NFTs (Hashinal)</h3>
+                <p class="cc-hip-badge">⬡ HCS-1 On-Chain Inscription · media lives on the ledger, not IPFS</p>
+                ${!ws.connected ? this.renderConnectPrompt() : this.renderContent()}
+              </div>
+            </div>
+            <div class="art-gen-right" style="padding:1.25rem">
+              ${this.renderRightPanel()}
+            </div>
           </div>
         </div>
-        <div class="art-gen-right" style="padding:1.25rem">
-          ${this.renderRightPanel()}
+        <div class="status-bar">
+          <span class="status-left">${ws.accountId ? `⬡ ${ws.accountId}` : '⬡ Not connected'}</span>
+          <span class="status-right">${ws.hbarBalance ? `${ws.hbarBalance} ℏ` : ''} · Mainnet</span>
         </div>
       </div>
     `
