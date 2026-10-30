@@ -109,6 +109,12 @@ const spenderRegistry: Record<string, KnownSpender> = {
     note: 'Superseded by the V2 manager — safe to revoke if no open V2 positions',
     stale: true,
   },
+  '0.0.10788549': {
+    name: 'Silk Suite Orderbook',
+    category: 'dex',
+    url: 'https://silksuite.app',
+    note: 'Silk Suite (HSuite Smart Engines) orderbook — zero-slippage DEX on Hedera. Placing orders grants token allowances so the orderbook can settle trades; cancelled orders may leave stale allowances behind.',
+  },
   '0.0.1064038': {
     name: 'SentX Treasury',
     category: 'marketplace',
