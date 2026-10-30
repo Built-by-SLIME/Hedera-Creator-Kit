@@ -190,7 +190,7 @@ export class Terminal {
     lines.push({ type: 'output', content: '' })
     lines.push(...this.getToolsList())
     lines.push({ type: 'output', content: '' })
-    lines.push({ type: 'prompt', content: 'Type a number (1-15) or tool name to begin...' })
+    lines.push({ type: 'prompt', content: 'Type a number (1-18) or tool name to begin...' })
 
     return lines
   }
@@ -207,14 +207,19 @@ export class Terminal {
   }
 
   private static getToolsList(): TerminalLine[] {
-    const lines: TerminalLine[] = []
-
-    this.tools.forEach(tool => {
-      const prefix = `  [${tool.number}]`.padEnd(6)
+    // Two-column layout: tools 1..N/2 down the left, the rest down the right,
+    // so the whole menu fits without scrolling. Cells are monospace-padded.
+    const cell = (tool: Tool): string => {
       const desc = tool.status === 'coming-soon' ? `${tool.description}  (coming soon)` : tool.description
-      const line = `${prefix} ${tool.icon} ${tool.title.padEnd(25)} ${desc}`
-      lines.push({ type: 'output', content: line })
-    })
+      const left = `  [${tool.number}] ${tool.icon} ${tool.title}`
+      return (left.padEnd(34) + this.truncateLine(desc, 36)).padEnd(74)
+    }
+    const half = Math.ceil(this.tools.length / 2)
+    const lines: TerminalLine[] = []
+    for (let i = 0; i < half; i++) {
+      const right = this.tools[i + half] ? cell(this.tools[i + half]).trimEnd() : ''
+      lines.push({ type: 'output', content: (cell(this.tools[i]) + right).trimEnd() })
+    }
 
     // Admin tool — only shown when operator wallet is connected
     if (this.walletData.accountId === BACKEND_MINTER_ACCOUNT) {
@@ -222,6 +227,10 @@ export class Terminal {
     }
 
     return lines
+  }
+
+  private static truncateLine(s: string, max: number): string {
+    return s.length > max ? s.slice(0, max - 1) + '…' : s
   }
 
   private static renderInputArea(): string {
