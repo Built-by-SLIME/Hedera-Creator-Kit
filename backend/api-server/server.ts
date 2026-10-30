@@ -20,6 +20,7 @@ import { mintNfts } from './routes/mint-nfts';
 import { getMintStatus } from './routes/mint-status';
 import { calculateMintFee } from './routes/calculate-mint-fee';
 import { prepareInscribe, startInscribe, inscribeStatus } from './routes/inscribe';
+import { topicInfo, topicMessages, topicFile, resolvePointer } from './routes/hcs-viewer';
 import {
   createSwapProgram,
   listSwapPrograms,
@@ -259,6 +260,12 @@ app.post('/api/inscribe/start', (req, res, next) => {
   startInscribe(req, res).catch(next);
 });
 app.get('/api/inscribe/status/:jobId', (req, res, next) => inscribeStatus(req, res).catch(next));
+
+// Read-only HCS endpoints for the Topic Viewer (Tool #16)
+app.get('/api/hcs/topic/:topicId/info', (req, res, next) => topicInfo(req, res).catch(next));
+app.get('/api/hcs/topic/:topicId/messages', (req, res, next) => topicMessages(req, res).catch(next));
+app.get('/api/hcs/topic/:topicId/file', (req, res, next) => topicFile(req, res).catch(next));
+app.get('/api/hcs/resolve/:pointer', (req, res, next) => resolvePointer(req, res).catch(next));
 
 // Swap program routes
 app.post('/api/swap-programs', (req, res, next) => createSwapProgram(req, res).catch(next));

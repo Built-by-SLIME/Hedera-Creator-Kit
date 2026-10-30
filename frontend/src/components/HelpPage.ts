@@ -161,7 +161,7 @@ export class HelpPage {
       { type: 'output', content: '       Register .hedera / .slime / .gib domains.' },
       { type: 'output', content: '' },
 
-      { type: 'output', content: '  [16] Topic Viewer                                  Coming Soon' },
+      { type: 'success', content: '  [16] Topic Viewer' },
       { type: 'output', content: '       View and decode HCS topic messages.' },
       { type: 'output', content: '       Reassembles on-chain inscription files (HCS-1).' },
       { type: 'output', content: '' },
