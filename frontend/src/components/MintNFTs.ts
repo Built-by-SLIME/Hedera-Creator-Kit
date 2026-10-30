@@ -119,7 +119,7 @@ export class MintNFTs {
             <div class="art-gen-left">
               <div class="art-gen-section">
                 <div class="back-link" id="mint-back"><span class="back-arrow">←</span><span>Back to Home</span></div>
-                <h3 class="section-title">◆ Mint NFTs</h3>
+                <h3 class="section-title">◆ Mint NFTs (IPFS)</h3>
                 <p class="cc-hip-badge">⬡ HIP-412 NFT Metadata Standard</p>
                 ${!connected ? this.renderConnectPrompt() : this.renderContent()}
               </div>
