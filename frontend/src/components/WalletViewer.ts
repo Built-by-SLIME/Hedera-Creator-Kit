@@ -518,14 +518,16 @@ export class WalletViewer {
       .find(t => /^(ipfs:\/\/|ar:\/\/|https:\/\/)\S+$/i.test(t) || /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|baf[a-z2-7]{20,})(\/\S*)?$/.test(t)) || ''
   }
 
-  // Web addresses to try for a pointer, in order.
+  // Web addresses to try for a pointer, in order. '#' and spaces in file names
+  // are percent-encoded so the browser doesn't treat them as a URL fragment.
   private static pointerUrls(ptr: string): string[] {
+    const clean = (u: string) => u.replace(/#/g, '%23').replace(/ /g, '%20')
     const t = String(ptr || '').trim()
-    if (/^https:\/\//i.test(t)) return [t]
-    if (/^ar:\/\//i.test(t)) return ['https://arweave.net/' + t.slice(5)]
+    if (/^https:\/\//i.test(t)) return [clean(t)]
+    if (/^ar:\/\//i.test(t)) return [clean('https://arweave.net/' + t.slice(5))]
     const cid = t.replace(/^ipfs:\/\/(ipfs\/)?/i, '')
     if (/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|baf[a-z2-7]{20,})/.test(cid)) {
-      return ICON_IPFS_GATEWAYS.map(g => g + cid)
+      return ICON_IPFS_GATEWAYS.map(g => clean(g + cid))
     }
     return []
   }
