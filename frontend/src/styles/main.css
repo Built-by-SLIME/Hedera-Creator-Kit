@@ -3131,24 +3131,24 @@ w3m-modal, wcm-modal {
 }
 
 .wv-tab {
-  padding: 0.4rem 0.9rem;
-  background: transparent;
-  border: 1px solid var(--window-border);
-  border-radius: 4px;
-  color: var(--terminal-text-dim);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--terminal-text);
+  padding: 0.4rem 0.7rem;
   cursor: pointer;
   font-family: 'JetBrains Mono', 'Noto Sans Mono', monospace;
-  font-size: 0.8rem;
-  transition: all 0.2s ease;
+  font-size: 0.82rem;
 }
 
 .wv-tab:hover {
-  color: var(--terminal-text);
+  color: var(--terminal-text-bright);
 }
 
 .wv-tab-active {
-  border-color: var(--terminal-purple);
-  color: var(--terminal-purple-bright);
+  color: var(--terminal-green);
+  border-bottom-color: var(--terminal-green);
+  font-weight: 700;
 }
 
 .cc-badge {
@@ -3158,4 +3158,206 @@ w3m-modal, wcm-modal {
   border: 1px solid var(--window-border);
   border-radius: 4px;
   color: var(--terminal-text-dim);
+}
+
+/* ============================================================================
+   WALLET VIEWER — token icons, facts grid, token list, NFT collection cards
+   ============================================================================ */
+.ticon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: hsl(var(--h, 210) 45% 40%);
+  color: #fff;
+  font-style: normal;
+  font-size: 0.6rem;
+  font-weight: 700;
+  flex: none;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.ticon.mid {
+  width: 32px;
+  height: 32px;
+  font-size: 0.65rem;
+}
+
+.ticon.coll {
+  width: 40px;
+  height: 40px;
+  font-size: 0.75rem;
+}
+
+.ticon.hero {
+  width: 44px;
+  height: 44px;
+}
+
+.ticon img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.wv-facts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0.6rem 0 0;
+}
+
+.wv-facts div {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+
+.wv-facts dt {
+  color: var(--terminal-text);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  min-width: 130px;
+  flex: none;
+}
+
+.wv-facts dd {
+  margin: 0;
+  color: var(--terminal-text-bright);
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  word-break: break-all;
+}
+
+.wv-facts dd small {
+  font-size: 0.7rem;
+  color: var(--terminal-text);
+}
+
+.wv-toklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wv-toklist li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.wv-tk {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.wv-tkn > span {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.82rem;
+  color: var(--terminal-text-bright);
+}
+
+.wv-tkn em {
+  font-style: normal;
+  font-size: 0.68rem;
+  color: var(--terminal-text);
+}
+
+.wv-toklist b {
+  font-size: 0.8rem;
+  color: var(--terminal-green);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wv-nfts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
+
+.wv-nft {
+  border: 1px solid var(--window-border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.wv-nft > b {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--terminal-text-bright);
+}
+
+.wv-nft > em {
+  display: block;
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--terminal-text);
+  margin-top: 0.2rem;
+}
+
+.wv-nft p {
+  font-size: 0.78rem;
+  color: var(--terminal-text);
+  margin: 0.4rem 0 0;
+}
+
+.wv-nft p a {
+  color: var(--terminal-purple-bright);
+  font-size: 0.75rem;
+}
+
+.wv-nft p a:hover {
+  text-decoration: underline;
+}
+
+.wv-serials {
+  line-height: 1.7;
+}
+
+.wv-ser {
+  display: inline-block;
+  border: 1px solid var(--window-border);
+  border-radius: 6px;
+  padding: 0.12rem 0.5rem;
+  margin: 0 0.3rem 0.3rem 0;
+  font-size: 0.72rem;
+  color: var(--terminal-text-bright);
+  text-decoration: none;
+  font-family: 'JetBrains Mono', 'Noto Sans Mono', monospace;
+}
+
+.wv-ser:hover {
+  border-color: var(--terminal-purple);
+  color: var(--terminal-purple-bright);
+}
+
+.wv-lnk {
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  color: var(--terminal-purple-bright);
+  font-family: inherit;
+  font-size: 0.75rem;
+  padding: 0;
 }

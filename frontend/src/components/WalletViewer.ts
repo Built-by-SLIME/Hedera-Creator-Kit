@@ -1,8 +1,11 @@
 /**
  * Wallet Viewer Component (Tool #17)
- * Look up any Hedera account: HBAR + token balances, NFT holdings grouped by
- * collection, and recent activity. Read-only via the public mirror node.
- * NFT media goes through the shared mediaSafety plan where it is rendered.
+ * Look up any Hedera account: HBAR + token balances (with icons), NFT holdings
+ * grouped by collection (icons, supply share, royalty, last moved, serials),
+ * and recent activity. Read-only via the public mirror node.
+ * Icon resolution mirrors the proven lookup chain: DaVinciPics registry ->
+ * ETA Finance token list -> HIP-405/766 token metadata -> first-NFT image ->
+ * deterministic letter badge.
  */
 import { MIRROR_NODE_URL } from '../config'
 
@@ -15,6 +18,7 @@ interface AccountInfo {
   numTokens: number
   numNfts: number
   evmAddress: string
+  staked: string
 }
 
 interface TokenBalance {
@@ -29,8 +33,13 @@ interface TokenBalance {
 interface NftGroup {
   tokenId: string
   name: string
+  symbol: string
   serials: number[]
-  thumbnail: string | null   // ipfs/http image url when resolvable cheaply
+  supply: number
+  royalty: number
+  last: number
+  uri: string
+  unlisted: boolean
 }
 
 interface ActivityItem {
@@ -39,6 +48,19 @@ interface ActivityItem {
   memo: string
   transactionId: string
 }
+
+/* ─── icon engine constants ─── */
+const DAVINCI_PICS = ['https://s1.pics.davincigraph.io/api/v2', 'https://s2.pics.davincigraph.io/api/v2']
+const ICON_LIST_URL = 'https://api.etaswap.com/v1/tokens'
+const ICON_LIST_BASE = 'https://eta.finance'
+const ICON_IPFS_GATEWAYS = [
+  'https://ipfs.filebase.io/ipfs/',
+  'https://ipfs.aleph.cloud/ipfs/',
+  'https://ipfs.orbitor.dev/ipfs/',
+]
+const HASHSCAN = 'https://hashscan.io/mainnet'
+const HBAR_ICON =
+  '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="20" fill="#111"/><g fill="#fff"><rect x="12" y="10.5" width="2.6" height="19"/><rect x="25.4" y="10.5" width="2.6" height="19"/><rect x="9.5" y="15.6" width="21" height="2.3"/><rect x="9.5" y="21.6" width="21" height="2.3"/></g></svg>'
 
 export class WalletViewer {
   private static accountInput = ''
@@ -49,7 +71,16 @@ export class WalletViewer {
   private static loading = false
   private static error: string | null = null
   private static activeTab: 'tokens' | 'nfts' | 'activity' = 'tokens'
-  private static expandedNft: string | null = null
+  private static expandedCollections = new Set<string>()
+  private static tokenListTruncated = false
+  private static nftListTruncated = false
+
+  // icon caches (session-only; badges render instantly, images swap in when found)
+  private static icons = new Map<string, string[]>() // tokenId -> candidate urls
+  private static iconPending = new Set<string>()
+  private static iconListPromise: Promise<Record<string, string>> | null = null
+  private static metaJsonCache = new Map<string, Promise<Record<string, any> | null>>()
+  private static errorListenerAttached = false
 
   static render(): string {
     return `
@@ -97,20 +128,22 @@ export class WalletViewer {
 
   private static renderAccount(): string {
     const a = this.account!
+    const fact = (label: string, value: string) =>
+      value ? `<div><dt>${label}</dt><dd>${value}</dd></div>` : ''
     return `
       <div class="cc-panel" style="margin-top:1rem">
-        <div style="display:flex;gap:0.5rem;align-items:baseline;flex-wrap:wrap">
-          <h4 style="margin:0;color:var(--terminal-green)">${a.accountId}</h4>
-          <span style="font-size:0.9rem;color:var(--terminal-text)">${a.balanceHbar} ℏ</span>
-        </div>
-        <p class="mono" style="font-size:0.72rem;color:var(--terminal-text);word-break:break-all;margin:0.4rem 0 0">${a.evmAddress}</p>
-        <p style="font-size:0.75rem;color:var(--terminal-text);margin:0.4rem 0 0">
-          created ${a.created ? new Date(Number(a.created) * 1000).toLocaleDateString() : 'unknown'}
-          · key: ${a.keyType} · ${a.numTokens} token association${a.numTokens === 1 ? '' : 's'} · ${a.numNfts} NFT${a.numNfts === 1 ? '' : 's'}
-          ${a.memo ? ` · memo: ${this.escapeHtml(a.memo)}` : ''}
-        </p>
+        <h4 style="margin:0;color:var(--terminal-green)">${a.accountId}</h4>
+        <dl class="wv-facts">
+          ${fact('HBAR balance', `${this.hbarIcon()} ${a.balanceHbar} ℏ`)}
+          ${fact('Account created', a.created ? this.fmtDate(Number(a.created) * 1000) : '')}
+          ${fact('Key type', a.keyType)}
+          ${fact('Token associations', String(a.numTokens))}
+          ${fact('Staked to', this.escapeHtml(a.staked))}
+          ${fact('Memo', this.escapeHtml(a.memo))}
+          ${fact('EVM address', a.evmAddress ? `<small>${a.evmAddress}</small>` : '')}
+        </dl>
 
-        <div style="display:flex;gap:0.25rem;margin-top:0.9rem;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:0">
+        <div style="display:flex;gap:0.25rem;margin-top:0.9rem;border-bottom:1px solid rgba(255,255,255,0.1)">
           ${(['tokens', 'nfts', 'activity'] as const).map(t => `
             <button class="wv-tab ${this.activeTab === t ? 'wv-tab-active' : ''}" data-tab="${t}" type="button"
               style="text-transform:capitalize">${t}${t === 'nfts' && a.numNfts ? ` (${a.numNfts})` : ''}</button>
@@ -119,50 +152,65 @@ export class WalletViewer {
         <div style="margin-top:0.75rem">
           ${this.activeTab === 'tokens' ? this.renderTokens() : this.activeTab === 'nfts' ? this.renderNfts() : this.renderActivity()}
         </div>
-        <style>
-          .wv-tab { background:none;border:none;color:var(--terminal-text);padding:0.4rem 0.7rem;cursor:pointer;font-size:0.82rem;border-bottom:2px solid transparent; }
-          .wv-tab-active { color:var(--terminal-green);border-bottom-color:var(--terminal-green);font-weight:700; }
-        </style>
       </div>
     `
   }
 
   private static renderTokens(): string {
     if (!this.tokens.length) return `<p style="font-size:0.82rem;color:var(--terminal-text)">No token balances.</p>`
-    return this.tokens.map((t) => `
-      <div style="display:flex;gap:0.5rem;align-items:center;padding:0.4rem 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-        <div style="flex:1;min-width:0">
-          <span style="font-size:0.82rem;color:var(--terminal-text)">${this.escapeHtml(t.name || t.tokenId)}</span>
-          ${t.symbol ? `<span style="font-size:0.72rem;color:var(--terminal-text)"> $${this.escapeHtml(t.symbol)}</span>` : ''}
-          <span class="mono" style="display:block;font-size:0.68rem;color:var(--terminal-text)">${t.tokenId}</span>
-        </div>
-        <span class="mono" style="font-size:0.8rem;color:var(--terminal-green)">${t.balance}</span>
+    const rows = this.tokens.map((t) => `
+      <li>
+        <span class="wv-tk">
+          ${this.tokenIconHtml(t.tokenId, t.symbol, 'mid')}
+          <span class="wv-tkn">
+            <span>${this.escapeHtml(t.name || t.symbol || t.tokenId)}${t.symbol ? ` <em>$${this.escapeHtml(t.symbol)}</em>` : ''}<em>${t.tokenId}</em></span>
+          </span>
+        </span>
+        <b>${t.balance}</b>
         <span class="tv-chip tv-chip-${t.type === 'NON_FUNGIBLE_UNIQUE' ? 'hcs6-register' : 'json'}">${t.type === 'NON_FUNGIBLE_UNIQUE' ? 'NFT' : 'FT'}</span>
-      </div>
+      </li>
     `).join('')
+    return `<ul class="wv-toklist">${rows}</ul>
+      ${this.tokenListTruncated ? `<p style="font-size:0.72rem;color:var(--terminal-text)">Showing the first ${this.tokens.length} balances held.</p>` : ''}`
   }
 
   private static renderNfts(): string {
     if (!this.nftGroups.length) return `<p style="font-size:0.82rem;color:var(--terminal-text)">No NFT holdings.</p>`
-    return this.nftGroups.map((g) => `
-      <div style="border-bottom:1px solid rgba(255,255,255,0.06);padding:0.5rem 0">
-        <div style="display:flex;gap:0.6rem;align-items:center">
-          ${g.thumbnail ? `<img src="${g.thumbnail}" alt="" style="width:34px;height:34px;object-fit:cover;border-radius:4px" />` : ''}
-          <div style="flex:1;min-width:0">
-            <span style="font-size:0.82rem;color:var(--terminal-text)">${this.escapeHtml(g.name || g.tokenId)}</span>
-            <span class="mono" style="display:block;font-size:0.68rem;color:var(--terminal-text)">${g.tokenId}</span>
-          </div>
-          <button class="cc-btn cc-btn-secondary wv-nft-toggle" data-token="${g.tokenId}" type="button" style="font-size:0.7rem;padding:0.2rem 0.5rem">
-            ${this.expandedNft === g.tokenId ? 'Hide' : g.serials.length + ' serials'}
-          </button>
-        </div>
-        ${this.expandedNft === g.tokenId ? `
-          <p class="mono" style="font-size:0.75rem;color:var(--terminal-text);margin:0.5rem 0 0;word-break:break-word">
-            ${g.serials.join(', ')}
+    const total = this.nftGroups.reduce((s, g) => s + g.serials.length, 0)
+    const cards = this.nftGroups.map((g) => {
+      const expanded = this.expandedCollections.has(g.tokenId)
+      const pct = g.supply ? ((g.serials.length / g.supply) * 100).toFixed((g.serials.length / g.supply) * 100 < 1 ? 2 : 1) + '%' : ''
+      const shown = expanded ? g.serials : g.serials.slice(0, 24)
+      return `
+        <div class="wv-nft">
+          <b>${this.tokenIconHtml(g.tokenId, g.symbol || g.name, 'coll')}${this.escapeHtml(g.name || g.symbol || g.tokenId)}</b>
+          <em>${this.escapeHtml(g.symbol || '')} · ${g.tokenId}</em>
+          <p>
+            ${g.serials.length.toLocaleString()} held
+            ${g.supply ? ` of ${g.supply.toLocaleString()} minted (${pct})` : ''}
+            ${g.royalty ? ` · ${this.royaltyText(g.royalty)}% royalty` : ''}
+            ${g.last ? ` · last moved ${this.fmtDate(g.last)}` : ''}
+            ${g.unlisted ? ' · serials not returned by the mirror node' : ''}
           </p>
-        ` : ''}
-      </div>
-    `).join('')
+          <p class="wv-serials">
+            ${shown.map(s => `<a class="wv-ser" href="${HASHSCAN}/token/${g.tokenId}/${s}" target="_blank" rel="noopener" title="View #${s} on HashScan">#${s}</a>`).join('')}
+            ${g.serials.length > 24 ? `<button type="button" class="wv-lnk wv-nft-toggle" data-token="${g.tokenId}">${expanded ? 'Show fewer' : `Show all ${g.serials.length.toLocaleString()} serials`}</button>` : ''}
+          </p>
+          <p>
+            <a href="${HASHSCAN}/token/${g.tokenId}" target="_blank" rel="noopener">Collection on HashScan</a>
+            ${g.uri ? ` · <a href="${this.escapeHtml(g.uri)}" target="_blank" rel="noopener">Sample metadata</a>` : ''}
+          </p>
+        </div>
+      `
+    }).join('')
+    return `
+      <h4 style="margin:0.75rem 0 0.25rem;color:var(--terminal-text)">
+        NFTs: ${total.toLocaleString()} across ${this.nftGroups.length} ${this.nftGroups.length === 1 ? 'collection' : 'collections'}
+      </h4>
+      <p style="font-size:0.75rem;color:var(--terminal-text);margin:0 0 0.5rem">Tap a serial to view the NFT on HashScan.</p>
+      <div class="wv-nfts">${cards}</div>
+      ${this.nftListTruncated ? `<p style="font-size:0.72rem;color:var(--terminal-text)">Showing the first ${total} NFTs held.</p>` : ''}
+    `
   }
 
   private static renderActivity(): string {
@@ -184,28 +232,34 @@ export class WalletViewer {
         <p style="font-size:0.82rem;color:var(--terminal-text)">Querying the mirror node…</p>`
     }
     if (this.account) {
+      const a = this.account
       return `
         <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Snapshot</h4>
-        <p style="font-size:1.4rem;color:var(--terminal-green);margin:0;font-weight:700">${this.account.balanceHbar} ℏ</p>
+        <p style="display:flex;align-items:center;gap:0.5rem;margin:0">
+          <i class="ticon hero" title="HBAR">${HBAR_ICON}</i>
+          <span style="font-size:1.4rem;color:var(--terminal-green);font-weight:700">${a.balanceHbar} ℏ</span>
+        </p>
         <p style="font-size:0.8rem;color:var(--terminal-text);margin:0.6rem 0 0">
-          ${this.account.numNfts} NFT${this.account.numNfts === 1 ? '' : 's'} across ${this.nftGroups.length} collection${this.nftGroups.length === 1 ? '' : 's'}
+          ${a.numNfts} NFT${a.numNfts === 1 ? '' : 's'} across ${this.nftGroups.length} collection${this.nftGroups.length === 1 ? '' : 's'}
           · ${this.tokens.length} token balance${this.tokens.length === 1 ? '' : 's'}
         </p>
+        <p class="mono" style="font-size:0.72rem;color:var(--terminal-text);word-break:break-all;margin:0.6rem 0 0">${a.evmAddress}</p>
       `
     }
     return `
       <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Wallet Viewer</h4>
       <p style="font-size:0.8rem;color:var(--terminal-text);margin:0">
         Enter any Hedera account ID to see its HBAR balance, token and NFT
-        holdings, and recent activity. Nothing here touches the chain — pure
-        mirror-node reads.
+        holdings with icons, and recent activity. Nothing here touches the
+        chain — pure mirror-node reads.
       </p>
     `
   }
 
-  // ─── INIT ───────────────────────────────────────────────
+  // ─── INIT ─────────────────────────────────────────────────
 
   static init(): void {
+    this.attachIconErrorHandler()
     document.getElementById('wallet-back')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }))
     })
@@ -225,19 +279,21 @@ export class WalletViewer {
     document.querySelectorAll('.wv-nft-toggle').forEach(btn => {
       btn.addEventListener('click', () => {
         const t = (btn as HTMLElement).dataset.token
-        this.expandedNft = t && this.expandedNft !== t ? t : null
+        if (!t) return
+        this.expandedCollections.has(t) ? this.expandedCollections.delete(t) : this.expandedCollections.add(t)
         this.refresh()
       })
     })
   }
 
-  // ─── ACTIONS ────────────────────────────────────────────
+  // ─── DATA LOADING ─────────────────────────────────────────
 
   private static async load(): Promise<void> {
     const id = this.accountInput.trim()
     if (!id) { this.error = 'Enter an account ID'; this.refresh(); return }
     this.loading = true
     this.error = null
+    this.expandedCollections.clear()
     this.refresh()
     try {
       const acctRes = await fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${id}`)
@@ -249,55 +305,76 @@ export class WalletViewer {
         created: a.created_timestamp || null,
         keyType: a.key?._type?.replace('Key', '') || 'unknown',
         memo: a.memo || '',
-        numTokens: parseInt(a.max_automatic_token_associations || '0') >= 0 ? (a.tokens?.length ?? 0) : (a.tokens?.length ?? 0),
+        numTokens: a.tokens?.length ?? 0,
         numNfts: 0,
         evmAddress: a.evm_address || '',
+        staked: a.staked_node_id != null ? `node ${a.staked_node_id}` : (a.staked_account_id || ''),
       }
 
-      // Balances + NFTs in parallel
       const [balRes, nftRes] = await Promise.all([
         fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${id}/tokens?limit=100`),
         fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${id}/nfts?limit=100`),
       ])
       const bal = await balRes.json()
       const nfts = await nftRes.json()
+      this.tokenListTruncated = !!bal.links?.next
+      this.nftListTruncated = !!nfts.links?.next
 
-      const tokenMeta = new Map<string, any>()
-      await Promise.all((bal.tokens || []).slice(0, 100).map(async (t: any) => {
+      // Token metadata (name/decimals/type), 6 at a time
+      const heldTokens = (bal.tokens || []).filter((t: any) => Number(t.balance) > 0)
+      const metas = await this.mapLimit(heldTokens.slice(0, 100), 6, async (t: any) => {
         try {
           const r = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${t.token_id}`)
-          if (r.ok) tokenMeta.set(t.token_id, await r.json())
-        } catch { /* name lookup is best-effort */ }
-      }))
-
-      this.tokens = (bal.tokens || []).map((t: any) => {
-        const meta = tokenMeta.get(t.token_id) || {}
+          return r.ok ? await r.json() : {}
+        } catch { return {} }
+      })
+      this.tokens = heldTokens.slice(0, 100).map((t: any, i: number) => {
+        const meta = metas[i] || {}
         const decimals = Number(meta.decimals ?? 0)
         const raw = Number(t.balance ?? 0)
         return {
           tokenId: t.token_id,
           name: meta.name || '',
           symbol: meta.symbol || '',
-          balance: meta.type === 'NON_FUNGIBLE_UNIQUE' ? String(raw) : this.fmtTokenAmount(raw, decimals),
+          balance: meta.type === 'NON_FUNGIBLE_UNIQUE' ? raw.toLocaleString() : this.fmtTokenAmount(raw, decimals),
           decimals,
           type: meta.type || 'FUNGIBLE_COMMON',
         }
       })
 
-      const groups = new Map<string, number[]>()
+      // NFTs grouped by collection
+      const byToken = new Map<string, NftGroup>()
       for (const n of nfts.nfts || []) {
-        if (!groups.has(n.token_id)) groups.set(n.token_id, [])
-        groups.get(n.token_id)!.push(n.serial_number)
+        if (!byToken.has(n.token_id)) {
+          byToken.set(n.token_id, {
+            tokenId: n.token_id, name: '', symbol: '', serials: [],
+            supply: 0, royalty: 0, last: 0, uri: '', unlisted: false,
+          })
+        }
+        const g = byToken.get(n.token_id)!
+        g.serials.push(Number(n.serial_number))
+        const ms = Math.round(1e3 * parseFloat(n.modified_timestamp || n.created_timestamp || '0'))
+        if (ms > g.last) g.last = ms
+        if (!g.uri) g.uri = this.metadataLink(n.metadata)
       }
-      this.nftGroups = await Promise.all([...groups.entries()].map(async ([tokenId, serials]) => {
-        let name = tokenId
-        let thumbnail: string | null = null
+      const groups = [...byToken.values()].sort((x, y) => y.serials.length - x.serials.length)
+      await this.mapLimit(groups, 6, async (g) => {
         try {
-          const meta = tokenMeta.get(tokenId) || await (await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${tokenId}`)).json()
-          name = meta.name || tokenId
-        } catch { /* ok */ }
-        return { tokenId, name, serials: serials.sort((x, y) => x - y), thumbnail }
-      }))
+          const r = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${g.tokenId}`)
+          if (!r.ok) return
+          const info = await r.json()
+          g.name = info.name || ''
+          g.symbol = info.symbol || ''
+          g.supply = Number(info.total_supply) || 0
+          g.royalty = ((info.custom_fees || {}).royalty_fees || []).reduce(
+            (sum: number, fee: any) =>
+              sum + (fee.amount && fee.amount.denominator ? (fee.amount.numerator / fee.amount.denominator) * 100 : 0),
+            0,
+          )
+        } catch { /* collection details are best-effort */ }
+      })
+      groups.forEach(g => g.serials.sort((x, y) => x - y))
+      this.nftGroups = groups
       if (this.account) this.account.numNfts = (nfts.nfts || []).length
 
       const txRes = await fetch(`${MIRROR_NODE_URL}/api/v1/transactions?account.id=${id}&limit=25&order=desc`)
@@ -316,9 +393,252 @@ export class WalletViewer {
     this.refresh()
   }
 
+  // ─── ICON ENGINE ──────────────────────────────────────────
+
+  private static hbarIcon(): string {
+    return `<i class="ticon" title="HBAR">${HBAR_ICON}</i>`
+  }
+
+  // Badge markup for a token icon; letters show at once, a found icon is laid over it.
+  private static tokenIconHtml(id: string, sym: string, size: string): string {
+    const cls = 'ticon' + (size ? ' ' + size : '')
+    const known = this.icons.get(id)
+    if (!known) this.queueIcon(id)
+    return `<i class="${cls}" data-icon="${id}" style="--h:${this.iconHue(id)}">${this.escapeHtml(this.iconLetters(sym))}${known && known.length ? this.iconImg(known) : ''}</i>`
+  }
+
+  private static iconImg(urls: string[]): string {
+    return `<img src="${this.escapeHtml(urls[0])}" data-alts="${this.escapeHtml(urls.slice(1).join(' '))}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+  }
+
+  // A colour hue worked out from a token ID, so a badge always has the same colour.
+  private static iconHue(id: string): number {
+    let hue = 0
+    for (const ch of String(id)) hue = (hue * 31 + ch.charCodeAt(0)) % 360
+    return hue
+  }
+
+  private static iconLetters(sym: string): string {
+    const clean = String(sym || '').replace(/[^\p{L}\p{N}]/gu, '')
+    return (clean || '?').slice(0, clean.length > 3 ? 2 : 3).toUpperCase()
+  }
+
+  // Resolve a token's icon: DaVinciPics -> ETA list -> token metadata logo ->
+  // first-NFT image (collections). Remembers the answer for the session and
+  // patches any badges already on screen.
+  private static async queueIcon(id: string): Promise<void> {
+    if (this.iconPending.has(id) || this.icons.has(id)) return
+    this.iconPending.add(id)
+    let urls: string[] = []
+    try {
+      urls = await this.davinciIcon(id)
+      if (!urls.length) {
+        const listed = (await this.iconList())[id]
+        if (listed) urls = [listed]
+      }
+      if (!urls.length) {
+        try {
+          const r = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${id}`)
+          if (r.ok) {
+            const info = await r.json()
+            urls = await this.logoFromMetadata(info, id)
+            if (!urls.length && info.type === 'NON_FUNGIBLE_UNIQUE') {
+              urls = await this.collectionThumb(id)
+            }
+          }
+        } catch { /* fall through to the badge */ }
+      }
+    } catch { /* badge stays */ }
+    this.iconPending.delete(id)
+    this.icons.set(id, urls)
+    if (urls.length) {
+      document.querySelectorAll(`.ticon[data-icon="${id}"]`).forEach(el => {
+        if (!el.querySelector('img')) el.insertAdjacentHTML('beforeend', this.iconImg(urls))
+      })
+    }
+  }
+
+  // DaVinciPics, the icon registry Hedera wallets use. Mainnet only.
+  private static async davinciIcon(id: string): Promise<string[]> {
+    for (const base of DAVINCI_PICS) {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 8000)
+      try {
+        const res = await fetch(`${base}/tokens/hedera/${id}?scope=supplementary&noMissingError=true&context=false`, {
+          signal: ctrl.signal,
+          referrerPolicy: 'no-referrer',
+        })
+        if (res.status === 404) return []
+        if (!res.ok) continue
+        const data = await res.json()
+        if (!data || /sensitive|inappropriate|copyright/i.test(data.sensitivity || '')) return []
+        const pic = data.pic || (data.token0 && data.token0.pic) || (data.originalToken && data.originalToken.pic) || ''
+        if (/^https:\/\//i.test(pic)) return [pic]
+        return []
+      } catch {
+        continue
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    return []
+  }
+
+  // ETA Finance public token list, read once per session.
+  private static iconList(): Promise<Record<string, string>> {
+    if (this.iconListPromise) return this.iconListPromise
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 12000)
+    this.iconListPromise = fetch(ICON_LIST_URL, { signal: ctrl.signal, referrerPolicy: 'no-referrer' })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error('HTTP ' + res.status))))
+      .then((list: any) => {
+        const map: Record<string, string> = {}
+        ;(Array.isArray(list) ? list : []).forEach((entry: any) => {
+          const tid = entry && entry.address
+          const icon = entry && entry.icon
+          if (!/^\d+\.\d+\.\d+$/.test(tid || '') || !icon || /hbar[^/]*$/i.test(icon)) return
+          if (/^https:\/\//i.test(icon)) map[tid] = icon
+          else if (icon.startsWith('/')) map[tid] = ICON_LIST_BASE + icon
+        })
+        return map
+      })
+      .catch(() => ({}))
+      .finally(() => clearTimeout(timer))
+    return this.iconListPromise
+  }
+
+  // A metadata/memo pointer (HIP-405 / HIP-766 style), or ''.
+  private static logoPointer(info: any): string {
+    const texts: string[] = []
+    try { if (info.metadata) texts.push(atob(info.metadata)) } catch { /* not base64 */ }
+    if (info.memo) texts.push(info.memo)
+    return texts
+      .map(t => t.trim())
+      .find(t => /^(ipfs:\/\/|ar:\/\/|https:\/\/)\S+$/i.test(t) || /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|baf[a-z2-7]{20,})(\/\S*)?$/.test(t)) || ''
+  }
+
+  // Web addresses to try for a pointer, in order.
+  private static pointerUrls(ptr: string): string[] {
+    const t = String(ptr || '').trim()
+    if (/^https:\/\//i.test(t)) return [t]
+    if (/^ar:\/\//i.test(t)) return ['https://arweave.net/' + t.slice(5)]
+    const cid = t.replace(/^ipfs:\/\/(ipfs\/)?/i, '')
+    if (/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|baf[a-z2-7]{20,})/.test(cid)) {
+      return ICON_IPFS_GATEWAYS.map(g => g + cid)
+    }
+    return []
+  }
+
+  // The logo named in a token's metadata JSON, or [].
+  private static async logoFromMetadata(info: any, id: string): Promise<string[]> {
+    const ptr = this.logoPointer(info)
+    if (!ptr) return []
+    const urls = this.pointerUrls(ptr)
+    if (!urls.length) return []
+    const key = id
+    if (!this.metaJsonCache.has(key)) {
+      this.metaJsonCache.set(key, (async () => {
+        for (const url of urls) {
+          const ctrl = new AbortController()
+          const timer = setTimeout(() => ctrl.abort(), 8000)
+          try {
+            const res = await fetch(url, { signal: ctrl.signal, referrerPolicy: 'no-referrer' })
+            if (!res.ok) continue
+            const json = await res.json()
+            return json && typeof json === 'object' ? json : null
+          } catch {
+            continue
+          } finally {
+            clearTimeout(timer)
+          }
+        }
+        return null
+      })())
+    }
+    const json = await this.metaJsonCache.get(key)!
+    const logo = json && (json.lightLogo || json.darkLogo || json.logo || json.icon || json.image)
+    return typeof logo === 'string' ? this.pointerUrls(logo) : []
+  }
+
+  // An unregistered collection's icon: the image of its first NFT.
+  private static async collectionThumb(id: string): Promise<string[]> {
+    try {
+      const r = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${id}/nfts?limit=1&order=asc`)
+      if (!r.ok) return []
+      const page = await r.json()
+      const first = (page.nfts || [])[0]
+      if (!first || !first.metadata) return []
+      let pointer = ''
+      try { pointer = atob(first.metadata) } catch { return [] }
+      pointer = pointer.trim()
+      if (/^hcs:\/\//i.test(pointer)) return [] // on-chain media: letter badge for now
+      return await this.logoFromMetadata({ metadata: first.metadata }, id + ':nft')
+    } catch {
+      return []
+    }
+  }
+
+  // An icon <img> that fails tries its next candidate address, then gives way to the badge.
+  private static attachIconErrorHandler(): void {
+    if (this.errorListenerAttached) return
+    this.errorListenerAttached = true
+    document.addEventListener('error', (ev) => {
+      const img = ev.target
+      if (!(img instanceof HTMLImageElement)) return
+      const holder = img.closest('.ticon[data-icon]') as HTMLElement | null
+      if (!holder) return
+      const alts = (img.dataset.alts || '').split(' ').filter(Boolean)
+      if (alts.length) {
+        img.dataset.alts = alts.slice(1).join(' ')
+        img.src = alts[0]
+        return
+      }
+      img.remove()
+      this.icons.set(holder.dataset.icon!, [])
+    }, true)
+  }
+
+  // ─── HELPERS ──────────────────────────────────────────────
+
+  // Turn an NFT metadata pointer (base64, as the mirror gives it) into a browser URL.
+  private static metadataLink(b64: string): string {
+    let whole = ''
+    try { whole = atob(b64 || '') } catch { return '' }
+    const m = whole.match(/(?:hcs|ipfs|ar|https?):\/\/[^\s,;"'<>]+/i)
+    if (!m) return ''
+    const address = m[0]
+    if (/^ipfs:\/\//i.test(address)) {
+      return 'https://ipfs.filebase.io/ipfs/' + address.slice(7).replace(/^ipfs\//i, '')
+    }
+    if (/^ar:\/\//i.test(address)) return 'https://arweave.net/' + address.slice(5)
+    return address
+  }
+
+  private static royaltyText(royalty: number): string {
+    const rounded = Math.round(100 * royalty) / 100
+    return rounded % 1 ? rounded.toFixed((10 * rounded) % 1 ? 2 : 1) : String(rounded)
+  }
+
+  private static fmtDate(ms: number): string {
+    return new Date(ms).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+  }
+
   private static fmtTokenAmount(raw: number, decimals: number): string {
     if (!decimals) return raw.toLocaleString()
     return (raw / Math.pow(10, decimals)).toLocaleString(undefined, { maximumFractionDigits: Math.min(decimals, 4) })
+  }
+
+  private static async mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+    const out: R[] = new Array(items.length)
+    let i = 0
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) {
+        const idx = i++
+        out[idx] = await fn(items[idx])
+      }
+    })
+    await Promise.all(workers)
+    return out
   }
 
   static resetForm(): void {
@@ -330,7 +650,9 @@ export class WalletViewer {
     this.loading = false
     this.error = null
     this.activeTab = 'tokens'
-    this.expandedNft = null
+    this.expandedCollections.clear()
+    this.tokenListTruncated = false
+    this.nftListTruncated = false
   }
 
   private static refresh(): void {

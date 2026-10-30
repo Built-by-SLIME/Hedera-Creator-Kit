@@ -227,7 +227,7 @@ export class HelpPage {
           <span class="status-item">Built by SLIME</span>
         </div>
         <div class="status-right">
-          <span class="status-item">SLIME TOOLS v1.0</span>
+          <span class="status-item">SLIME TOOLS v1.2</span>
           <span class="status-item">MAINNET</span>
         </div>
       </div>

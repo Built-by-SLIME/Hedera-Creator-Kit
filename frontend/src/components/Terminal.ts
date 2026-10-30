@@ -265,7 +265,7 @@ export class Terminal {
             <span class="status-item">Built by SLIME</span>
           </div>
           <div class="status-right">
-            <span class="status-item">SLIME TOOLS v1.0</span>
+            <span class="status-item">SLIME TOOLS v1.2</span>
             <span class="status-item">${this.walletData.network}</span>
           </div>
         </div>
@@ -287,7 +287,7 @@ export class Terminal {
           <span class="status-item">Built by SLIME</span>
         </div>
         <div class="status-right">
-          <span class="status-item">SLIME TOOLS v1.0</span>
+          <span class="status-item">SLIME TOOLS v1.2</span>
           <span class="status-item">${this.walletData.network}</span>
         </div>
       </div>
