@@ -166,7 +166,7 @@ export class HelpPage {
       { type: 'output', content: '       Reassembles on-chain inscription files (HCS-1).' },
       { type: 'output', content: '' },
 
-      { type: 'output', content: '  [17] Wallet Viewer                                 Coming Soon' },
+      { type: 'success', content: '  [17] Wallet Viewer' },
       { type: 'output', content: '       View holdings and activity for any account.' },
       { type: 'output', content: '' },
 

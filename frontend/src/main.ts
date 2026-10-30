@@ -9,6 +9,7 @@ import { CreateCollection } from './components/CreateCollection'
 import { MintNFTs } from './components/MintNFTs'
 import { InscribeNFTs } from './components/InscribeNFTs'
 import { TopicViewer } from './components/TopicViewer'
+import { WalletViewer } from './components/WalletViewer'
 import { CreateToken } from './components/CreateToken'
 import { UpdateTokenIcon } from './components/UpdateTokenIcon'
 import { UpdateNftMetadata } from './components/UpdateNftMetadata'
@@ -90,6 +91,10 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       app.innerHTML = TopicViewer.render()
       TopicViewer.init()
       break
+    case 'wallet-viewer':
+      app.innerHTML = WalletViewer.render()
+      WalletViewer.init()
+      break
     case 'create-token':
       console.log('Rendering CreateToken')
       app.innerHTML = CreateToken.render()
@@ -162,6 +167,7 @@ window.addEventListener('navigate-to-tool', ((event: CustomEvent) => {
       MintNFTs.resetState()
       InscribeNFTs.resetState()
       TopicViewer.resetForm()
+      WalletViewer.resetForm()
       CreateToken.resetForm()
       UpdateTokenIcon.resetForm()
       UpdateNftMetadata.resetState()

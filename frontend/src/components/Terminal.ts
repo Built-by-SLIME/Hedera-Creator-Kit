@@ -63,7 +63,7 @@ export class Terminal {
     { id: 'staking', number: 14, title: 'Staking Tool', description: 'Soft-stake rewards for holders', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'domain-registration', number: 15, title: 'Domain Registration', description: 'Register .hedera / .slime / .gib domains', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'topic-viewer', number: 16, title: 'Topic Viewer', description: 'View & decode HCS topic messages', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'wallet-viewer', number: 17, title: 'Wallet Viewer', description: 'View holdings & activity of any account', icon: '◆', status: 'coming-soon', accessRequired: 'SLIME NFT' },
+    { id: 'wallet-viewer', number: 17, title: 'Wallet Viewer', description: 'View holdings & activity of any account', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'allowance-manager', number: 18, title: 'Allowance Manager', description: 'View & revoke wallet allowances', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' }
   ]
 
