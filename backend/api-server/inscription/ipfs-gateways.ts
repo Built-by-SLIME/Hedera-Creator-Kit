@@ -1,7 +1,7 @@
 // @ts-nocheck — vendored inscription core (HCS-1/HCS-6), source: SLIME new-tools shared/core
 // IPFS gateways: which ones are asked, how their URLs are built, and how their refusals are explained.
 
-import { config } from "./config.js";
+import { config } from "./config";
 
 // The public gateways ipfs.io and dweb.link stopped serving files to web pages on 21 September 2026 (every
 // request now gets "429: This IPFS gateway is switching to a service worker gateway only"), and w3s.link and

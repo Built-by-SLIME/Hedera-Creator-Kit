@@ -3,9 +3,9 @@
 // (see hcs1.ts). This builds one from a Hedera SDK client: the backend operator signs
 // every transaction, so the operator key is the submit key on created topics.
 import * as sdk from '@hashgraph/sdk';
-import { mirrorJson } from './mirror.js';
-import { decompress as fzstdDecompressSync } from './vendor/fzstd.js';
-import { compressZstd, decompress } from './compress.js';
+import { mirrorJson } from './mirror';
+import { decompress as fzstdDecompressSync } from './vendor/fzstd';
+import { compressZstd, decompress } from './compress';
 
 export const MAINNET_MIRROR = 'https://mainnet-public.mirrornode.hedera.com';
 export const TESTNET_MIRROR = 'https://testnet.mirrornode.hedera.com';

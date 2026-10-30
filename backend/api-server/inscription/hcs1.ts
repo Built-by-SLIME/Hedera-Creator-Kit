@@ -17,8 +17,8 @@
 //   ctx.paused()     optional: return true to stop between transactions (the run then throws a PauseSignal)
 //   ctx.concurrency  optional: how many messages are in flight at once (8)
 //   ctx.onMessage(msg)  optional: called after each message lands (e.g. to add up the bytes, which Hedera charges by)
-import { sha256hex, bytesToB64, b64ToBytes, b64ToStr, sleep } from './bytes.js';
-import { mirrorJson } from './mirror.js';
+import { sha256hex, bytesToB64, b64ToBytes, b64ToStr, sleep } from './bytes';
+import { mirrorJson } from './mirror';
 
 /** The largest HCS message, in bytes. */
 export const MAX_MSG = 1024;

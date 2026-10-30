@@ -1,6 +1,6 @@
 // @ts-nocheck — vendored inscription core (HCS-1/HCS-6), source: SLIME new-tools shared/core
 // What an NFT serial points at (its 100-byte metadata field). ctx is the same as in hcs1.ts.
-import { stopIfPaused } from './hcs1.js';
+import { stopIfPaused } from './hcs1';
 
 /** The pointer stored in a serial: hcs://1/<metadata topic> for a fixed piece, hcs://6/<registry> for an updatable one. */
 export const pointerFor = ({ metaTopic, registryTopic }) => (registryTopic ? `hcs://6/${registryTopic}` : `hcs://1/${metaTopic}`);

@@ -1,8 +1,8 @@
 // @ts-nocheck — vendored inscription core (HCS-1/HCS-6), source: SLIME new-tools shared/core
 // NFT metadata (HIP-412) helpers.
-import { b64ToBytes, dataToBytes } from "./bytes.js";
-import { sniffMime } from "./mime.js";
-import { parsePointer } from "./pointer.js";
+import { b64ToBytes, dataToBytes } from "./bytes";
+import { sniffMime } from "./mime";
+import { parsePointer } from "./pointer";
 
 // Some collections store a picture not as the picture file but as a small JSON file with the picture
 // written inside it as a data link: {"photo":"data:image/png;base64,iVBOR…"}. That isn't a standard, so no

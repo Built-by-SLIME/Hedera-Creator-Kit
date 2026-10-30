@@ -1,6 +1,6 @@
 // @ts-nocheck — vendored inscription core (HCS-1/HCS-6), source: SLIME new-tools shared/core
 // Working out what kind of file a run of bytes is.
-import { isPrintable } from "./bytes.js";
+import { isPrintable } from "./bytes";
 
 /**
  * Work out a file's type from its first bytes. `b` is a Uint8Array. Returns a type such as "image/png",

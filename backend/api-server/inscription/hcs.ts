@@ -1,6 +1,6 @@
 // @ts-nocheck — vendored inscription core (HCS-1/HCS-6), source: SLIME new-tools shared/core
 // Hedera Consensus Service files: chunk reassembly (HCS-1) and inlining of hcs:// references.
-import { bytesToB64 } from "./bytes.js";
+import { bytesToB64 } from "./bytes";
 
 /* An HTML piece can keep its scripts, styles, images and media in other HCS topics and refer to them as
      hcs://1/0.0.x, in a src, data-src, href or poster attribute or in a CSS url(). A browser can't load

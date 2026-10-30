@@ -2,7 +2,13 @@
 // zstd via @mongodb-js/zstd, gzip/deflate via node:zlib. The browser build used
 // DecompressionStream + a vendored fzstd; topic bytes on Hedera are identical either way.
 import { inflateSync } from 'node:zlib';
-import { compress as zstdCompress, decompress as zstdDecompress } from '@mongodb-js/zstd';
+
+// @mongodb-js/zstd is a NATIVE module. It is required lazily, inside the
+// functions, so a missing/mismatched prebuilt binary can never crash server
+// boot — worst case, inscription endpoints fail with a clear error while the
+// rest of the API (minting, domains, staking, viewers) stays up.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const zstdLib = () => require('@mongodb-js/zstd');
 
 /** Not needed on the server: the zstd library is imported, not fetched. */
 export const loadZstd = () => Promise.resolve();
@@ -25,7 +31,7 @@ export async function decompress(bytes, fmt) {
     case 'none':
       return bytes;
     case 'zstd':
-      return new Uint8Array(await zstdDecompress(bytes));
+      return new Uint8Array(await zstdLib().decompress(bytes));
     case 'gzip':
       return new Uint8Array(inflateSync(bytes));
     case 'deflate':
@@ -42,5 +48,5 @@ export async function decompress(bytes, fmt) {
  * here so compressed sizes (and therefore chunk counts and fee estimates) agree.
  */
 export async function compressZstd(bytes, level = 19) {
-  return new Uint8Array(await zstdCompress(bytes, level));
+  return new Uint8Array(await zstdLib().compress(bytes, level));
 }

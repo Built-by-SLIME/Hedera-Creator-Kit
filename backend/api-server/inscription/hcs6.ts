@@ -2,7 +2,7 @@
 // HCS-6: an updatable ("dynamic") piece. Its NFT points at a registry topic (hcs://6/<registry>) instead of at the
 // metadata; each "register" message on the registry names an HCS-1 metadata topic, and the latest one is the piece's
 // current metadata. Every version stays on-chain. ctx is the same as in hcs1.ts.
-import { submitMessage, stopIfPaused, MAX_MSG } from './hcs1.js';
+import { submitMessage, stopIfPaused, MAX_MSG } from './hcs1';
 
 /** How long viewers may cache the registry, in seconds (part of the memo). */
 export const HCS6_TTL = 86400;

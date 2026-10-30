@@ -1,6 +1,6 @@
 // @ts-nocheck — vendored inscription core (HCS-1/HCS-6), source: SLIME new-tools shared/core
 // Rebuilding an IPFS file from its raw blocks (CAR / dag-pb / UnixFS), each block checked against its hash.
-import { BLOCK_GATEWAYS, CAR_GATEWAY, finalError, gatewayRefusal, subdomainCid } from "./ipfs-gateways.js";
+import { BLOCK_GATEWAYS, CAR_GATEWAY, finalError, gatewayRefusal, subdomainCid } from "./ipfs-gateways";
 
 /* ---- folder pointers ---- */
 // When a pointer names an IPFS folder, a gateway answers with a web page listing the folder.

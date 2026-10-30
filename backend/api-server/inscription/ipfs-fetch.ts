@@ -1,6 +1,6 @@
 // @ts-nocheck — vendored inscription core (HCS-1/HCS-6), source: SLIME new-tools shared/core
 // Support for the gateway race: one request, pacing, timeouts, answer checks and the in-visit file cache.
-import { folderNames, ipfsFromBlocks } from "./ipfs-blocks.js";
+import { folderNames, ipfsFromBlocks } from "./ipfs-blocks";
 
 // One request to a gateway. An address ending "?format=car&dag-scope=entity" stands for "put the file
 // together from its blocks": the answer is made here and handed back as if a gateway had served the file.

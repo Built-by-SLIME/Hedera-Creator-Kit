@@ -8,7 +8,7 @@
 // ctx, as in hcs1.ts, plus:
 //   ctx.freeze(tx)       the transaction frozen for some payer, as bytes (tx.toBytes() of a frozen transaction)
 //   ctx.post(url, bytes) optional: POST the bytes, return the parsed JSON (defaults to fetch); throw on an error status
-import { HEDERA_FEES_USD } from './fees.js';
+import { HEDERA_FEES_USD } from './fees';
 
 /** Tinycents per US dollar. */
 export const TINYCENTS = 1e10;

@@ -3,7 +3,7 @@
 // One copy of this serves the whole tool, so every view shares the same pacing and the same idea of which host
 // is resting after a rate limit.
 
-import { config } from "./config.js";
+import { config } from "./config";
 
 // Public mirror nodes per network. Requests alternate between the hosts of a network.
 // Both mainnet hostnames are run by Hedera and share a limiter, so alternating is a mild help, not a cure.
