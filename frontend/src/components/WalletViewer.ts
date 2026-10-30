@@ -38,15 +38,33 @@ interface NftGroup {
   supply: number
   royalty: number
   last: number
-  uri: string
   unlisted: boolean
 }
 
-interface ActivityItem {
-  consensusTimestamp: string
-  type: string
-  memo: string
-  transactionId: string
+interface TxTokenMove {
+  id: string
+  amount: number
+  sym: string
+  amt: number
+}
+
+interface TxNftMove {
+  token: string
+  serial: number
+  dir: 1 | -1
+  sym: string
+}
+
+interface WalletTxRow {
+  ts: string
+  id: string
+  name: string
+  result: string
+  hbar: number
+  fee: number
+  tokens: TxTokenMove[]
+  nfts: TxNftMove[]
+  others: string[]
 }
 
 /* ─── icon engine constants ─── */
@@ -66,7 +84,12 @@ export class WalletViewer {
   private static account: AccountInfo | null = null
   private static tokens: TokenBalance[] = []
   private static nftGroups: NftGroup[] = []
-  private static activity: ActivityItem[] = []
+  private static activity: WalletTxRow[] = []
+  private static activityNext: string | null = null
+  private static activityLoading = false
+  private static activityDone = false
+  private static tokenDecimals = new Map<string, number>()
+  private static tokenSymbols = new Map<string, string>()
   private static loading = false
   private static error: string | null = null
   private static activeTab: 'tokens' | 'nfts' | 'activity' = 'tokens'
@@ -197,7 +220,6 @@ export class WalletViewer {
           </p>
           <p>
             <a href="${HASHSCAN}/token/${g.tokenId}" target="_blank" rel="noopener">Collection on HashScan</a>
-            ${g.uri ? ` · <a href="${this.escapeHtml(g.uri)}" target="_blank" rel="noopener">Sample metadata</a>` : ''}
           </p>
         </div>
       `
@@ -212,17 +234,84 @@ export class WalletViewer {
     `
   }
 
+  private static TX_NAMES: Record<string, string> = {
+      CRYPTOTRANSFER: 'Transfer',
+      CONTRACTCALL: 'Contract call',
+      ETHEREUMTRANSACTION: 'Contract call (EVM)',
+      TOKENASSOCIATE: 'Token associated',
+      TOKENDISSOCIATE: 'Token dissociated',
+      TOKENMINT: 'Mint',
+      TOKENBURN: 'Burn',
+      TOKENWIPE: 'Wipe',
+      TOKENAIRDROP: 'Airdrop',
+      TOKENCLAIMAIRDROP: 'Airdrop claimed',
+      TOKENCANCELAIRDROP: 'Airdrop cancelled',
+      TOKENREJECT: 'Token rejected',
+      CONSENSUSSUBMITMESSAGE: 'Topic message',
+      CRYPTOAPPROVEALLOWANCE: 'Allowance approved',
+      CRYPTODELETEALLOWANCE: 'Allowance removed',
+      CRYPTOUPDATEACCOUNT: 'Account updated',
+      CRYPTOCREATEACCOUNT: 'Account created',
+      SCHEDULECREATE: 'Schedule created',
+      SCHEDULESIGN: 'Schedule signed',
+    }
+
   private static renderActivity(): string {
-    if (!this.activity.length) return `<p style="font-size:0.82rem;color:var(--terminal-text)">No recent transactions.</p>`
-    return this.activity.map((tx) => `
-      <div style="padding:0.4rem 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-        <div style="display:flex;gap:0.5rem;align-items:center">
-          <span class="tv-chip tv-chip-json">${tx.type}</span>
-          <span style="font-size:0.72rem;color:var(--terminal-text)">${tx.consensusTimestamp}</span>
-        </div>
-        ${tx.memo ? `<p style="font-size:0.72rem;color:var(--terminal-text);margin:0.2rem 0 0">${this.escapeHtml(tx.memo.slice(0, 80))}</p>` : ''}
+    if (!this.activity.length) {
+      if (this.activityLoading) return `<p style="font-size:0.82rem;color:var(--terminal-text)">Loading transfers…</p>`
+      if (this.activityDone) return `<p style="font-size:0.82rem;color:var(--terminal-text)">No transactions found for this wallet.</p>`
+      return `<p style="font-size:0.82rem;color:var(--terminal-text)">No recent transactions.</p>`
+    }
+    const amount = (v: number) => (v > 0 ? '+' : '−') + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 4 })
+    const rows = this.activity.map((row) => {
+      const failed = row.result && row.result !== 'SUCCESS'
+      const parts: string[] = []
+      row.tokens.forEach((tok) => {
+        parts.push(`<span class="${tok.amt > 0 ? 'wv-up' : 'wv-down'}">${amount(tok.amt)} ${this.tokenIconHtml(tok.id, tok.sym, 'sm')}${this.escapeHtml(tok.sym)}</span>`)
+      })
+      row.nfts.forEach((nft) => {
+        parts.push(`<span class="${nft.dir > 0 ? 'wv-up' : 'wv-down'}">${nft.dir > 0 ? '+' : '−'} ${this.tokenIconHtml(nft.token, nft.sym, 'sm')}${this.escapeHtml(nft.sym)} <a class="wv-ser" href="${HASHSCAN}/token/${nft.token}/${nft.serial}" target="_blank" rel="noopener" title="View #${nft.serial} on HashScan">#${nft.serial}</a></span>`)
+      })
+      if (Math.abs(row.hbar) >= 1e-8) {
+        parts.push(`<span class="${row.hbar > 0 ? 'wv-up' : 'wv-down'}">${row.hbar > 0 ? '+' : '−'}${Math.abs(row.hbar).toLocaleString(undefined, { maximumFractionDigits: 4 })} ℏ</span>`)
+      }
+      if (row.fee) parts.push(`<span class="wv-dim">fee ${row.fee.toLocaleString(undefined, { maximumFractionDigits: 4 })} ℏ</span>`)
+      const kind = this.TX_NAMES[row.name] || (row.name ? row.name.charAt(0) + row.name.slice(1).toLowerCase() : '')
+      const signs = new Set(
+        [...row.tokens.map((t) => t.amount), ...row.nfts.map((n) => n.dir), row.hbar]
+          .filter((v) => Math.abs(v) >= 1e-8)
+          .map(Math.sign),
+      )
+      const who = row.others.length
+        ? (signs.size > 1 ? 'with ' : signs.has(1) ? 'from ' : 'to ') +
+          row.others.slice(0, 2).map((id) => `<button type="button" class="wv-lnk" data-wallet="${id}">${id}</button>`).join(', ') +
+          (row.others.length > 2 ? ` +${row.others.length - 2}` : '')
+        : ''
+      const when = new Date(Math.round(1e3 * parseFloat(row.ts))).toLocaleString(undefined, {
+        day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit',
+      })
+      return `<tr>
+        <td><a href="${HASHSCAN}/transaction/${row.ts}" target="_blank" rel="noopener">${when}</a></td>
+        <td class="wv-moves">${parts.join(' ') || '<span class="wv-dim">no balance change</span>'}</td>
+        <td class="wv-kind">${this.escapeHtml(kind)}${failed ? ` <span class="wv-down">failed: ${this.escapeHtml(row.result.toLowerCase().replace(/_/g, ' '))}</span>` : ''}${who ? `<br>${who}` : ''}</td>
+      </tr>`
+    }).join('')
+    const oldest = this.activity.length ? this.fmtDate(1e3 * parseFloat(this.activity[this.activity.length - 1].ts)) : ''
+    return `
+      <p style="font-size:0.72rem;color:var(--terminal-text)">
+        ${this.activity.length.toLocaleString()} transaction${this.activity.length === 1 ? '' : 's'}${this.activityDone ? `, back to ${oldest}` : ''}.
+        Amounts are what this wallet gained or lost; HBAR is shown apart from the network fee it paid.
+      </p>
+      <table class="wv-tx"><tbody>${rows}</tbody></table>
+      <div style="display:flex;gap:0.5rem;margin-top:0.6rem;flex-wrap:wrap">
+        ${this.activityLoading
+          ? `<button class="cc-btn" type="button" disabled>Loading transfers…</button>`
+          : this.activityDone
+            ? ''
+            : `<button class="cc-btn cc-btn-secondary" type="button" data-whmore>Load older transfers</button>`}
+        ${this.activity.length ? `<button class="cc-btn cc-btn-secondary" type="button" data-whcsv>Export history CSV</button>` : ''}
       </div>
-    `).join('')
+    `
   }
 
   private static renderRightPanel(): string {
@@ -284,6 +373,18 @@ export class WalletViewer {
         this.refresh()
       })
     })
+    document.querySelectorAll('[data-whmore]').forEach(btn => {
+      btn.addEventListener('click', () => this.loadOlderActivity())
+    })
+    document.querySelectorAll('[data-whcsv]').forEach(btn => {
+      btn.addEventListener('click', () => this.exportHistoryCsv())
+    })
+    document.querySelectorAll('[data-wallet]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.wallet
+        if (id) { this.accountInput = id; this.load() }
+      })
+    })
   }
 
   // ─── DATA LOADING ─────────────────────────────────────────
@@ -311,27 +412,28 @@ export class WalletViewer {
         staked: a.staked_node_id != null ? `node ${a.staked_node_id}` : (a.staked_account_id || ''),
       }
 
-      const [balRes, nftRes] = await Promise.all([
-        fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${id}/tokens?limit=100`),
-        fetch(`${MIRROR_NODE_URL}/api/v1/accounts/${id}/nfts?limit=100`),
+      // All token balances and all NFTs, paginated (100 per mirror page)
+      const [balPage, nftPage] = await Promise.all([
+        this.fetchAllPages(`/api/v1/accounts/${id}/tokens?limit=100`, 'tokens', 10),
+        this.fetchAllPages(`/api/v1/accounts/${id}/nfts?limit=100`, 'nfts', 25),
       ])
-      const bal = await balRes.json()
-      const nfts = await nftRes.json()
-      this.tokenListTruncated = !!bal.links?.next
-      this.nftListTruncated = !!nfts.links?.next
+      this.tokenListTruncated = balPage.truncated
+      this.nftListTruncated = nftPage.truncated
+      const heldTokens = balPage.items.filter((t: any) => Number(t.balance) > 0)
 
       // Token metadata (name/decimals/type), 6 at a time
-      const heldTokens = (bal.tokens || []).filter((t: any) => Number(t.balance) > 0)
-      const metas = await this.mapLimit(heldTokens.slice(0, 100), 6, async (t: any) => {
+      const metas = await this.mapLimit(heldTokens, 6, async (t: any) => {
         try {
           const r = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${t.token_id}`)
           return r.ok ? await r.json() : {}
         } catch { return {} }
       })
-      this.tokens = heldTokens.slice(0, 100).map((t: any, i: number) => {
+      this.tokens = heldTokens.map((t: any, i: number) => {
         const meta = metas[i] || {}
         const decimals = Number(meta.decimals ?? 0)
         const raw = Number(t.balance ?? 0)
+        this.tokenDecimals.set(t.token_id, decimals)
+        this.tokenSymbols.set(t.token_id, meta.symbol || '')
         return {
           tokenId: t.token_id,
           name: meta.name || '',
@@ -342,20 +444,19 @@ export class WalletViewer {
         }
       })
 
-      // NFTs grouped by collection
+      // NFTs grouped by collection (every page, so late collections like Hbuds show up)
       const byToken = new Map<string, NftGroup>()
-      for (const n of nfts.nfts || []) {
+      for (const n of nftPage.items) {
         if (!byToken.has(n.token_id)) {
           byToken.set(n.token_id, {
             tokenId: n.token_id, name: '', symbol: '', serials: [],
-            supply: 0, royalty: 0, last: 0, uri: '', unlisted: false,
+            supply: 0, royalty: 0, last: 0, unlisted: false,
           })
         }
         const g = byToken.get(n.token_id)!
         g.serials.push(Number(n.serial_number))
         const ms = Math.round(1e3 * parseFloat(n.modified_timestamp || n.created_timestamp || '0'))
         if (ms > g.last) g.last = ms
-        if (!g.uri) g.uri = this.metadataLink(n.metadata)
       }
       const groups = [...byToken.values()].sort((x, y) => y.serials.length - x.serials.length)
       await this.mapLimit(groups, 6, async (g) => {
@@ -375,16 +476,10 @@ export class WalletViewer {
       })
       groups.forEach(g => g.serials.sort((x, y) => x - y))
       this.nftGroups = groups
-      if (this.account) this.account.numNfts = (nfts.nfts || []).length
+      if (this.account) this.account.numNfts = nftPage.items.length
 
-      const txRes = await fetch(`${MIRROR_NODE_URL}/api/v1/transactions?account.id=${id}&limit=25&order=desc`)
-      const txs = await txRes.json()
-      this.activity = (txs.transactions || []).map((t: any) => ({
-        consensusTimestamp: t.consensus_timestamp?.replace('T', ' ').slice(0, 19) || '',
-        type: (t.transaction_type || '').replace(/^CONSENSUS/, 'HCS-').replace(/^TOKEN/, 'TOKEN-').replace(/^CRYPTO/, ''),
-        memo: t.memo_base64 ? atob(t.memo_base64) : '',
-        transactionId: t.transaction_id,
-      }))
+      // First page of the parsed transfer history
+      await this.loadActivityPage(`${MIRROR_NODE_URL}/api/v1/transactions?account.id=${id}&limit=50&order=desc`)
     } catch (err: any) {
       this.error = err.message || 'Failed to load account'
       this.account = null
@@ -602,18 +697,170 @@ export class WalletViewer {
 
   // ─── HELPERS ──────────────────────────────────────────────
 
-  // Turn an NFT metadata pointer (base64, as the mirror gives it) into a browser URL.
-  private static metadataLink(b64: string): string {
-    let whole = ''
-    try { whole = atob(b64 || '') } catch { return '' }
-    const m = whole.match(/(?:hcs|ipfs|ar|https?):\/\/[^\s,;"'<>]+/i)
-    if (!m) return ''
-    const address = m[0]
-    if (/^ipfs:\/\//i.test(address)) {
-      return 'https://ipfs.filebase.io/ipfs/' + address.slice(7).replace(/^ipfs\//i, '')
+  // Follow mirror-node pagination for a path like 'tokens'/'nfts' on an account.
+  private static async fetchAllPages(path: string, key: string, maxPages: number): Promise<{ items: any[], truncated: boolean }> {
+    const items: any[] = []
+    let url: string | null = `${MIRROR_NODE_URL}/api/v1/accounts/${encodeURIComponent(this.accountInput.trim())}/${path}?limit=100`
+    let pages = 0
+    let truncated = false
+    while (url) {
+      const res: Response = await fetch(url)
+      if (!res.ok) break
+      const page: any = await res.json()
+      items.push(...(page[key] || []))
+      pages++
+      const next: string | null = page?.links?.next || null
+      if (!next || pages >= maxPages) {
+        truncated = !!next && pages >= maxPages
+        break
+      }
+      url = next.startsWith('http') ? next : MIRROR_NODE_URL + next
+      await this.sleep(120)
     }
-    if (/^ar:\/\//i.test(address)) return 'https://arweave.net/' + address.slice(5)
-    return address
+    return { items, truncated }
+  }
+
+  private static sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms))
+  }
+
+  // ─── ACTIVITY (transfer history) ──────────────────────────
+
+  private static async loadActivityPage(url?: string): Promise<void> {
+    if (this.activityLoading || this.activityDone || !this.account) return
+    this.activityLoading = true
+    if (!this.loading) this.refresh()
+    try {
+      const next = url || this.activityNext || `${MIRROR_NODE_URL}/api/v1/transactions?account.id=${encodeURIComponent(this.account.accountId)}&limit=50&order=desc`
+      const res = await fetch(next)
+      if (!res.ok) throw new Error('activity fetch failed')
+      const page = await res.json()
+      const acct = this.account.accountId
+      const rows = (page.transactions || []).map((tx: any) => this.walletHistoryRow(tx, acct))
+      const tokenIds = new Set<string>()
+      for (const row of rows) {
+        for (const t of row.tokens) tokenIds.add(t.id)
+        for (const n of row.nfts) tokenIds.add(n.token)
+      }
+      await this.mapLimit([...tokenIds], 6, async (id: string) => {
+        if (this.tokenSymbols.has(id) && this.tokenDecimals.has(id)) return
+        try {
+          const r = await fetch(`${MIRROR_NODE_URL}/api/v1/tokens/${id}`)
+          if (!r.ok) return
+          const tok = await r.json()
+          this.tokenSymbols.set(id, tok.symbol || '')
+          this.tokenDecimals.set(id, typeof tok.decimals === 'number' ? tok.decimals : 0)
+        } catch { /* keep defaults */ }
+      })
+      for (const row of rows) {
+        for (const t of row.tokens) {
+          t.sym = this.tokenSymbols.get(t.id) || ''
+          const dec = this.tokenDecimals.get(t.id) || 0
+          t.amt = dec ? t.amount / Math.pow(10, dec) : t.amount
+        }
+        for (const n of row.nfts) n.sym = this.tokenSymbols.get(n.token) || ''
+      }
+      this.activity.push(...rows)
+      this.activityNext = page?.links?.next || null
+      if (!this.activityNext) this.activityDone = true
+    } catch { this.activityDone = true }
+    this.activityLoading = false
+    if (!this.loading) this.refresh()
+  }
+
+  private static loadOlderActivity(): void {
+    void this.loadActivityPage()
+  }
+
+  // Parse one mirror-node transaction into a wallet-history row (ported from the
+  // original tool's walletHistoryRow in trace/src/tracker/main.ts).
+  private static walletHistoryRow(tx: any, acct: string): WalletTxRow {
+    const id: string = tx.transaction_id || ''
+    let tiny = 0
+    for (const tr of tx.transfers || []) {
+      if (tr.account === acct) tiny += Number(tr.amount || 0)
+    }
+    const tokens = new Map<string, number>()
+    for (const tt of tx.token_transfers || []) {
+      if (tt.account === acct) tokens.set(tt.token_id, (tokens.get(tt.token_id) || 0) + Number(tt.amount || 0))
+    }
+    const nfts: TxNftMove[] = []
+    for (const nt of tx.nft_transfers || []) {
+      if (nt.sender_account_id === acct) {
+        nfts.push({ token: nt.token_id, serial: nt.serial_number, dir: -1, sym: '' })
+        if (nt.receiver_account_id) tokens.set(`→${nt.receiver_account_id}`, (tokens.get(`→${nt.receiver_account_id}`) || 0) + 0)
+      } else if (nt.receiver_account_id === acct) {
+        nfts.push({ token: nt.token_id, serial: nt.serial_number, dir: 1, sym: '' })
+        if (nt.sender_account_id) tokens.set(`←${nt.sender_account_id}`, (tokens.get(`←${nt.sender_account_id}`) || 0) + 0)
+      }
+    }
+    // Counterparties from token transfers (accounts on the other side of our moves).
+    const others: string[] = []
+    for (const tt of tx.token_transfers || []) {
+      if (tt.account !== acct && !this.isSystemAccount(tt.account)) {
+        const sign = (tokens.get(tt.token_id) || 0) > 0 ? '←' : '→'
+        const key = `${sign}${tt.account}`
+        tokens.set(key, (tokens.get(key) || 0) + 0)
+      }
+    }
+    const paidFee = id.startsWith(acct + '-')
+    const fee = paidFee ? Number(tx.charged_tx_fee || 0) : 0
+    const moved = tiny + fee
+    if (!nfts.length && !tokens.size) {
+      for (const tr of tx.transfers || []) {
+        if (tr.account !== acct && !this.isSystemAccount(tr.account)) {
+          const amt = Number(tr.amount || 0)
+          if ((tiny > 0 && amt < 0) || (tiny < 0 && amt > 0)) {
+            if (!others.includes(tr.account)) others.push(tr.account)
+            if (others.length >= 3) break
+          }
+        }
+      }
+    }
+    return {
+      ts: String(tx.consensus_timestamp || 0),
+      id,
+      name: tx.name || '',
+      result: tx.result || '',
+      hbar: moved / 1e8,
+      fee: fee / 1e8,
+      tokens: [...tokens.entries()]
+        .filter(([k, v]) => !k.startsWith('→') && !k.startsWith('←') && v !== 0)
+        .map(([tid, amount]) => ({ id: tid, amount, sym: '', amt: amount })),
+      nfts,
+      others: [...new Set([...others, ...[...tokens.keys()].filter((k) => k.startsWith('→') || k.startsWith('←')).map((k) => k.slice(1))])].slice(0, 3),
+    }
+  }
+
+  private static isSystemAccount(id: string): boolean {
+    const m = /^0\.0\.(\d+)$/.exec(id || '')
+    return !!m && Number(m[1]) < 1000
+  }
+
+  private static exportHistoryCsv(): void {
+    const esc = (c: string | number) => `"${String(c).replace(/"/g, '""')}"`
+    const lines = ['time_utc,type,result,hbar_change,fee_paid_hbar,token_changes,nfts,counterparties,transaction_id']
+    for (const r of this.activity) {
+      const tok = r.tokens.map((t) => `${t.amt > 0 ? '+' : ''}${t.amt} ${t.sym || t.id}`).join('; ')
+      const nft = r.nfts.map((n) => `${n.dir > 0 ? '+' : '-'}${n.sym || n.token}#${n.serial}`).join('; ')
+      lines.push([
+        esc(new Date(Math.round(1e3 * parseFloat(r.ts))).toISOString()),
+        esc(WalletViewer.TX_NAMES[r.name] || r.name),
+        esc(r.result),
+        r.hbar,
+        r.fee,
+        esc(tok),
+        esc(nft),
+        esc(r.others.join('; ')),
+        esc(r.id),
+      ].join(','))
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `wallet-history-${this.account?.accountId || 'account'}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
   }
 
   private static royaltyText(royalty: number): string {
@@ -648,13 +895,18 @@ export class WalletViewer {
     this.account = null
     this.tokens = []
     this.nftGroups = []
-    this.activity = []
     this.loading = false
     this.error = null
     this.activeTab = 'tokens'
     this.expandedCollections.clear()
     this.tokenListTruncated = false
     this.nftListTruncated = false
+    this.activity = []
+    this.activityNext = null
+    this.activityLoading = false
+    this.activityDone = false
+    this.tokenDecimals = new Map()
+    this.tokenSymbols = new Map()
   }
 
   private static refresh(): void {

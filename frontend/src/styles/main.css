@@ -3365,3 +3365,15 @@ w3m-modal, wcm-modal {
 .ticon.hbar {
   background: #111;
 }
+
+/* ─── Wallet Viewer transfer history ─── */
+.ticon.sm { width: 22px; height: 22px; font-size: 0.5rem; }
+.wv-up { color: var(--terminal-green); }
+.wv-down { color: #ff6b6b; }
+.wv-dim { color: var(--terminal-text); font-size: 0.72rem; }
+.wv-tx { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.wv-tx td { padding: 0.4rem 0.5rem 0.4rem 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); vertical-align: top; }
+.wv-tx td:first-child { white-space: nowrap; }
+.wv-tx a { color: var(--terminal-purple-bright); }
+.wv-moves span { display: inline-flex; align-items: center; gap: 0.25rem; margin: 0 0.4rem 0.25rem 0; white-space: nowrap; }
+.wv-kind { color: var(--terminal-text); }
