@@ -2,7 +2,7 @@
 // The metadata JSON (HIP-412) that is inscribed for each piece. Building it is pure: no page, no network.
 
 /** Written into every piece's metadata as properties.inscribed_with: the mark of the tool that made it (permanent once inscribed). */
-export const MADE_WITH = 'ĦashPress by BuiltBySlime';
+export const MADE_WITH = 'BuiltBySlime Creator Kit — Inscribe NFTs (Hashinal)';
 /** Shown in the page's metadata preview until a creator is entered. Never inscribed: a creator is required. */
 export const NO_CREATOR = '<creator — required>';
 /** The metadata format. */

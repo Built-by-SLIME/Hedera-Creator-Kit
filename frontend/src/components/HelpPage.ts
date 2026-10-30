@@ -100,7 +100,7 @@ export class HelpPage {
       { type: 'output', content: '       Media pinned to IPFS; mint up to 10 NFTs per transaction.' },
       { type: 'output', content: '' },
 
-      { type: 'output', content: '  [4]  Inscribe NFTs (Hashinal)                      Coming Soon' },
+      { type: 'success', content: '  [4]  Inscribe NFTs (Hashinal)' },
       { type: 'output', content: '       Inscribe NFT media fully on-chain via HCS-1.' },
       { type: 'output', content: '       No IPFS — art lives on the ledger itself.' },
       { type: 'output', content: '' },

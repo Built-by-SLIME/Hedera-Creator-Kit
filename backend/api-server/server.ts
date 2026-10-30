@@ -19,6 +19,7 @@ import { pinMetadataJson } from './routes/pin-metadata-json';
 import { mintNfts } from './routes/mint-nfts';
 import { getMintStatus } from './routes/mint-status';
 import { calculateMintFee } from './routes/calculate-mint-fee';
+import { prepareInscribe, startInscribe, inscribeStatus } from './routes/inscribe';
 import {
   createSwapProgram,
   listSwapPrograms,
@@ -165,11 +166,13 @@ setInterval(() => {
 // Clean up old generation jobs every hour (keep 24 hours for reconnects)
 import { cleanupOldJobs } from './jobStore';
 import { cleanupOldMintJobs } from './mintJobStore';
+import { cleanupOldInscribeJobs } from './inscribeJobStore';
 setInterval(() => {
   const removedGen = cleanupOldJobs(24 * 60 * 60 * 1000);
   const removedMint = cleanupOldMintJobs(24 * 60 * 60 * 1000);
-  if (removedGen > 0 || removedMint > 0) {
-    console.log(`Cleaned up ${removedGen} old generation jobs and ${removedMint} old mint jobs`);
+  const removedInscribe = cleanupOldInscribeJobs(24 * 60 * 60 * 1000);
+  if (removedGen > 0 || removedMint > 0 || removedInscribe > 0) {
+    console.log(`Cleaned up ${removedGen} old generation jobs, ${removedMint} old mint jobs, ${removedInscribe} old inscribe jobs`);
   }
 }, 60 * 60 * 1000);
 
@@ -231,6 +234,31 @@ app.post('/api/mint-nfts', (req, res, next) => {
   mintNfts(req, res).catch(next);
 });
 app.get('/api/mint-status/:jobId', (req, res, next) => getMintStatus(req, res).catch(next));
+
+// Inscription (Hashinal) routes — media/metadata inscribed to HCS-1 topics by the operator
+const inscribeUpload = multer({
+  storage: multer.diskStorage({
+    destination: async (req, file, cb) => {
+      const uploadDir = path.join(BACKEND_ROOT, 'temp-uploads');
+      await fs.ensureDir(uploadDir);
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      cb(null, `${uuidv4()}-${file.originalname}`);
+    }
+  }),
+  limits: {
+    fileSize: 500 * 1024 * 1024 // 500MB — video inscriptions
+  },
+});
+
+app.post('/api/inscribe/prepare', inscribeUpload.single('file'), (req, res, next) => {
+  prepareInscribe(req, res).catch(next);
+});
+app.post('/api/inscribe/start', (req, res, next) => {
+  startInscribe(req, res).catch(next);
+});
+app.get('/api/inscribe/status/:jobId', (req, res, next) => inscribeStatus(req, res).catch(next));
 
 // Swap program routes
 app.post('/api/swap-programs', (req, res, next) => createSwapProgram(req, res).catch(next));

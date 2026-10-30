@@ -50,7 +50,7 @@ export class Terminal {
     { id: 'art-generator', number: 1, title: 'Art Generator', description: 'Generate NFT artwork', icon: '◆', status: 'active', accessRequired: 'Shittles NFT' },
     { id: 'create-collection', number: 2, title: 'Create Collection', description: 'Create a new NFT collection', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'mint-nfts', number: 3, title: 'Mint NFTs (IPFS)', description: 'Batch mint NFTs (up to 10)', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
-    { id: 'inscribe-nfts', number: 4, title: 'Inscribe NFTs (Hashinal)', description: 'Inscribe NFTs fully on-chain via HCS', icon: '◆', status: 'coming-soon', accessRequired: 'BRainz NFT' },
+    { id: 'inscribe-nfts', number: 4, title: 'Inscribe NFTs (Hashinal)', description: 'Inscribe NFTs fully on-chain via HCS', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
     { id: 'update-nft-metadata', number: 5, title: 'Update NFT Metadata', description: 'Update metadata of an existing NFT', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'create-token', number: 6, title: 'Create Token', description: 'Create a new fungible token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'update-token-icon', number: 7, title: 'Update Token Icon', description: 'Update token metadata/icon', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
