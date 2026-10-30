@@ -59,8 +59,7 @@ const ICON_IPFS_GATEWAYS = [
   'https://ipfs.orbitor.dev/ipfs/',
 ]
 const HASHSCAN = 'https://hashscan.io/mainnet'
-const HBAR_ICON =
-  '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="20" fill="#111"/><g fill="#fff"><rect x="12" y="10.5" width="2.6" height="19"/><rect x="25.4" y="10.5" width="2.6" height="19"/><rect x="9.5" y="15.6" width="21" height="2.3"/><rect x="9.5" y="21.6" width="21" height="2.3"/></g></svg>'
+const HBAR_ICON = '<img src="/hedera-hbar-logo.svg" alt="">'
 
 export class WalletViewer {
   private static accountInput = ''
@@ -236,7 +235,7 @@ export class WalletViewer {
       return `
         <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Snapshot</h4>
         <p style="display:flex;align-items:center;gap:0.5rem;margin:0">
-          <i class="ticon hero" title="HBAR">${HBAR_ICON}</i>
+          <i class="ticon hero hbar" title="HBAR">${HBAR_ICON}</i>
           <span style="font-size:1.4rem;color:var(--terminal-green);font-weight:700">${a.balanceHbar} ℏ</span>
         </p>
         <p style="font-size:0.8rem;color:var(--terminal-text);margin:0.6rem 0 0">
@@ -397,7 +396,7 @@ export class WalletViewer {
   // ─── ICON ENGINE ──────────────────────────────────────────
 
   private static hbarIcon(): string {
-    return `<i class="ticon" title="HBAR">${HBAR_ICON}</i>`
+    return `<i class="ticon hbar" title="HBAR">${HBAR_ICON}</i>`
   }
 
   // Badge markup for a token icon; letters show at once, a found icon is laid over it.

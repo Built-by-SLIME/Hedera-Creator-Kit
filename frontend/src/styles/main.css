@@ -3361,3 +3361,7 @@ w3m-modal, wcm-modal {
   font-size: 0.75rem;
   padding: 0;
 }
+
+.ticon.hbar {
+  background: #111;
+}
