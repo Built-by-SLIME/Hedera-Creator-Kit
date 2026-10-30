@@ -149,9 +149,9 @@ export class WalletViewer {
               style="text-transform:capitalize">${t}${t === 'nfts' && a.numNfts ? ` (${a.numNfts})` : ''}</button>
           `).join('')}
         </div>
-        <div style="margin-top:0.75rem">
-          ${this.activeTab === 'tokens' ? this.renderTokens() : this.activeTab === 'nfts' ? this.renderNfts() : this.renderActivity()}
-        </div>
+        <p style="font-size:0.72rem;color:var(--terminal-text);margin:0.5rem 0 0">
+          ${this.activeTab === 'tokens' ? 'Token balances' : this.activeTab === 'nfts' ? 'NFT collections' : 'Recent activity'} are shown on the right →
+        </p>
       </div>
     `
   }
@@ -243,7 +243,8 @@ export class WalletViewer {
           ${a.numNfts} NFT${a.numNfts === 1 ? '' : 's'} across ${this.nftGroups.length} collection${this.nftGroups.length === 1 ? '' : 's'}
           · ${this.tokens.length} token balance${this.tokens.length === 1 ? '' : 's'}
         </p>
-        <p class="mono" style="font-size:0.72rem;color:var(--terminal-text);word-break:break-all;margin:0.6rem 0 0">${a.evmAddress}</p>
+        <div class="filter-divider" style="margin:0.9rem 0"></div>
+        ${this.activeTab === 'tokens' ? this.renderTokens() : this.activeTab === 'nfts' ? this.renderNfts() : this.renderActivity()}
       `
     }
     return `
@@ -656,13 +657,17 @@ export class WalletViewer {
   }
 
   private static refresh(): void {
-    const scrollContainer = document.querySelector('.art-gen-left')
-    const scrollTop = scrollContainer?.scrollTop ?? 0
+    const left = document.querySelector('.art-gen-left')
+    const right = document.querySelector('.art-gen-right')
+    const leftTop = left?.scrollTop ?? 0
+    const rightTop = right?.scrollTop ?? 0
     const app = document.querySelector<HTMLDivElement>('#app')!
     app.innerHTML = this.render()
     this.init()
-    const newContainer = document.querySelector('.art-gen-left')
-    if (newContainer) newContainer.scrollTop = scrollTop
+    const newLeft = document.querySelector('.art-gen-left')
+    const newRight = document.querySelector('.art-gen-right')
+    if (newLeft) newLeft.scrollTop = leftTop
+    if (newRight) newRight.scrollTop = rightTop
   }
 
   private static escapeHtml(str: string): string {
