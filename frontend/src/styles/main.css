@@ -2986,3 +2986,176 @@ w3m-modal, wcm-modal {
   color: var(--terminal-blue);
   border-color: var(--terminal-blue-dim);
 }
+
+/* ============================================================================
+   NEWER TOOLS (Inscribe NFTs / Topic Viewer / Wallet Viewer)
+   These mirror .token-input / .terminal-button / .upload-zone so every tool
+   shares the exact same look. Keep values in sync with the originals above.
+   ============================================================================ */
+.cc-input {
+  background: var(--terminal-bg-dark);
+  border: 1px solid var(--window-border);
+  border-radius: 4px;
+  color: var(--terminal-text-bright);
+  padding: 0.75rem 1rem;
+  font-family: 'JetBrains Mono', 'Noto Sans Mono', monospace;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cc-input:focus {
+  outline: none;
+  border-color: var(--terminal-purple);
+  box-shadow: 0 0 0 2px rgba(0, 204, 51, 0.1);
+}
+
+.cc-btn {
+  background: var(--terminal-purple);
+  border: none;
+  border-radius: 4px;
+  color: var(--terminal-bg-dark);
+  padding: 0.5rem 1rem;
+  font-family: 'JetBrains Mono', 'Noto Sans Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.cc-btn:hover {
+  background: var(--terminal-purple-bright);
+  transform: translateY(-1px);
+}
+
+.cc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.cc-btn-secondary {
+  background: transparent;
+  border: 1px solid var(--terminal-purple);
+  color: var(--terminal-purple);
+}
+
+.cc-btn-secondary:hover {
+  background: var(--terminal-purple);
+  color: var(--terminal-bg-dark);
+  transform: translateY(-1px);
+}
+
+/* Section separation matching .filter-divider */
+.cc-panel {
+  border-top: 1px solid var(--window-border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.cc-error-banner {
+  color: #ff6b6b;
+  font-size: 0.9rem;
+  margin-top: 1rem;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', 'Noto Sans Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.inscribe-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.inscribe-field label {
+  color: var(--terminal-text);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mint-upload-zone {
+  border: 2px dashed var(--line-color);
+  border-radius: 8px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--terminal-text);
+}
+
+.mint-upload-zone:hover,
+.mint-upload-zone.drag-over {
+  border-color: var(--accent-green);
+  background: rgba(0, 255, 157, 0.05);
+}
+
+.tv-net-active {
+  background: var(--terminal-purple) !important;
+  border-color: var(--terminal-purple) !important;
+  color: var(--terminal-bg-dark) !important;
+}
+
+.tv-chip {
+  display: inline-block;
+  font-size: 0.68rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--window-border);
+  color: var(--terminal-text-dim);
+  margin-right: 0.35rem;
+  white-space: nowrap;
+}
+
+.tv-chip-hcs1-chunk {
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.tv-chip-hcs6-register {
+  color: var(--terminal-purple);
+  border-color: var(--terminal-purple);
+}
+
+.tv-chip-json {
+  color: #58a6ff;
+  border-color: #58a6ff;
+}
+
+.wv-tab {
+  padding: 0.4rem 0.9rem;
+  background: transparent;
+  border: 1px solid var(--window-border);
+  border-radius: 4px;
+  color: var(--terminal-text-dim);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', 'Noto Sans Mono', monospace;
+  font-size: 0.8rem;
+  transition: all 0.2s ease;
+}
+
+.wv-tab:hover {
+  color: var(--terminal-text);
+}
+
+.wv-tab-active {
+  border-color: var(--terminal-purple);
+  color: var(--terminal-purple-bright);
+}
+
+.cc-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--window-border);
+  border-radius: 4px;
+  color: var(--terminal-text-dim);
+}

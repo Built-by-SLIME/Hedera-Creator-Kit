@@ -207,15 +207,15 @@ export class Terminal {
   }
 
   private static getToolsList(): TerminalLine[] {
-    // Two-column layout: left column is filled first (one more row than the
-    // right for even counts) so the menu stays compact without scrolling.
+    // Two-column layout: left column takes ~75% of the tools (14 of 18), the
+    // remainder on the right, so the menu fills the screen without scrolling.
     // Cells are monospace-padded.
     const cell = (tool: Tool): string => {
       const desc = tool.status === 'coming-soon' ? `${tool.description}  (coming soon)` : tool.description
       const left = `  [${tool.number}] ${tool.icon} ${tool.title}`
       return (left.padEnd(34) + this.truncateLine(desc, 36)).padEnd(74)
     }
-    const half = Math.floor(this.tools.length / 2) + 1
+    const half = Math.ceil(this.tools.length * 0.75)
     const lines: TerminalLine[] = []
     for (let i = 0; i < half; i++) {
       const right = this.tools[i + half] ? cell(this.tools[i + half]).trimEnd() : ''

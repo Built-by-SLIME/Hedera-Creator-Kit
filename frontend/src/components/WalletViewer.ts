@@ -206,7 +206,9 @@ export class WalletViewer {
   // ─── INIT ───────────────────────────────────────────────
 
   static init(): void {
-    document.getElementById('wallet-back')?.addEventListener('click', () => { window.location.hash = '' })
+    document.getElementById('wallet-back')?.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }))
+    })
     document.getElementById('wallet-load')?.addEventListener('click', () => this.load())
     document.getElementById('wallet-account-input')?.addEventListener('input', (e) => {
       this.accountInput = (e.target as HTMLInputElement).value.trim()

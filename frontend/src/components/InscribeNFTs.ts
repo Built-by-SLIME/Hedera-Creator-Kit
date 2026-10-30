@@ -367,7 +367,7 @@ export class InscribeNFTs {
     if (!app) return
 
     document.getElementById('inscribe-back')?.addEventListener('click', () => {
-      window.location.hash = ''
+      window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }))
     })
 
     if (this.step !== 'setup') {

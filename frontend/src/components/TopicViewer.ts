@@ -221,7 +221,9 @@ export class TopicViewer {
   // ─── INIT ───────────────────────────────────────────────
 
   static init(): void {
-    document.getElementById('topic-back')?.addEventListener('click', () => { window.location.hash = '' })
+    document.getElementById('topic-back')?.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }))
+    })
 
     document.querySelectorAll('.tv-net').forEach(btn => {
       btn.addEventListener('click', () => {
