@@ -167,15 +167,12 @@ export class Terminal {
         <div class="terminal-line terminal-output home-ascii">${this.getASCIIArt()}</div>
         <div class="home-split">
           <div class="home-left">
-            ${this.renderLine({ type: 'output', content: 'Type "help" for available commands or select a tool below:' })}
+            ${this.renderLine({ type: 'success', content: 'Type "help" for available commands or select a tool below:' })}
             ${this.renderLine({ type: 'output', content: '' })}
             ${this.getToolsList().map(line => this.renderLine(line)).join('')}
             ${this.walletData.accountId === BACKEND_MINTER_ACCOUNT ? this.renderLine({ type: 'success', content: `  [A]  ◆ ${'API Key Management'.padEnd(25)} Manage external API keys` }) : ''}
             ${this.renderLine({ type: 'output', content: '' })}
             ${this.renderLine({ type: 'prompt', content: 'Type a number (1-18) or tool name to begin...' })}
-          </div>
-          <div class="home-right">
-            ${this.getNoteBox().map(line => this.renderLine(line)).join('')}
           </div>
         </div>
       </div>
@@ -185,22 +182,6 @@ export class Terminal {
   private static renderLine(line: TerminalLine): string {
     const className = `terminal-${line.type}`
     return `<div class="terminal-line ${className}">${line.content}</div>`
-  }
-
-  private static getNoteBox(): TerminalLine[] {
-    return [
-      { type: 'success', content: '╔════════════════════════════════════════════╗' },
-      { type: 'success', content: '║   Welcome to SLIME Tools!                  ║' },
-      { type: 'success', content: '║                                            ║' },
-      { type: 'success', content: '║   The all-in-one toolkit built             ║' },
-      { type: 'success', content: '║   for Hedera creators.                     ║' },
-      { type: 'success', content: '║                                            ║' },
-      { type: 'success', content: '║   Powerful tools. Zero                     ║' },
-      { type: 'success', content: '║   subscriptions.                           ║' },
-      { type: 'success', content: '║                                            ║' },
-      { type: 'success', content: '║   Shape the future of Hedera.              ║' },
-      { type: 'success', content: '╚════════════════════════════════════════════╝' },
-    ]
   }
 
   private static getASCIIArt(): string {

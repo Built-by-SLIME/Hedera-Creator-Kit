@@ -184,12 +184,6 @@ body {
   min-width: 0;
 }
 
-.home-right {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding-top: 0.25rem;
-}
-
 /* Scale down ASCII art on smaller screens */
 @media (max-width: 1400px) {
   .home-ascii {
