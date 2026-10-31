@@ -190,12 +190,15 @@ export class Terminal {
   private static getNoteBox(): TerminalLine[] {
     return [
       { type: 'success', content: '╔════════════════════════════════════════════╗' },
-      { type: 'success', content: '║   Welcome to SLIME Tools! The              ║' },
-      { type: 'success', content: '║   all-in-one toolkit built for             ║' },
-      { type: 'success', content: '║   Hedera creators. Powerful                ║' },
-      { type: 'success', content: '║   tools. Zero subscriptions.               ║' },
+      { type: 'success', content: '║   Welcome to SLIME Tools!                  ║' },
+      { type: 'success', content: '║                                            ║' },
+      { type: 'success', content: '║   The all-in-one toolkit built             ║' },
+      { type: 'success', content: '║   for Hedera creators.                     ║' },
+      { type: 'success', content: '║                                            ║' },
+      { type: 'success', content: '║   Powerful tools. Zero                     ║' },
+      { type: 'success', content: '║   subscriptions.                           ║' },
+      { type: 'success', content: '║                                            ║' },
       { type: 'success', content: '║   Shape the future of Hedera.              ║' },
-      { type: 'success', content: '║   Built by SLIME.                          ║' },
       { type: 'success', content: '╚════════════════════════════════════════════╝' },
     ]
   }
