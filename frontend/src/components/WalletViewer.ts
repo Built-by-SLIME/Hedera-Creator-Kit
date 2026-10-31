@@ -700,7 +700,7 @@ export class WalletViewer {
   // Follow mirror-node pagination for a path like 'tokens'/'nfts' on an account.
   private static async fetchAllPages(path: string, key: string, maxPages: number): Promise<{ items: any[], truncated: boolean }> {
     const items: any[] = []
-    let url: string | null = `${MIRROR_NODE_URL}/api/v1/accounts/${encodeURIComponent(this.accountInput.trim())}/${path}?limit=100`
+    let url: string | null = path.startsWith('http') ? path : MIRROR_NODE_URL + path
     let pages = 0
     let truncated = false
     while (url) {
