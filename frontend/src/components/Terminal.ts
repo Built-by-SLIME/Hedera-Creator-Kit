@@ -167,7 +167,7 @@ export class Terminal {
         <div class="terminal-line terminal-output home-ascii">${this.getASCIIArt()}</div>
         <div class="home-split">
           <div class="home-left">
-            ${this.renderLine({ type: 'success', content: 'Type "help" for available commands or select a tool below:' })}
+            ${this.renderLine({ type: 'success', content: 'Type "help" for more info or select a tool below:' })}
             ${this.renderLine({ type: 'output', content: '' })}
             ${this.getToolsList().map(line => this.renderLine(line)).join('')}
             ${this.walletData.accountId === BACKEND_MINTER_ACCOUNT ? this.renderLine({ type: 'success', content: `  [A]  ◆ ${'API Key Management'.padEnd(25)} Manage external API keys` }) : ''}
