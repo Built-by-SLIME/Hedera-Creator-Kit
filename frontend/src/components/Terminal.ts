@@ -50,7 +50,7 @@ export class Terminal {
     { id: 'art-generator', number: 1, title: 'Art Generator', description: 'Generate NFT artwork', icon: '◆', status: 'active', accessRequired: 'Shittles NFT' },
     { id: 'create-collection', number: 2, title: 'Create Collection', description: 'Create a new NFT collection', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'mint-nfts', number: 3, title: 'Mint NFTs (IPFS)', description: 'Batch mint NFTs (up to 10)', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
-    { id: 'inscribe-nfts', number: 4, title: 'Inscribe NFTs (Hashinal)', description: 'Inscribe NFTs fully on-chain via HCS', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
+    { id: 'inscribe-nfts', number: 4, title: 'Inscribe NFTs (Hashinal)', description: 'Inscribe NFTs on Hedera', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
     { id: 'update-nft-metadata', number: 5, title: 'Update NFT Metadata', description: 'Update metadata of an existing NFT', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'create-token', number: 6, title: 'Create Token', description: 'Create a new fungible token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'update-token-icon', number: 7, title: 'Update Token Icon', description: 'Update token metadata/icon', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
@@ -63,7 +63,7 @@ export class Terminal {
     { id: 'swap', number: 14, title: 'Swap Tool', description: 'Migrate holders to new token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'burn', number: 15, title: 'Burn Tool', description: 'Permanently burn tokens/NFTs', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'staking', number: 16, title: 'Staking Tool', description: 'Soft-stake rewards for holders', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'domain-registration', number: 17, title: 'Domain Registration', description: 'Register .hedera / .slime / .gib domains', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'domain-registration', number: 17, title: 'Domain Registration', description: 'Register domains', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'allowance-manager', number: 18, title: 'Allowance Manager', description: 'View & revoke wallet allowances', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' }
   ]
 
