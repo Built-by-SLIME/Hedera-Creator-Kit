@@ -167,6 +167,8 @@ export class Terminal {
         <div class="terminal-line terminal-output home-ascii">${this.getASCIIArt()}</div>
         <div class="home-split">
           <div class="home-left">
+            ${this.renderLine({ type: 'output', content: 'Type "help" for available commands or select a tool below:' })}
+            ${this.renderLine({ type: 'output', content: '' })}
             ${this.getToolsList().map(line => this.renderLine(line)).join('')}
             ${this.walletData.accountId === BACKEND_MINTER_ACCOUNT ? this.renderLine({ type: 'success', content: `  [A]  ◆ ${'API Key Management'.padEnd(25)} Manage external API keys` }) : ''}
             ${this.renderLine({ type: 'output', content: '' })}
@@ -188,11 +190,12 @@ export class Terminal {
   private static getNoteBox(): TerminalLine[] {
     return [
       { type: 'success', content: '╔════════════════════════════════════════════╗' },
-      { type: 'success', content: '║   Hi!                                      ║' },
-      { type: 'success', content: '║   What are we working on today?            ║' },
-      { type: 'success', content: '╠════════════════════════════════════════════╣' },
-      { type: 'success', content: '║   Type "help" for available commands,      ║' },
-      { type: 'success', content: '║   or select a tool from the list.          ║' },
+      { type: 'success', content: '║   Welcome to SLIME Tools! The              ║' },
+      { type: 'success', content: '║   all-in-one toolkit built for             ║' },
+      { type: 'success', content: '║   Hedera creators. Powerful                ║' },
+      { type: 'success', content: '║   tools. Zero subscriptions.               ║' },
+      { type: 'success', content: '║   Shape the future of Hedera.              ║' },
+      { type: 'success', content: '║   Built by SLIME.                          ║' },
       { type: 'success', content: '╚════════════════════════════════════════════╝' },
     ]
   }
