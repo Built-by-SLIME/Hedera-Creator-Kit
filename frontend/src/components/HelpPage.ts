@@ -132,42 +132,42 @@ export class HelpPage {
       { type: 'output', content: '       View supply, decimals, treasury, keys, fees, and more.' },
       { type: 'output', content: '' },
 
-      { type: 'success', content: '  [10] Snapshot Tool' },
+      { type: 'success', content: '  [10] Topic Viewer' },
+      { type: 'output', content: '       View and decode HCS topic messages.' },
+      { type: 'output', content: '       Reassembles on-chain inscription files (HCS-1).' },
+      { type: 'output', content: '' },
+
+      { type: 'success', content: '  [11] Wallet Viewer' },
+      { type: 'output', content: '       View holdings and activity for any account.' },
+      { type: 'output', content: '' },
+
+      { type: 'success', content: '  [12] Snapshot Tool' },
       { type: 'output', content: '       Capture a full holder list for any HTS token or NFT.' },
       { type: 'output', content: '       Filter by minimum balance, serial number range, or date.' },
       { type: 'output', content: '       Export results as CSV or copy account IDs directly.' },
       { type: 'output', content: '' },
 
-      { type: 'success', content: '  [11] Airdrop Tool' },
+      { type: 'success', content: '  [13] Airdrop Tool' },
       { type: 'output', content: '       Distribute tokens or NFTs to a list of wallet addresses.' },
       { type: 'output', content: '       Paste in account IDs (e.g. from a snapshot) and send' },
       { type: 'output', content: '       a batch transfer in one go.' },
       { type: 'output', content: '' },
 
-      { type: 'success', content: '  [12] Swap Tool' },
+      { type: 'success', content: '  [14] Swap Tool' },
       { type: 'output', content: '       Migrate existing holders from one token to a new token.' },
       { type: 'output', content: '' },
 
-      { type: 'success', content: '  [13] Burn Tool' },
+      { type: 'success', content: '  [15] Burn Tool' },
       { type: 'output', content: '       Permanently burn fungible tokens or NFTs from a wallet.' },
       { type: 'output', content: '       Reduces circulating supply on-chain — irreversible.' },
       { type: 'output', content: '' },
 
-      { type: 'success', content: '  [14] Staking Tool' },
+      { type: 'success', content: '  [16] Staking Tool' },
       { type: 'output', content: '       Set up on-chain rewards for token holders.' },
       { type: 'output', content: '' },
 
-      { type: 'success', content: '  [15] Domain Registration' },
+      { type: 'success', content: '  [17] Domain Registration' },
       { type: 'output', content: '       Register .hedera / .slime / .gib domains.' },
-      { type: 'output', content: '' },
-
-      { type: 'success', content: '  [16] Topic Viewer' },
-      { type: 'output', content: '       View and decode HCS topic messages.' },
-      { type: 'output', content: '       Reassembles on-chain inscription files (HCS-1).' },
-      { type: 'output', content: '' },
-
-      { type: 'success', content: '  [17] Wallet Viewer' },
-      { type: 'output', content: '       View holdings and activity for any account.' },
       { type: 'output', content: '' },
 
       { type: 'success', content: '  [18] Allowance Manager' },

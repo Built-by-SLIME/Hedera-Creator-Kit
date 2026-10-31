@@ -1,5 +1,5 @@
 /**
- * Topic Viewer Component (Tool #16)
+ * Topic Viewer Component (Tool #10)
  * Enter any HCS topic ID: inspect the message stream, reassemble + hash-verify
  * HCS-1 inscription files, and browse HCS-6 registry versions.
  * Media renders through the shared safety layer: SVG is <img>-only, HTML is

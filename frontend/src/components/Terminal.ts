@@ -56,14 +56,14 @@ export class Terminal {
     { id: 'update-token-icon', number: 7, title: 'Update Token Icon', description: 'Update token metadata/icon', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'add-liquidity', number: 8, title: 'Add Liquidity', description: 'Add liquidity to fungible token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'token-viewer', number: 9, title: 'Token Viewer', description: 'View token information', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'snapshot', number: 10, title: 'Snapshot Tool', description: 'Capture holder accounts', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
-    { id: 'airdrop', number: 11, title: 'Airdrop Tool', description: 'Distribute tokens to wallets', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'swap', number: 12, title: 'Swap Tool', description: 'Migrate holders to new token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'burn', number: 13, title: 'Burn Tool', description: 'Permanently burn tokens/NFTs', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'staking', number: 14, title: 'Staking Tool', description: 'Soft-stake rewards for holders', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'domain-registration', number: 15, title: 'Domain Registration', description: 'Register .hedera / .slime / .gib domains', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'topic-viewer', number: 16, title: 'Topic Viewer', description: 'View & decode HCS topic messages', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
-    { id: 'wallet-viewer', number: 17, title: 'Wallet Viewer', description: 'View holdings & activity of any account', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'topic-viewer', number: 10, title: 'Topic Viewer', description: 'View & decode HCS topic messages', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'wallet-viewer', number: 11, title: 'Wallet Viewer', description: 'View holdings & activity of any account', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'snapshot', number: 12, title: 'Snapshot Tool', description: 'Capture holder accounts', icon: '◆', status: 'active', accessRequired: 'BRainz NFT' },
+    { id: 'airdrop', number: 13, title: 'Airdrop Tool', description: 'Distribute tokens to wallets', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'swap', number: 14, title: 'Swap Tool', description: 'Migrate holders to new token', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'burn', number: 15, title: 'Burn Tool', description: 'Permanently burn tokens/NFTs', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'staking', number: 16, title: 'Staking Tool', description: 'Soft-stake rewards for holders', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
+    { id: 'domain-registration', number: 17, title: 'Domain Registration', description: 'Register .hedera / .slime / .gib domains', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' },
     { id: 'allowance-manager', number: 18, title: 'Allowance Manager', description: 'View & revoke wallet allowances', icon: '◆', status: 'active', accessRequired: 'SLIME NFT' }
   ]
 

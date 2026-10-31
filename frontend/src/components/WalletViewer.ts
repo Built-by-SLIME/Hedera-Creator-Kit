@@ -1,5 +1,5 @@
 /**
- * Wallet Viewer Component (Tool #17)
+ * Wallet Viewer Component (Tool #11)
  * Look up any Hedera account: HBAR + token balances (with icons), NFT holdings
  * grouped by collection (icons, supply share, royalty, last moved, serials),
  * and recent activity. Read-only via the public mirror node.
