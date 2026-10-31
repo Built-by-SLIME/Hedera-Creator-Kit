@@ -161,12 +161,21 @@ export class Terminal {
   }
 
   private static renderTerminalContent(): string {
-    // Always show the clean welcome screen — no command history on the homepage
-    const welcome = this.getWelcomeScreen()
-
+    // Home screen: ASCII banner on top, then tools (left column) + note box (right column)
     return `
       <div class="terminal-content" id="terminal-content">
-        ${welcome.map(line => this.renderLine(line)).join('')}
+        <div class="terminal-line terminal-output home-ascii">${this.getASCIIArt()}</div>
+        <div class="home-split">
+          <div class="home-left">
+            ${this.getToolsList().map(line => this.renderLine(line)).join('')}
+            ${this.walletData.accountId === BACKEND_MINTER_ACCOUNT ? this.renderLine({ type: 'success', content: `  [A]  ◆ ${'API Key Management'.padEnd(25)} Manage external API keys` }) : ''}
+            ${this.renderLine({ type: 'output', content: '' })}
+            ${this.renderLine({ type: 'prompt', content: 'Type a number (1-18) or tool name to begin...' })}
+          </div>
+          <div class="home-right">
+            ${this.getNoteBox().map(line => this.renderLine(line)).join('')}
+          </div>
+        </div>
       </div>
     `
   }
@@ -176,23 +185,16 @@ export class Terminal {
     return `<div class="terminal-line ${className}">${line.content}</div>`
   }
 
-  private static getWelcomeScreen(): TerminalLine[] {
-    const lines: TerminalLine[] = [
-      { type: 'output', content: this.getASCIIArt() },
-      { type: 'success', content: '╔════════════════════════════════════════════════════════════╗' },
-      { type: 'success', content: '║   Hi!                                                      ║' },
-      { type: 'success', content: '║   What are we working on today?                            ║' },
-      { type: 'success', content: '╚════════════════════════════════════════════════════════════╝' },
-      { type: 'output', content: '' }
+  private static getNoteBox(): TerminalLine[] {
+    return [
+      { type: 'success', content: '╔════════════════════════════════════════════╗' },
+      { type: 'success', content: '║   Hi!                                      ║' },
+      { type: 'success', content: '║   What are we working on today?            ║' },
+      { type: 'success', content: '╠════════════════════════════════════════════╣' },
+      { type: 'success', content: '║   Type "help" for available commands,      ║' },
+      { type: 'success', content: '║   or select a tool from the list.          ║' },
+      { type: 'success', content: '╚════════════════════════════════════════════╝' },
     ]
-
-    lines.push({ type: 'output', content: 'Type "help" for available commands or select a tool below:' })
-    lines.push({ type: 'output', content: '' })
-    lines.push(...this.getToolsList())
-    lines.push({ type: 'output', content: '' })
-    lines.push({ type: 'prompt', content: 'Type a number (1-18) or tool name to begin...' })
-
-    return lines
   }
 
   private static getASCIIArt(): string {
@@ -207,27 +209,13 @@ export class Terminal {
   }
 
   private static getToolsList(): TerminalLine[] {
-    // Two-column layout: left column takes ~75% of the tools (14 of 18), the
-    // remainder on the right, so the menu fills the screen without scrolling.
-    // Cells are monospace-padded.
+    // Single-column list — the home screen's left pane (note box lives on the right).
     const cell = (tool: Tool): string => {
       const desc = tool.status === 'coming-soon' ? `${tool.description}  (coming soon)` : tool.description
       const left = `  [${tool.number}] ${tool.icon} ${tool.title}`
-      return (left.padEnd(34) + this.truncateLine(desc, 36)).padEnd(74)
+      return (left.padEnd(34) + this.truncateLine(desc, 44)).trimEnd()
     }
-    const half = Math.ceil(this.tools.length * 0.75)
-    const lines: TerminalLine[] = []
-    for (let i = 0; i < half; i++) {
-      const right = this.tools[i + half] ? cell(this.tools[i + half]).trimEnd() : ''
-      lines.push({ type: 'output', content: (cell(this.tools[i]) + right).trimEnd() })
-    }
-
-    // Admin tool — only shown when operator wallet is connected
-    if (this.walletData.accountId === BACKEND_MINTER_ACCOUNT) {
-      lines.push({ type: 'success', content: `  [A]  ◆ ${'API Key Management'.padEnd(25)} Manage external API keys` })
-    }
-
-    return lines
+    return this.tools.map((tool) => ({ type: 'output', content: cell(tool) }))
   }
 
   private static truncateLine(s: string, max: number): string {

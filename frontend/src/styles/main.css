@@ -166,33 +166,59 @@ body {
 }
 
 /* Make ASCII art smaller by default for hero section */
-.terminal-content > .terminal-line:first-child {
+.home-ascii {
   font-size: 0.65rem;
   line-height: 1.2;
 }
 
+/* Home screen split: tool list (left) + note box (right) */
+.home-split {
+  display: flex;
+  gap: 3rem;
+  align-items: flex-start;
+  margin-top: 1rem;
+}
+
+.home-left {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.home-right {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 0.25rem;
+}
+
 /* Scale down ASCII art on smaller screens */
 @media (max-width: 1400px) {
-  .terminal-content > .terminal-line:first-child {
+  .home-ascii {
     font-size: 0.6rem;
   }
 }
 
 @media (max-width: 1200px) {
-  .terminal-content > .terminal-line:first-child {
+  .home-ascii {
     font-size: 0.55rem;
+  }
+  .home-split {
+    gap: 2rem;
   }
 }
 
 @media (max-width: 1024px) {
-  .terminal-content > .terminal-line:first-child {
+  .home-ascii {
     font-size: 0.5rem;
   }
 }
 
 @media (max-width: 768px) {
-  .terminal-content > .terminal-line:first-child {
+  .home-ascii {
     font-size: 0.4rem;
+  }
+  .home-split {
+    flex-direction: column;
+    gap: 1rem;
   }
 }
 
