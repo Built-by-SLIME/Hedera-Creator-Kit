@@ -45,6 +45,8 @@ export class TokenViewer {
   private static tokenMode: 'hts' | 'evm' | null = null
   private static holders: TokenHolder[] = []
   private static totalHolders: number = 0
+  private static holdersPage: number = 0
+  private static readonly HOLDERS_PER_PAGE = 50
   private static loading: boolean = false
   private static error: string | null = null
   private static mirrorNodeUrl: string = MIRROR_NODE_URL
@@ -140,6 +142,7 @@ export class TokenViewer {
 
     return `
       ${this.renderQuickView()}
+      ${this.renderBubbleMap()}
       ${this.renderHoldersTable()}
     `
   }
@@ -213,9 +216,15 @@ export class TokenViewer {
   private static renderHoldersTable(): string {
     if (this.holders.length === 0) return ''
 
+    const perPage = this.HOLDERS_PER_PAGE
+    const pageCount = Math.max(1, Math.ceil(this.holders.length / perPage))
+    const page = Math.min(this.holdersPage, pageCount - 1)
+    const start = page * perPage
+    const rows = this.holders.slice(start, start + perPage)
+
     return `
       <div class="holders-section">
-        <h3 class="section-title">Top 50 Holders</h3>
+        <h3 class="section-title">All Holders (${this.holders.length})</h3>
         <div class="holders-table-wrapper">
           <table class="holders-table">
             <thead>
@@ -227,9 +236,9 @@ export class TokenViewer {
               </tr>
             </thead>
             <tbody>
-              ${this.holders.slice(0, 50).map((holder, index) => `
+              ${rows.map((holder, index) => `
                 <tr>
-                  <td>${index + 1}</td>
+                  <td>${start + index + 1}</td>
                   <td class="account-id">${holder.accountId}</td>
                   <td class="balance">${this.formatSupply(holder.balance)}</td>
                   <td class="percentage">${holder.percentage}%</td>
@@ -237,6 +246,118 @@ export class TokenViewer {
               `).join('')}
             </tbody>
           </table>
+        </div>
+        ${pageCount > 1 ? `
+          <div class="holders-pager">
+            <button class="holders-nav-btn" data-holders-nav="prev" ${page === 0 ? 'disabled' : ''}>← Prev</button>
+            <span class="holders-page-info">Page ${page + 1} of ${pageCount}</span>
+            <button class="holders-nav-btn" data-holders-nav="next" ${page >= pageCount - 1 ? 'disabled' : ''}>Next →</button>
+          </div>
+        ` : ''}
+      </div>
+    `
+  }
+
+  // One bubble per holder, sized by share of supply. Golden-angle layout with a
+  // relaxation pass to settle overlaps; every holder is included, no cutoff.
+  private static renderBubbleMap(): string {
+    if (this.holders.length === 0) return ''
+
+    interface Bubble { x: number; y: number; r: number; holder: TokenHolder }
+    const holders = this.holders
+    const n = holders.length
+    const golden = Math.PI * (3 - Math.sqrt(5))
+
+    // Radius ∝ sqrt(percentage); floor so dust holders stay visible/hoverable.
+    const maxPct = Math.max(parseFloat(holders[0].percentage), 1e-9)
+    const maxR = 90
+    const K = maxR / Math.sqrt(maxPct)
+    const radii = holders.map((h) => {
+      const pct = Math.max(parseFloat(h.percentage), 1e-6)
+      return Math.max(Math.sqrt(pct) * K, 1.4)
+    })
+
+    // Golden-angle spiral initial layout, outward reach growing with cumulative area
+    const bubbles: Bubble[] = []
+    let cumArea = 0
+    let prevDist = 0
+    for (let i = 0; i < n; i++) {
+      const r = radii[i]
+      cumArea += r * r
+      const ideal = Math.sqrt(cumArea / Math.PI) * 1.08
+      const dist = Math.max(ideal, prevDist + (radii[i - 1] || 0) + r + 1)
+      prevDist = dist
+      const theta = i * golden
+      bubbles.push({ x: Math.cos(theta) * dist, y: Math.sin(theta) * dist, r, holder: holders[i] })
+    }
+
+    // Relaxation: push overlapping pairs apart (smaller bubble moves more).
+    // Uniform-grid neighbor search keeps this near-linear for big holder sets.
+    const cell = Math.max(4, maxR)
+    const grid = new Map<string, number[]>()
+    const keyOf = (x: number, y: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)}`
+    for (let i = 0; i < n; i++) {
+      const k = keyOf(bubbles[i].x, bubbles[i].y)
+      const bucket = grid.get(k)
+      if (bucket) bucket.push(i); else grid.set(k, [i])
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < n; i++) {
+        const a = bubbles[i]
+        const cx = Math.floor(a.x / cell); const cy = Math.floor(a.y / cell)
+        for (let gx = cx - 1; gx <= cx + 1; gx++) {
+          for (let gy = cy - 1; gy <= cy + 1; gy++) {
+            const bucket = grid.get(`${gx},${gy}`)
+            if (!bucket) continue
+            for (const j of bucket) {
+              if (j <= i) continue
+              const b = bubbles[j]
+              const dx = b.x - a.x; const dy = b.y - a.y
+              const minDist = a.r + b.r + 0.6
+              const d2 = dx * dx + dy * dy
+              if (d2 >= minDist * minDist || d2 === 0) continue
+              const d = Math.sqrt(d2)
+              const overlap = (minDist - d) / d
+              const wa = b.r / (a.r + b.r); const wb = 1 - wa
+              a.x -= dx * overlap * wa; a.y -= dy * overlap * wa
+              b.x += dx * overlap * wb; b.y += dy * overlap * wb
+            }
+          }
+        }
+      }
+    }
+
+    let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity
+    for (const b of bubbles) {
+      minX = Math.min(minX, b.x - b.r); minY = Math.min(minY, b.y - b.r)
+      maxX = Math.max(maxX, b.x + b.r); maxY = Math.max(maxY, b.y + b.r)
+    }
+    const pad = 8
+    const vbX = minX - pad; const vbY = minY - pad
+    const vbW = maxX - minX + pad * 2; const vbH = maxY - minY + pad * 2
+
+    const circles = bubbles.map((b, i) => {
+      const pct = parseFloat(b.holder.percentage)
+      const fill = i === 0
+        ? 'var(--terminal-green)'
+        : i < 4
+          ? 'rgba(155, 93, 229, 0.85)'
+          : `rgba(155, 93, 229, ${Math.max(0.25, Math.min(0.7, pct / maxPct + 0.2)).toFixed(2)})`
+      const label = b.r >= 20
+        ? `<text x="${b.x.toFixed(1)}" y="${(b.y + 3.5).toFixed(1)}" text-anchor="middle" class="bubble-label">${pct >= 1 ? pct.toFixed(1) + '%' : pct.toFixed(2) + '%'}</text>`
+        : ''
+      return `<circle cx="${b.x.toFixed(1)}" cy="${b.y.toFixed(1)}" r="${b.r.toFixed(1)}" fill="${fill}" stroke="rgba(255,255,255,0.12)" stroke-width="0.6">
+  <title>${b.holder.accountId} — ${this.formatSupply(b.holder.balance)} (${b.holder.percentage}%)</title>
+</circle>${label}`
+    }).join('')
+
+    return `
+      <div class="holders-section bubblemap-section">
+        <h3 class="section-title">Holder Bubble Map <span class="bubblemap-hint">(one bubble per holder · hover for details)</span></h3>
+        <div class="bubblemap-wrapper">
+          <svg viewBox="${vbX.toFixed(1)} ${vbY.toFixed(1)} ${vbW.toFixed(1)} ${vbH.toFixed(1)}" class="bubblemap-svg" role="img" aria-label="Holder distribution bubble map">
+            ${circles}
+          </svg>
         </div>
       </div>
     `
@@ -334,6 +455,15 @@ export class TokenViewer {
         this.fetchTokenData()
       }
     })
+
+    document.querySelectorAll('[data-holders-nav]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const dir = btn.getAttribute('data-holders-nav')
+        const pageCount = Math.max(1, Math.ceil(this.holders.length / this.HOLDERS_PER_PAGE))
+        this.holdersPage = Math.min(Math.max(0, this.holdersPage + (dir === 'next' ? 1 : -1)), pageCount - 1)
+        this.refresh()
+      })
+    })
   }
 
   private static async fetchTokenData(): Promise<void> {
@@ -353,6 +483,7 @@ export class TokenViewer {
     this.tokenMode = null
     this.holders = []
     this.totalHolders = 0
+    this.holdersPage = 0
     this.refresh()
 
     const isEvmAddress = /^0x[0-9a-fA-F]{40}$/.test(tokenId)
@@ -421,7 +552,8 @@ export class TokenViewer {
       .sort((a: TokenHolder, b: TokenHolder) => parseInt(b.balance) - parseInt(a.balance))
 
     this.totalHolders = allHolders.length
-    this.holders = allHolders.slice(0, 50)
+    this.holders = allHolders
+    this.holdersPage = 0
     this.loading = false
     this.refresh()
   }

@@ -3397,3 +3397,65 @@ w3m-modal, wcm-modal {
 .wv-tx a { color: var(--terminal-purple-bright); }
 .wv-moves span { display: inline-flex; align-items: center; gap: 0.25rem; margin: 0 0.4rem 0.25rem 0; white-space: nowrap; }
 .wv-kind { color: var(--terminal-text); }
+
+/* ─── Token Viewer: bubble map + holder pager ─── */
+.bubblemap-wrapper {
+  background: var(--terminal-bg-dark);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  padding: 0.5rem;
+  overflow: hidden;
+}
+
+.bubblemap-svg {
+  display: block;
+  width: 100%;
+  max-height: 480px;
+}
+
+.bubble-label {
+  fill: #0b0e14;
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.bubblemap-hint {
+  font-size: 0.68rem;
+  color: var(--terminal-text);
+  font-weight: 400;
+  margin-left: 0.5rem;
+}
+
+.holders-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.holders-nav-btn {
+  background: transparent;
+  border: 1px solid var(--terminal-purple);
+  color: var(--terminal-purple-bright);
+  font-family: inherit;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.holders-nav-btn:hover:not(:disabled) {
+  background: rgba(155, 93, 229, 0.15);
+}
+
+.holders-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.holders-page-info {
+  font-size: 0.78rem;
+  color: var(--terminal-text);
+}
