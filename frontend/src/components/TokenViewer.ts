@@ -258,71 +258,99 @@ export class TokenViewer {
     `
   }
 
-  // One bubble per holder, sized by share of supply. Golden-angle layout with a
-  // relaxation pass to settle overlaps; every holder is included, no cutoff.
+  // One bubble per holder, sized by share of supply. Greedy tangent packing
+  // (biggest first, each new bubble snuggles against its neighbours) produces a
+  // tight cluster like classic bubble maps; every holder is included, no cutoff.
   private static renderBubbleMap(): string {
     if (this.holders.length === 0) return ''
 
     interface Bubble { x: number; y: number; r: number; holder: TokenHolder }
     const holders = this.holders
     const n = holders.length
-    const golden = Math.PI * (3 - Math.sqrt(5))
 
     // Radius ∝ sqrt(percentage); floor so dust holders stay visible/hoverable.
     const maxPct = Math.max(parseFloat(holders[0].percentage), 1e-9)
-    const maxR = 90
+    const maxR = 100
     const K = maxR / Math.sqrt(maxPct)
     const radii = holders.map((h) => {
       const pct = Math.max(parseFloat(h.percentage), 1e-6)
-      return Math.max(Math.sqrt(pct) * K, 1.4)
+      return Math.max(Math.sqrt(pct) * K, 2)
     })
 
-    // Golden-angle spiral initial layout, outward reach growing with cumulative area
     const bubbles: Bubble[] = []
-    let cumArea = 0
-    let prevDist = 0
-    for (let i = 0; i < n; i++) {
-      const r = radii[i]
-      cumArea += r * r
-      const ideal = Math.sqrt(cumArea / Math.PI) * 1.08
-      const dist = Math.max(ideal, prevDist + (radii[i - 1] || 0) + r + 1)
-      prevDist = dist
-      const theta = i * golden
-      bubbles.push({ x: Math.cos(theta) * dist, y: Math.sin(theta) * dist, r, holder: holders[i] })
-    }
-
-    // Relaxation: push overlapping pairs apart (smaller bubble moves more).
-    // Uniform-grid neighbor search keeps this near-linear for big holder sets.
-    const cell = Math.max(4, maxR)
+    const cell = maxR * 2
     const grid = new Map<string, number[]>()
     const keyOf = (x: number, y: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)}`
+    const neighborsOf = (x: number, y: number, reach: number): number[] => {
+      const out: number[] = []
+      const cx = Math.floor(x / cell); const cy = Math.floor(y / cell)
+      const span = Math.ceil(reach / cell) + 1
+      for (let gx = cx - span; gx <= cx + span; gx++) {
+        for (let gy = cy - span; gy <= cy + span; gy++) {
+          const bucket = grid.get(`${gx},${gy}`)
+          if (bucket) out.push(...bucket)
+        }
+      }
+      return out
+    }
+    const overlapAt = (x: number, y: number, r: number): number => {
+      let worst = 0
+      for (const j of neighborsOf(x, y, r + maxR)) {
+        const b = bubbles[j]
+        const d = Math.hypot(b.x - x, b.y - y)
+        worst = Math.max(worst, (b.r + r - d) / r)
+      }
+      return Math.max(0, worst)
+    }
+
     for (let i = 0; i < n; i++) {
-      const k = keyOf(bubbles[i].x, bubbles[i].y)
+      const r = radii[i]
+      if (i === 0) {
+        bubbles.push({ x: 0, y: 0, r, holder: holders[i] })
+      } else {
+        // Candidates: tangent to nearby placed bubbles, biased toward the middle.
+        const candidates: { x: number; y: number; score: number }[] = []
+        const near = neighborsOf(0, 0, maxR * 6).slice(0, 80)
+        for (const j of near.length ? near : [0]) {
+          const b = bubbles[j]
+          const baseAngle = Math.atan2(b.y, b.x)
+          const span = Math.PI * 2
+          const steps = 14
+          for (let s = 0; s < steps; s++) {
+            const theta = baseAngle - span / 2 + (span * s) / (steps - 1)
+            const cx = b.x + Math.cos(theta) * (b.r + r)
+            const cy = b.y + Math.sin(theta) * (b.r + r)
+            const overlap = overlapAt(cx, cy, r)
+            const dist = Math.hypot(cx, cy)
+            candidates.push({ x: cx, y: cy, score: overlap * 1000 + dist })
+          }
+        }
+        candidates.sort((a, b2) => a.score - b2.score)
+        const best = candidates[0]
+        bubbles.push({ x: best.x, y: best.y, r, holder: holders[i] })
+      }
+      const nb = bubbles[i]
+      const k = keyOf(nb.x, nb.y)
       const bucket = grid.get(k)
       if (bucket) bucket.push(i); else grid.set(k, [i])
     }
+
+    // Settle pass: push apart any remaining overlaps (smaller bubble moves more).
     for (let pass = 0; pass < 2; pass++) {
       for (let i = 0; i < n; i++) {
         const a = bubbles[i]
-        const cx = Math.floor(a.x / cell); const cy = Math.floor(a.y / cell)
-        for (let gx = cx - 1; gx <= cx + 1; gx++) {
-          for (let gy = cy - 1; gy <= cy + 1; gy++) {
-            const bucket = grid.get(`${gx},${gy}`)
-            if (!bucket) continue
-            for (const j of bucket) {
-              if (j <= i) continue
-              const b = bubbles[j]
-              const dx = b.x - a.x; const dy = b.y - a.y
-              const minDist = a.r + b.r + 0.6
-              const d2 = dx * dx + dy * dy
-              if (d2 >= minDist * minDist || d2 === 0) continue
-              const d = Math.sqrt(d2)
-              const overlap = (minDist - d) / d
-              const wa = b.r / (a.r + b.r); const wb = 1 - wa
-              a.x -= dx * overlap * wa; a.y -= dy * overlap * wa
-              b.x += dx * overlap * wb; b.y += dy * overlap * wb
-            }
-          }
+        for (const j of neighborsOf(a.x, a.y, a.r + maxR)) {
+          if (j <= i) continue
+          const b = bubbles[j]
+          const dx = b.x - a.x; const dy = b.y - a.y
+          const minDist = a.r + b.r + 0.5
+          const d2 = dx * dx + dy * dy
+          if (d2 >= minDist * minDist || d2 === 0) continue
+          const d = Math.sqrt(d2)
+          const push = (minDist - d) / d
+          const wa = b.r / (a.r + b.r); const wb = 1 - wa
+          a.x -= dx * push * wa; a.y -= dy * push * wa
+          b.x += dx * push * wb; b.y += dy * push * wb
         }
       }
     }
@@ -332,30 +360,35 @@ export class TokenViewer {
       minX = Math.min(minX, b.x - b.r); minY = Math.min(minY, b.y - b.r)
       maxX = Math.max(maxX, b.x + b.r); maxY = Math.max(maxY, b.y + b.r)
     }
-    const pad = 8
-    const vbX = minX - pad; const vbY = minY - pad
-    const vbW = maxX - minX + pad * 2; const vbH = maxY - minY + pad * 2
+    // Square-ish, snug viewBox so the cluster always fills the container.
+    const pad = 6
+    const w = maxX - minX; const h = maxY - minY
+    const side = Math.max(w, h) + pad * 2
+    const cxV = (minX + maxX) / 2; const cyV = (minY + maxY) / 2
+    const vbX = cxV - side / 2; const vbY = cyV - side / 2
 
     const circles = bubbles.map((b, i) => {
       const pct = parseFloat(b.holder.percentage)
+      const share = pct / maxPct
       const fill = i === 0
-        ? 'var(--terminal-green)'
-        : i < 4
-          ? 'rgba(155, 93, 229, 0.85)'
-          : `rgba(155, 93, 229, ${Math.max(0.25, Math.min(0.7, pct / maxPct + 0.2)).toFixed(2)})`
-      const label = b.r >= 20
+        ? 'rgba(61, 220, 132, 0.9)'
+        : `rgba(155, 93, 229, ${Math.max(0.35, Math.min(0.9, 0.35 + share * 0.6)).toFixed(2)})`
+      const pctLabel = b.r >= 16
         ? `<text x="${b.x.toFixed(1)}" y="${(b.y + 3.5).toFixed(1)}" text-anchor="middle" class="bubble-label">${pct >= 1 ? pct.toFixed(1) + '%' : pct.toFixed(2) + '%'}</text>`
         : ''
-      return `<circle cx="${b.x.toFixed(1)}" cy="${b.y.toFixed(1)}" r="${b.r.toFixed(1)}" fill="${fill}" stroke="rgba(255,255,255,0.12)" stroke-width="0.6">
+      const idLabel = b.r >= 34
+        ? `<text x="${b.x.toFixed(1)}" y="${(b.y - b.r - 5).toFixed(1)}" text-anchor="middle" class="bubble-id">${b.holder.accountId}</text>`
+        : ''
+      return `<circle cx="${b.x.toFixed(1)}" cy="${b.y.toFixed(1)}" r="${b.r.toFixed(1)}" fill="${fill}" stroke="rgba(255,255,255,0.35)" stroke-width="0.8">
   <title>${b.holder.accountId} — ${this.formatSupply(b.holder.balance)} (${b.holder.percentage}%)</title>
-</circle>${label}`
+</circle>${pctLabel}${idLabel}`
     }).join('')
 
     return `
       <div class="holders-section bubblemap-section">
-        <h3 class="section-title">Holder Bubble Map <span class="bubblemap-hint">(one bubble per holder · hover for details)</span></h3>
+        <h3 class="section-title">Holder Bubble Map <span class="bubblemap-hint">(one bubble per holder · sized by share of supply · hover for details)</span></h3>
         <div class="bubblemap-wrapper">
-          <svg viewBox="${vbX.toFixed(1)} ${vbY.toFixed(1)} ${vbW.toFixed(1)} ${vbH.toFixed(1)}" class="bubblemap-svg" role="img" aria-label="Holder distribution bubble map">
+          <svg viewBox="${vbX.toFixed(1)} ${vbY.toFixed(1)} ${side.toFixed(1)} ${side.toFixed(1)}" class="bubblemap-svg" role="img" aria-label="Holder distribution bubble map">
             ${circles}
           </svg>
         </div>
