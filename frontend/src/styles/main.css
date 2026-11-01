@@ -3435,6 +3435,28 @@ w3m-modal, wcm-modal {
   margin-left: 0.5rem;
 }
 
+.bubblemap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  margin-bottom: 0.6rem;
+}
+
+.bubblemap-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--terminal-text);
+}
+
+.bubblemap-swatch {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+
 .holders-pager {
   display: flex;
   align-items: center;

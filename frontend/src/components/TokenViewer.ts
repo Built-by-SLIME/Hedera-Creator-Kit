@@ -47,6 +47,8 @@ export class TokenViewer {
   private static totalHolders: number = 0
   private static holdersPage: number = 0
   private static readonly HOLDERS_PER_PAGE = 50
+  // Holder→holder link pairs (both sent this token to each other in recent history)
+  private static tokenLinks: [string, string][] = []
   private static loading: boolean = false
   private static error: string | null = null
   private static mirrorNodeUrl: string = MIRROR_NODE_URL
@@ -258,25 +260,84 @@ export class TokenViewer {
     `
   }
 
-  // One bubble per holder, sized by share of supply. Greedy tangent packing
-  // (biggest first, each new bubble snuggles against its neighbours) produces a
-  // tight cluster like classic bubble maps; every holder is included, no cutoff.
+  // One bubble per holder, sized by share of supply. Wallets that have sent this
+  // token to each other (recent history) are linked with lines and share a
+  // cluster color — Bubblemaps-style entity detection. Unlinked wallets stay
+  // neutral gray. Packing leaves a consistent gap between bubbles.
   private static renderBubbleMap(): string {
     if (this.holders.length === 0) return ''
 
-    interface Bubble { x: number; y: number; r: number; holder: TokenHolder }
+    interface Bubble { x: number; y: number; r: number; holder: TokenHolder; color: string }
+
+    // ── Cluster linked wallets via union-find ──
+    const parent = new Map<string, string>()
+    const find = (a: string): string => {
+      let root = a
+      while (parent.get(root) !== root) root = parent.get(root)!
+      let cur = a
+      while (parent.get(cur) !== cur) { const next = parent.get(cur)!; parent.set(cur, root); cur = next }
+      return root
+    }
+    const union = (a: string, b: string) => {
+      if (!parent.has(a)) parent.set(a, a)
+      if (!parent.has(b)) parent.set(b, b)
+      const ra = find(a); const rb = find(b)
+      if (ra !== rb) parent.set(ra, rb)
+    }
+    for (const [a, b] of this.tokenLinks) union(a, b)
+
+    const clusterOf = new Map<string, number>()
+    const clusterMembers = new Map<number, Set<string>>()
+    let nextCluster = 0
+    for (const [a, b] of this.tokenLinks) {
+      for (const acct of [a, b]) {
+        if (!parent.has(acct)) continue
+        const root = find(acct)
+        if (!clusterOf.has(root)) clusterOf.set(root, nextCluster++)
+        const c = clusterOf.get(root)!
+        if (!clusterMembers.has(c)) clusterMembers.set(c, new Set())
+        clusterMembers.get(c)!.add(acct)
+      }
+    }
+    const clusterSizes = new Map<number, number>()
+    for (const [c, members] of clusterMembers) clusterSizes.set(c, members.size)
+
+    // Distinct, dark-mode-friendly cluster palette ( Bubblemaps-like)
+    const PALETTE = [
+      '155, 93, 229',   // purple
+      '61, 220, 132',   // green
+      '255, 99, 132',   // red-pink
+      '255, 195, 56',   // amber
+      '56, 189, 248',   // sky
+      '244, 114, 182',  // pink
+      '52, 211, 153',   // emerald
+      '251, 146, 60',   // orange
+    ]
+    const clusterColor = new Map<number, string>()
+    // Biggest clusters get the most distinct colors first
+    const ranked = [...clusterSizes.entries()].sort((a, b) => b[1] - a[1])
+    ranked.forEach(([c], i) => {
+      clusterColor.set(c, PALETTE[i % PALETTE.length])
+    })
+    const colorFor = (accountId: string): string | null => {
+      if (!parent.has(accountId)) return null
+      const c = clusterOf.get(find(accountId))
+      return c != null ? clusterColor.get(c)! : null
+    }
+
+    // ── Radii: area ∝ share of supply, consistent gap between bubbles ──
     const holders = this.holders
     const n = holders.length
-
-    // Radius ∝ sqrt(percentage); floor so dust holders stay visible/hoverable.
+    const GAP = 2.5
     const maxPct = Math.max(parseFloat(holders[0].percentage), 1e-9)
     const maxR = 100
     const K = maxR / Math.sqrt(maxPct)
     const radii = holders.map((h) => {
       const pct = Math.max(parseFloat(h.percentage), 1e-6)
-      return Math.max(Math.sqrt(pct) * K, 2)
+      return Math.max(Math.sqrt(pct) * K, 2.5)
     })
 
+    // ── Greedy tangent packing with spacing ──
     const bubbles: Bubble[] = []
     const cell = maxR * 2
     const grid = new Map<string, number[]>()
@@ -298,7 +359,7 @@ export class TokenViewer {
       for (const j of neighborsOf(x, y, r + maxR)) {
         const b = bubbles[j]
         const d = Math.hypot(b.x - x, b.y - y)
-        worst = Math.max(worst, (b.r + r - d) / r)
+        worst = Math.max(worst, (b.r + r + GAP - d) / r)
       }
       return Math.max(0, worst)
     }
@@ -306,20 +367,18 @@ export class TokenViewer {
     for (let i = 0; i < n; i++) {
       const r = radii[i]
       if (i === 0) {
-        bubbles.push({ x: 0, y: 0, r, holder: holders[i] })
+        bubbles.push({ x: 0, y: 0, r, holder: holders[i], color: '' })
       } else {
-        // Candidates: tangent to nearby placed bubbles, biased toward the middle.
         const candidates: { x: number; y: number; score: number }[] = []
         const near = neighborsOf(0, 0, maxR * 6).slice(0, 80)
         for (const j of near.length ? near : [0]) {
           const b = bubbles[j]
           const baseAngle = Math.atan2(b.y, b.x)
-          const span = Math.PI * 2
           const steps = 14
           for (let s = 0; s < steps; s++) {
-            const theta = baseAngle - span / 2 + (span * s) / (steps - 1)
-            const cx = b.x + Math.cos(theta) * (b.r + r)
-            const cy = b.y + Math.sin(theta) * (b.r + r)
+            const theta = baseAngle - Math.PI + (2 * Math.PI * s) / (steps - 1)
+            const cx = b.x + Math.cos(theta) * (b.r + r + GAP)
+            const cy = b.y + Math.sin(theta) * (b.r + r + GAP)
             const overlap = overlapAt(cx, cy, r)
             const dist = Math.hypot(cx, cy)
             candidates.push({ x: cx, y: cy, score: overlap * 1000 + dist })
@@ -327,7 +386,7 @@ export class TokenViewer {
         }
         candidates.sort((a, b2) => a.score - b2.score)
         const best = candidates[0]
-        bubbles.push({ x: best.x, y: best.y, r, holder: holders[i] })
+        bubbles.push({ x: best.x, y: best.y, r, holder: holders[i], color: '' })
       }
       const nb = bubbles[i]
       const k = keyOf(nb.x, nb.y)
@@ -335,7 +394,7 @@ export class TokenViewer {
       if (bucket) bucket.push(i); else grid.set(k, [i])
     }
 
-    // Settle pass: push apart any remaining overlaps (smaller bubble moves more).
+    // Settle pass (respects the gap)
     for (let pass = 0; pass < 2; pass++) {
       for (let i = 0; i < n; i++) {
         const a = bubbles[i]
@@ -343,7 +402,7 @@ export class TokenViewer {
           if (j <= i) continue
           const b = bubbles[j]
           const dx = b.x - a.x; const dy = b.y - a.y
-          const minDist = a.r + b.r + 0.5
+          const minDist = a.r + b.r + GAP
           const d2 = dx * dx + dy * dy
           if (d2 >= minDist * minDist || d2 === 0) continue
           const d = Math.sqrt(d2)
@@ -360,35 +419,60 @@ export class TokenViewer {
       minX = Math.min(minX, b.x - b.r); minY = Math.min(minY, b.y - b.r)
       maxX = Math.max(maxX, b.x + b.r); maxY = Math.max(maxY, b.y + b.r)
     }
-    // Square-ish, snug viewBox so the cluster always fills the container.
     const pad = 6
-    const w = maxX - minX; const h = maxY - minY
-    const side = Math.max(w, h) + pad * 2
-    const cxV = (minX + maxX) / 2; const cyV = (minY + maxY) / 2
-    const vbX = cxV - side / 2; const vbY = cyV - side / 2
+    const side = Math.max(maxX - minX, maxY - minY) + pad * 2
+    const vbX = (minX + maxX) / 2 - side / 2; const vbY = (minY + maxY) / 2 - side / 2
 
-    const circles = bubbles.map((b, i) => {
+    const byAccount = new Map(bubbles.map((b) => [b.holder.accountId, b]))
+
+    // ── Connection lines under the bubbles ──
+    const MAX_LINES = 400 // keep the visual readable on very linked tokens
+    let lineCount = 0
+    const lines: string[] = []
+    for (const [a, b2] of this.tokenLinks) {
+      if (lineCount >= MAX_LINES) break
+      const ba = byAccount.get(a); const bb = byAccount.get(b2)
+      if (!ba || !bb) continue
+      lineCount++
+      const mx = (ba.x + bb.x) / 2; const my = (ba.y + bb.y) / 2
+      lines.push(`<line x1="${ba.x.toFixed(1)}" y1="${ba.y.toFixed(1)}" x2="${bb.x.toFixed(1)}" y2="${bb.y.toFixed(1)}" stroke="rgba(255,255,255,0.13)" stroke-width="1"/>
+<circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="1.4" fill="rgba(255,255,255,0.3)"/>`)
+    }
+
+    const circles = bubbles.map((b) => {
       const pct = parseFloat(b.holder.percentage)
-      const share = pct / maxPct
-      const fill = i === 0
-        ? 'rgba(61, 220, 132, 0.9)'
-        : `rgba(155, 93, 229, ${Math.max(0.35, Math.min(0.9, 0.35 + share * 0.6)).toFixed(2)})`
+      const rgb = colorFor(b.holder.accountId)
+      const fill = rgb ? `rgba(${rgb}, 0.55)` : 'rgba(148, 163, 184, 0.28)'
+      const stroke = rgb ? `rgba(${rgb}, 0.95)` : 'rgba(255,255,255,0.28)'
       const pctLabel = b.r >= 16
         ? `<text x="${b.x.toFixed(1)}" y="${(b.y + 3.5).toFixed(1)}" text-anchor="middle" class="bubble-label">${pct >= 1 ? pct.toFixed(1) + '%' : pct.toFixed(2) + '%'}</text>`
         : ''
       const idLabel = b.r >= 34
         ? `<text x="${b.x.toFixed(1)}" y="${(b.y - b.r - 5).toFixed(1)}" text-anchor="middle" class="bubble-id">${b.holder.accountId}</text>`
         : ''
-      return `<circle cx="${b.x.toFixed(1)}" cy="${b.y.toFixed(1)}" r="${b.r.toFixed(1)}" fill="${fill}" stroke="rgba(255,255,255,0.35)" stroke-width="0.8">
-  <title>${b.holder.accountId} — ${this.formatSupply(b.holder.balance)} (${b.holder.percentage}%)</title>
+      return `<circle cx="${b.x.toFixed(1)}" cy="${b.y.toFixed(1)}" r="${b.r.toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="1.2">
+  <title>${b.holder.accountId} — ${this.formatSupply(b.holder.balance)} (${b.holder.percentage}%)${rgb ? ' · linked wallet' : ''}</title>
 </circle>${pctLabel}${idLabel}`
     }).join('')
 
+    // ── Legend: linked clusters with sizes ──
+    const legend = ranked.length > 0
+      ? `<div class="bubblemap-legend">
+          ${ranked.slice(0, 8).map(([c]) => {
+            const rgb = clusterColor.get(c)!
+            return `<span class="bubblemap-legend-item"><span class="bubblemap-swatch" style="background:rgba(${rgb},0.85)"></span>${clusterSizes.get(c)} linked wallets</span>`
+          }).join('')}
+          <span class="bubblemap-legend-item"><span class="bubblemap-swatch" style="background:rgba(148,163,184,0.4)"></span>unlinked</span>
+        </div>`
+      : ''
+
     return `
       <div class="holders-section bubblemap-section">
-        <h3 class="section-title">Holder Bubble Map <span class="bubblemap-hint">(one bubble per holder · sized by share of supply · hover for details)</span></h3>
+        <h3 class="section-title">Holder Bubble Map <span class="bubblemap-hint">(one bubble per holder · same color = wallets that have transacted with each other · hover for details)</span></h3>
+        ${legend}
         <div class="bubblemap-wrapper">
           <svg viewBox="${vbX.toFixed(1)} ${vbY.toFixed(1)} ${side.toFixed(1)} ${side.toFixed(1)}" class="bubblemap-svg" role="img" aria-label="Holder distribution bubble map">
+            ${lines.join('')}
             ${circles}
           </svg>
         </div>
@@ -517,6 +601,7 @@ export class TokenViewer {
     this.holders = []
     this.totalHolders = 0
     this.holdersPage = 0
+    this.tokenLinks = []
     this.refresh()
 
     const isEvmAddress = /^0x[0-9a-fA-F]{40}$/.test(tokenId)
@@ -587,8 +672,42 @@ export class TokenViewer {
     this.totalHolders = allHolders.length
     this.holders = allHolders
     this.holdersPage = 0
+    this.tokenLinks = await this.fetchTokenLinks(tokenId, new Set(allHolders.map((h) => h.accountId)))
     this.loading = false
     this.refresh()
+  }
+
+  // Paginate the token's recent transfers (capped) and keep deduped holder→holder
+  // pairs where both endpoints currently hold the token.
+  private static async fetchTokenLinks(tokenId: string, holderSet: Set<string>): Promise<[string, string][]> {
+    const MAX_PAGES = 25 // ~2,500 recent transfers
+    const seen = new Set<string>()
+    const links: [string, string][] = []
+    let nextLink: string | null = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/transfers?limit=100&order=desc`
+    let pages = 0
+
+    while (nextLink && pages < MAX_PAGES) {
+      try {
+        const response: Response = await fetch(nextLink)
+        if (!response.ok) break
+        const data: any = await response.json()
+        pages++
+        for (const t of data.transfers || []) {
+          const from: string = t.from_account ?? ''
+          const to: string = t.to_account ?? ''
+          if (!from || !to || from === to) continue
+          if (!holderSet.has(from) || !holderSet.has(to)) continue
+          const key = from < to ? `${from}|${to}` : `${to}|${from}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          links.push([from, to])
+        }
+        nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null
+      } catch {
+        break
+      }
+    }
+    return links
   }
 
   private static async fetchEvmTokenData(idOrAddress: string): Promise<void> {
