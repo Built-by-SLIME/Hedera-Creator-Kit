@@ -328,7 +328,7 @@ export class TokenViewer {
     // ── Radii: area ∝ share of supply, consistent gap between bubbles ──
     const holders = this.holders
     const n = holders.length
-    const GAP = 2.5
+    const GAP = 6
     const maxPct = Math.max(parseFloat(holders[0].percentage), 1e-9)
     const maxR = 100
     const K = maxR / Math.sqrt(maxPct)
