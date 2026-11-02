@@ -717,7 +717,7 @@ export class TokenViewer {
     this.totalHolders = allHolders.length
     this.holders = allHolders
     this.holdersPage = 0
-    this.tokenLinks = await this.fetchTokenLinks(tokenId, allHolders)
+    this.tokenLinks = await this.fetchTokenLinks(tokenId, allHolders, tokenInfo.treasury_account_id || '')
     this.loading = false
     this.refresh()
   }
@@ -725,7 +725,9 @@ export class TokenViewer {
   // Build the holder→holder link graph by scanning recent transactions of the
   // top holders (the bulk /tokens/{id}/transfers endpoint doesn't exist on the
   // public mirror node — token_transfers are embedded in each account's txs).
-  private static async fetchTokenLinks(tokenId: string, holders: TokenHolder[]): Promise<[string, string][]> {
+  // The treasury is excluded from linking: every holder traces back to it, so
+  // it would spiderweb the whole map without revealing any real entity.
+  private static async fetchTokenLinks(tokenId: string, holders: TokenHolder[], treasury: string): Promise<[string, string][]> {
     const holderSet = new Set(holders.map((h) => h.accountId))
     const seen = new Set<string>()
     const links: [string, string][] = []
@@ -733,6 +735,7 @@ export class TokenViewer {
     const TOP_HOLDERS = 40
 
     const scanHolder = async (holder: TokenHolder): Promise<void> => {
+      if (holder.accountId === treasury) return
       try {
         const res: Response = await fetch(`${this.mirrorNodeUrl}/api/v1/transactions?account.id=${holder.accountId}&limit=100&order=desc`)
         if (!res.ok) return
@@ -751,7 +754,8 @@ export class TokenViewer {
           }
           for (const s of senders) {
             for (const r of receivers) {
-              if (s === r || !holderSet.has(s) || !holderSet.has(r)) continue
+              if (s === r || s === treasury || r === treasury) continue
+              if (!holderSet.has(s) || !holderSet.has(r)) continue
               const key = s < r ? `${s}|${r}` : `${r}|${s}`
               if (seen.has(key)) continue
               seen.add(key)
