@@ -534,7 +534,8 @@ export class InscribeNFTs {
     try { PrivateKey.fromString(this.supplyKeyInput.trim()) } catch {
       this.supplyKeyError = 'Invalid supply key format'; this.refresh(); return
     }
-    const remaining = this.tokenInfo.maxSupply - this.tokenInfo.totalSupply
+    // Mirror node reports max_supply "0" for infinite-supply collections
+    const remaining = this.tokenInfo.maxSupply === 0 ? Infinity : this.tokenInfo.maxSupply - this.tokenInfo.totalSupply
     if (this.copies > remaining) { this.error = `Only ${remaining} mints remaining in max supply`; this.refresh(); return }
 
     this.step = 'inscribing'
