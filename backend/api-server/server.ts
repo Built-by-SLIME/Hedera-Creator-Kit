@@ -20,6 +20,7 @@ import { mintNfts } from './routes/mint-nfts';
 import { getMintStatus } from './routes/mint-status';
 import { calculateMintFee } from './routes/calculate-mint-fee';
 import { prepareInscribe, startInscribe, inscribeStatus } from './routes/inscribe';
+import { updateQuote, startUpdate } from './routes/inscribe-update';
 import { topicInfo, topicMessages, topicFile, resolvePointer } from './routes/hcs-viewer';
 import {
   createSwapProgram,
@@ -260,6 +261,9 @@ app.post('/api/inscribe/start', (req, res, next) => {
   startInscribe(req, res).catch(next);
 });
 app.get('/api/inscribe/status/:jobId', (req, res, next) => inscribeStatus(req, res).catch(next));
+// HCS-6 metadata update: new metadata topic + new register version (reuses the job store/poller)
+app.post('/api/inscribe/update-quote', (req, res, next) => updateQuote(req, res).catch(next));
+app.post('/api/inscribe/update', (req, res, next) => startUpdate(req, res).catch(next));
 
 // Read-only HCS endpoints for the Topic Viewer (Tool #16)
 app.get('/api/hcs/topic/:topicId/info', (req, res, next) => topicInfo(req, res).catch(next));
