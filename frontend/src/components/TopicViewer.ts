@@ -21,6 +21,8 @@ interface TopicInfo {
 interface TopicMessage {
   sequence: number
   consensusTimestamp: string
+  payer?: string | null
+  chunk?: string | null
   size: number
   kind: 'text' | 'json' | 'hcs1-chunk' | 'hcs6-register'
   preview: string
@@ -114,28 +116,71 @@ export class TopicViewer {
 
   private static renderMessages(): string {
     return `
-      <div class="cc-panel" style="margin-top:1rem">
+      <div style="margin-top:1rem">
         <h4 style="margin:0 0 0.5rem;color:var(--terminal-green)">Messages</h4>
-        ${this.truncated ? `<p style="font-size:0.75rem;color:var(--terminal-yellow);margin:0 0 0.5rem">Showing first 500 messages (topic is larger).</p>` : ''}
-        <div style="max-height:420px;overflow-y:auto">
-          ${this.messages.map((m) => `
-            <div style="border-bottom:1px solid rgba(255,255,255,0.06);padding:0.45rem 0">
-              <div style="display:flex;gap:0.5rem;align-items:center">
-                <span class="mono" style="color:var(--terminal-green);font-size:0.75rem;min-width:44px">#${m.sequence}</span>
-                <span style="font-size:0.72rem;color:var(--terminal-text)">${m.consensusTimestamp}</span>
-                <span class="tv-chip tv-chip-${m.kind}">${m.kind}</span>
-              </div>
-              <pre class="mono" style="white-space:pre-wrap;word-break:break-all;font-size:0.72rem;color:var(--terminal-text);margin:0.25rem 0 0">${this.escapeHtml(m.preview)}</pre>
-            </div>
-          `).join('')}
+        ${this.truncated ? `<p style="font-size:0.75rem;color:var(--terminal-yellow);margin:0 0 0.75rem">Showing first 500 messages (topic is larger).</p>` : ''}
+        <div style="max-height:560px;overflow-y:auto;padding-right:0.35rem">
+          ${this.messages.map((m) => this.renderMessageCard(m)).join('')}
         </div>
         <style>
+          .tv-msg { border:1px solid rgba(255,255,255,0.08); border-radius:8px; margin-bottom:0.75rem; overflow:hidden }
+          .tv-msg-head { display:flex; justify-content:space-between; align-items:center; gap:0.5rem;
+            padding:0.5rem 0.9rem; background:rgba(255,255,255,0.03); font-size:0.78rem; color:var(--terminal-text) }
+          .tv-msg-head b { color:#fff; font-weight:700 }
+          .tv-msg-body { padding:0.7rem 0.9rem 0.8rem }
+          .tv-msg-row { display:flex; gap:1.5rem; padding:0.18rem 0; font-size:0.78rem; align-items:baseline }
+          .tv-msg-label { color:var(--terminal-text); min-width:90px }
+          .tv-msg-val { color:#e8ecf1; font-weight:700; word-break:break-all }
+          .tv-msg-decode { color:var(--terminal-text); font-size:0.75rem; margin:0.65rem 0 0.45rem }
+          .tv-json { margin:0; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.08); border-radius:8px;
+            padding:0.75rem 0.9rem; white-space:pre-wrap; word-break:break-word; font-size:0.75rem; line-height:1.55;
+            max-height:340px; overflow-y:auto }
+          .tv-j-key { color:#e8d44d }
+          .tv-j-str { color:var(--terminal-green) }
+          .tv-j-num { color:#7dd3fc }
+          .tv-j-bool { color:#c084fc }
+          .tv-msg-plain { margin:0.65rem 0 0; white-space:pre-wrap; word-break:break-all; font-size:0.75rem;
+            color:var(--terminal-text); background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.08);
+            border-radius:8px; padding:0.65rem 0.9rem }
+          .tv-msg-foot { display:flex; justify-content:space-between; gap:0.5rem; margin-top:0.6rem;
+            font-size:0.72rem; color:var(--terminal-text) }
           .tv-chip { font-size:0.62rem; padding:0.1rem 0.4rem; border-radius:3px; font-weight:700; letter-spacing:0.03em }
           .tv-chip-hcs1-chunk { background:#7c3aed33; color:#c4b5fd }
           .tv-chip-hcs6-register { background:#0891b233; color:#67e8f9 }
           .tv-chip-json { background:#6bff9e22; color:var(--terminal-green) }
           .tv-chip-text { background:#ffffff14; color:#cbd5e1 }
         </style>
+      </div>
+    `
+  }
+
+  private static renderMessageCard(m: TopicMessage): string {
+    const isJson = m.kind === 'json' || m.kind === 'hcs6-register'
+    const payload = isJson
+      ? `<p class="tv-msg-decode">Decoded payload — JSON envelope</p>
+         <pre class="tv-json mono">${this.highlightJson(this.prettyJson(m.preview))}</pre>`
+      : `<pre class="tv-msg-plain mono">${this.escapeHtml(m.preview)}</pre>`
+    return `
+      <div class="tv-msg">
+        <div class="tv-msg-head">
+          <span><b>#${m.sequence}</b> seq <span class="tv-chip tv-chip-${m.kind}" style="margin-left:0.35rem">${m.kind}</span></span>
+          <span>${this.fmtConsensusTs(m.consensusTimestamp)}</span>
+        </div>
+        <div class="tv-msg-body">
+          <div class="tv-msg-row">
+            <span class="tv-msg-label">payer</span>
+            <span class="tv-msg-val mono">${this.escapeHtml(m.payer || '—')}</span>
+          </div>
+          <div class="tv-msg-row">
+            <span class="tv-msg-label">timestamp</span>
+            <span class="tv-msg-val mono">${m.consensusTimestamp}</span>
+          </div>
+          ${payload}
+          <div class="tv-msg-foot">
+            <span>${m.chunk ? `consensus chunk ${m.chunk}` : ''}</span>
+            <span>${this.fmtBytes(m.size)}</span>
+          </div>
+        </div>
       </div>
     `
   }
@@ -338,6 +383,31 @@ export class TopicViewer {
     if (n < 1024) return n + ' B'
     if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
     return (n / (1024 * 1024)).toFixed(2) + ' MB'
+  }
+
+  /** "1773072628.498607000" → "2026-03-09 16:10:28 UTC" */
+  private static fmtConsensusTs(ts: string): string {
+    const ms = Number(ts.split('.')[0]) * 1000
+    if (!Number.isFinite(ms)) return ts
+    return new Date(ms).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC')
+  }
+
+  private static prettyJson(text: string): string {
+    try { return JSON.stringify(JSON.parse(text), null, 2) } catch { return text }
+  }
+
+  /** Syntax-highlight already-escaped pretty-printed JSON. */
+  private static highlightJson(escaped: string): string {
+    return escaped.replace(
+      /(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+      (match, str: string, colon: string | undefined) => {
+        if (str) {
+          return colon ? `<span class="tv-j-key">${str}</span>${colon}` : `<span class="tv-j-str">${str}</span>`
+        }
+        if (/^(true|false|null)$/.test(match)) return `<span class="tv-j-bool">${match}</span>`
+        return `<span class="tv-j-num">${match}</span>`
+      }
+    )
   }
 
   private static escapeHtml(str: string): string {

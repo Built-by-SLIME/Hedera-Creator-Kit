@@ -87,6 +87,8 @@ export async function topicMessages(req: Request, res: Response): Promise<void> 
       return {
         sequence: m.sequence_number,
         consensusTimestamp: m.consensus_timestamp,
+        payer: m.payer_account_id || null,
+        chunk: m.chunk_info ? `${m.chunk_info.number}/${m.chunk_info.total}` : null,
         size: (m.message || '').length,
         kind,
         // chunk payloads are huge and meaningless on their own — truncate them
