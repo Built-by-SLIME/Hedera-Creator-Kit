@@ -337,10 +337,18 @@ export class TokenViewer {
       return Math.max(Math.sqrt(pct) * K, 2.5)
     })
 
-    // ── Greedy tangent packing with spacing ──
-    const bubbles: Bubble[] = []
+    // ── Force-directed layout (Bubblemaps-style) ──
+    // Repulsion between every pair, spring attraction along links, mild center
+    // gravity, and hard collision spacing. Linked clusters pull tight together;
+    // independent wallets drift to the outskirts.
+    const bubbles: Bubble[] = holders.map((h, i) => {
+      // Deterministic scattered start (golden-angle) so renders are stable
+      const theta = i * 2.399963
+      const dist = 12 * Math.sqrt(i + 1)
+      return { x: Math.cos(theta) * dist, y: Math.sin(theta) * dist, r: radii[i], holder: h, color: '' }
+    })
+
     const cell = maxR * 2
-    const grid = new Map<string, number[]>()
     const keyOf = (x: number, y: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)}`
     const neighborsOf = (x: number, y: number, reach: number): number[] => {
       const out: number[] = []
@@ -354,62 +362,90 @@ export class TokenViewer {
       }
       return out
     }
-    const overlapAt = (x: number, y: number, r: number): number => {
-      let worst = 0
-      for (const j of neighborsOf(x, y, r + maxR)) {
-        const b = bubbles[j]
-        const d = Math.hypot(b.x - x, b.y - y)
-        worst = Math.max(worst, (b.r + r + GAP - d) / r)
-      }
-      return Math.max(0, worst)
+
+    const indexOfAccount = new Map(bubbles.map((b, i) => [b.holder.accountId, i]))
+    const linkPairs: [number, number][] = []
+    for (const [a, b] of this.tokenLinks) {
+      const ia = indexOfAccount.get(a); const ib = indexOfAccount.get(b)
+      if (ia != null && ib != null) linkPairs.push([ia, ib])
     }
 
-    for (let i = 0; i < n; i++) {
-      const r = radii[i]
-      if (i === 0) {
-        bubbles.push({ x: 0, y: 0, r, holder: holders[i], color: '' })
-      } else {
-        const candidates: { x: number; y: number; score: number }[] = []
-        const near = neighborsOf(0, 0, maxR * 6).slice(0, 80)
-        for (const j of near.length ? near : [0]) {
-          const b = bubbles[j]
-          const baseAngle = Math.atan2(b.y, b.x)
-          const steps = 14
-          for (let s = 0; s < steps; s++) {
-            const theta = baseAngle - Math.PI + (2 * Math.PI * s) / (steps - 1)
-            const cx = b.x + Math.cos(theta) * (b.r + r + GAP)
-            const cy = b.y + Math.sin(theta) * (b.r + r + GAP)
-            const overlap = overlapAt(cx, cy, r)
-            const dist = Math.hypot(cx, cy)
-            candidates.push({ x: cx, y: cy, score: overlap * 1000 + dist })
-          }
-        }
-        candidates.sort((a, b2) => a.score - b2.score)
-        const best = candidates[0]
-        bubbles.push({ x: best.x, y: best.y, r, holder: holders[i], color: '' })
+    let grid = new Map<string, number[]>()
+    const rebuildGrid = () => {
+      grid = new Map()
+      for (let i = 0; i < n; i++) {
+        const k = keyOf(bubbles[i].x, bubbles[i].y)
+        const bucket = grid.get(k)
+        if (bucket) bucket.push(i); else grid.set(k, [i])
       }
-      const nb = bubbles[i]
-      const k = keyOf(nb.x, nb.y)
-      const bucket = grid.get(k)
-      if (bucket) bucket.push(i); else grid.set(k, [i])
     }
 
-    // Settle pass (respects the gap)
-    for (let pass = 0; pass < 2; pass++) {
+    const TICKS = 220
+    for (let tick = 0; tick < TICKS; tick++) {
+      const alpha = 1 - tick / TICKS
+      const disp = bubbles.map(() => ({ x: 0, y: 0 }))
+      rebuildGrid()
+
+      // Repulsion (grid-bounded): F ∝ (r_i·r_j) / d, cut off past 4·maxR
       for (let i = 0; i < n; i++) {
         const a = bubbles[i]
-        for (const j of neighborsOf(a.x, a.y, a.r + maxR)) {
+        for (const j of neighborsOf(a.x, a.y, maxR * 4)) {
           if (j <= i) continue
           const b = bubbles[j]
-          const dx = b.x - a.x; const dy = b.y - a.y
-          const minDist = a.r + b.r + GAP
-          const d2 = dx * dx + dy * dy
-          if (d2 >= minDist * minDist || d2 === 0) continue
-          const d = Math.sqrt(d2)
-          const push = (minDist - d) / d
-          const wa = b.r / (a.r + b.r); const wb = 1 - wa
-          a.x -= dx * push * wa; a.y -= dy * push * wa
-          b.x += dx * push * wb; b.y += dy * push * wb
+          let dx = a.x - b.x; let dy = a.y - b.y
+          let d = Math.hypot(dx, dy)
+          if (d === 0) { dx = 0.01 * (i - j); dy = 0.01; d = Math.hypot(dx, dy) }
+          const cutoff = maxR * 4
+          if (d > cutoff) continue
+          const f = (0.35 * alpha * (a.r * b.r)) / (d * Math.max(d, a.r + b.r))
+          const fx = (dx / d) * f; const fy = (dy / d) * f
+          disp[i].x += fx; disp[i].y += fy
+          disp[j].x -= fx; disp[j].y -= fy
+        }
+      }
+
+      // Springs along links: pull toward resting distance r_i + r_j + GAP
+      for (const [ia, ib] of linkPairs) {
+        const a = bubbles[ia]; const b = bubbles[ib]
+        const dx = b.x - a.x; const dy = b.y - a.y
+        const d = Math.hypot(dx, dy) || 0.001
+        const rest = a.r + b.r + GAP
+        const f = 0.06 * (d - rest)
+        const fx = (dx / d) * f; const fy = (dy / d) * f
+        disp[ia].x += fx; disp[ia].y += fy
+        disp[ib].x -= fx; disp[ib].y -= fy
+      }
+
+      // Mild gravity toward origin keeps the whole map centered
+      for (let i = 0; i < n; i++) {
+        disp[i].x -= bubbles[i].x * 0.012
+        disp[i].y -= bubbles[i].y * 0.012
+      }
+
+      // Integrate with damping
+      for (let i = 0; i < n; i++) {
+        bubbles[i].x += disp[i].x * 0.6
+        bubbles[i].y += disp[i].y * 0.6
+      }
+
+      // Hard collision: never allow overlap (keeps the spacing visible)
+      for (let pass = 0; pass < 2; pass++) {
+        rebuildGrid()
+        for (let i = 0; i < n; i++) {
+          const a = bubbles[i]
+          for (const j of neighborsOf(a.x, a.y, a.r + maxR)) {
+            if (j <= i) continue
+            const b = bubbles[j]
+            const dx = b.x - a.x; const dy = b.y - a.y
+            const minDist = a.r + b.r + GAP
+            const d2 = dx * dx + dy * dy
+            if (d2 >= minDist * minDist || d2 === 0) continue
+            const d = Math.sqrt(d2)
+            const push = (minDist - d) / d
+            const wa = b.r / (a.r + b.r); const wb = 1 - wa
+            a.x -= dx * push * wa; a.y -= dy * push * wa
+            b.x += dx * push * wb; b.y += dy * push * wb
+          }
         }
       }
     }
@@ -439,11 +475,20 @@ export class TokenViewer {
 <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="1.4" fill="rgba(255,255,255,0.3)"/>`)
     }
 
+    // Muted pastel hues for independent (unlinked) holders, deterministic per wallet
+    const SOLO_HUES = [210, 260, 190, 300, 170, 230, 320, 200, 280, 150, 240, 310]
+    const soloColorFor = (accountId: string): number => {
+      let h = 0
+      for (let i = 0; i < accountId.length; i++) h = (h * 31 + accountId.charCodeAt(i)) >>> 0
+      return SOLO_HUES[h % SOLO_HUES.length]
+    }
+
     const circles = bubbles.map((b) => {
       const pct = parseFloat(b.holder.percentage)
       const rgb = colorFor(b.holder.accountId)
-      const fill = rgb ? `rgba(${rgb}, 0.55)` : 'rgba(148, 163, 184, 0.28)'
-      const stroke = rgb ? `rgba(${rgb}, 0.95)` : 'rgba(255,255,255,0.28)'
+      const solo = rgb ? null : soloColorFor(b.holder.accountId)
+      const fill = rgb ? `rgba(${rgb}, 0.55)` : `hsla(${solo}, 45%, 62%, 0.35)`
+      const stroke = rgb ? `rgba(${rgb}, 0.95)` : `hsla(${solo}, 50%, 72%, 0.5)`
       const pctLabel = b.r >= 16
         ? `<text x="${b.x.toFixed(1)}" y="${(b.y + 3.5).toFixed(1)}" text-anchor="middle" class="bubble-label">${pct >= 1 ? pct.toFixed(1) + '%' : pct.toFixed(2) + '%'}</text>`
         : ''
@@ -462,7 +507,7 @@ export class TokenViewer {
             const rgb = clusterColor.get(c)!
             return `<span class="bubblemap-legend-item"><span class="bubblemap-swatch" style="background:rgba(${rgb},0.85)"></span>${clusterSizes.get(c)} linked wallets</span>`
           }).join('')}
-          <span class="bubblemap-legend-item"><span class="bubblemap-swatch" style="background:rgba(148,163,184,0.4)"></span>unlinked</span>
+          <span class="bubblemap-legend-item"><span class="bubblemap-swatch" style="background:hsla(220, 45%, 62%, 0.6)"></span>independent</span>
         </div>`
       : ''
 
@@ -672,40 +717,57 @@ export class TokenViewer {
     this.totalHolders = allHolders.length
     this.holders = allHolders
     this.holdersPage = 0
-    this.tokenLinks = await this.fetchTokenLinks(tokenId, new Set(allHolders.map((h) => h.accountId)))
+    this.tokenLinks = await this.fetchTokenLinks(tokenId, allHolders)
     this.loading = false
     this.refresh()
   }
 
-  // Paginate the token's recent transfers (capped) and keep deduped holder→holder
-  // pairs where both endpoints currently hold the token.
-  private static async fetchTokenLinks(tokenId: string, holderSet: Set<string>): Promise<[string, string][]> {
-    const MAX_PAGES = 25 // ~2,500 recent transfers
+  // Build the holder→holder link graph by scanning recent transactions of the
+  // top holders (the bulk /tokens/{id}/transfers endpoint doesn't exist on the
+  // public mirror node — token_transfers are embedded in each account's txs).
+  private static async fetchTokenLinks(tokenId: string, holders: TokenHolder[]): Promise<[string, string][]> {
+    const holderSet = new Set(holders.map((h) => h.accountId))
     const seen = new Set<string>()
     const links: [string, string][] = []
-    let nextLink: string | null = `${this.mirrorNodeUrl}/api/v1/tokens/${tokenId}/transfers?limit=100&order=desc`
-    let pages = 0
+    const MAX_LINKS = 1500
+    const TOP_HOLDERS = 40
 
-    while (nextLink && pages < MAX_PAGES) {
+    const scanHolder = async (holder: TokenHolder): Promise<void> => {
       try {
-        const response: Response = await fetch(nextLink)
-        if (!response.ok) break
-        const data: any = await response.json()
-        pages++
-        for (const t of data.transfers || []) {
-          const from: string = t.from_account ?? ''
-          const to: string = t.to_account ?? ''
-          if (!from || !to || from === to) continue
-          if (!holderSet.has(from) || !holderSet.has(to)) continue
-          const key = from < to ? `${from}|${to}` : `${to}|${from}`
-          if (seen.has(key)) continue
-          seen.add(key)
-          links.push([from, to])
+        const res: Response = await fetch(`${this.mirrorNodeUrl}/api/v1/transactions?account.id=${holder.accountId}&limit=100&order=desc`)
+        if (!res.ok) return
+        const data: any = await res.json()
+        for (const tx of data.transactions || []) {
+          const senders: string[] = []; const receivers: string[] = []
+          for (const tt of tx.token_transfers || []) {
+            if (tt.token_id !== tokenId) continue
+            if (Number(tt.amount) < 0) senders.push(tt.account)
+            else if (Number(tt.amount) > 0) receivers.push(tt.account)
+          }
+          for (const nt of tx.nft_transfers || []) {
+            if (nt.token_id !== tokenId) continue
+            if (nt.sender_account_id) senders.push(nt.sender_account_id)
+            if (nt.receiver_account_id) receivers.push(nt.receiver_account_id)
+          }
+          for (const s of senders) {
+            for (const r of receivers) {
+              if (s === r || !holderSet.has(s) || !holderSet.has(r)) continue
+              const key = s < r ? `${s}|${r}` : `${r}|${s}`
+              if (seen.has(key)) continue
+              seen.add(key)
+              links.push([s, r])
+              if (links.length >= MAX_LINKS) return
+            }
+          }
         }
-        nextLink = data.links?.next ? `${this.mirrorNodeUrl}${data.links.next}` : null
-      } catch {
-        break
-      }
+      } catch { /* skip this holder */ }
+    }
+
+    // Chunked concurrency (6 at a time) to stay friendly to the mirror node
+    const top = holders.slice(0, TOP_HOLDERS)
+    for (let i = 0; i < top.length; i += 6) {
+      await Promise.all(top.slice(i, i + 6).map(scanHolder))
+      if (links.length >= MAX_LINKS) break
     }
     return links
   }
