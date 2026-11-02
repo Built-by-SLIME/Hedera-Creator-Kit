@@ -135,7 +135,9 @@ async function runMintJob(jobId: string, body: MintRequest): Promise<void> {
       const batch = batches[i];
 
       const metadataList = batch.map((cid) => {
-        const uri = cid.startsWith('ipfs://') ? cid : `ipfs://${cid}`;
+        // Inscription pointers (hcs://…) and full URLs pass through untouched;
+        // bare CIDs get the ipfs:// prefix as before.
+        const uri = /^(ipfs|hcs|https?):\/\//.test(cid) ? cid : `ipfs://${cid}`;
         return Buffer.from(uri);
       });
 

@@ -83,6 +83,8 @@ export class InscribeNFTs {
   private static chunksTotal = 0
   private static mintJobId: string | null = null
   private static mintedSerials: number[] = []
+  private static startedAt: number | null = null
+  private static ticker: number | null = null
 
   // ─── RENDER ─────────────────────────────────────────────
 
@@ -277,24 +279,74 @@ export class InscribeNFTs {
   private static renderProgress(title: string): string {
     const isInscribe = this.step === 'inscribing'
     const pct = this.chunksTotal ? Math.round((this.chunksDone / this.chunksTotal) * 100) : 0
+    const submitting = isInscribe && this.chunksDone < this.chunksTotal
+    const elapsed = this.startedAt ? Math.floor((Date.now() - this.startedAt) / 1000) : 0
+    const phases = this.phaseStates()
+    const phaseRow = (label: string, state: 'done' | 'active' | 'pending') => `
+      <div style="display:flex;align-items:center;gap:0.5rem;padding:0.22rem 0;font-size:0.8rem">
+        <span style="color:${state === 'done' ? 'var(--terminal-purple)' : state === 'active' ? 'var(--terminal-purple)' : 'var(--terminal-text)'};opacity:${state === 'pending' ? 0.45 : 1}">
+          ${state === 'done' ? '✓' : state === 'active' ? '●' : '○'}
+        </span>
+        <span style="color:${state === 'pending' ? 'var(--terminal-text)' : 'inherit'};opacity:${state === 'pending' ? 0.45 : 1}">${label}</span>
+        ${state === 'active' ? '<span style="margin-left:auto;font-size:0.72rem;color:var(--terminal-text)">in progress…</span>' : ''}
+      </div>`
     return `
       <div class="cc-panel" style="margin-top:1rem">
         <h4 style="margin:0 0 0.75rem;color:var(--terminal-green)">${title}</h4>
         ${this.statusMessage ? `<p style="color:var(--terminal-text);font-size:0.85rem;margin:0 0 0.75rem">${this.escapeHtml(this.statusMessage)}</p>` : ''}
         ${isInscribe ? `
-          <div style="background:rgba(255,255,255,0.08);border-radius:4px;height:10px;overflow:hidden">
-            <div style="background:var(--terminal-green);height:100%;width:${pct}%;transition:width 0.4s"></div>
+          <div style="border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:0.6rem 0.85rem;margin-bottom:0.9rem">
+            ${phaseRow('Media on-chain', phases.media)}
+            ${phaseRow('Metadata on-chain', phases.meta)}
+            ${phaseRow('Registry (HCS-6)', phases.registry)}
           </div>
-          <p style="font-size:0.78rem;color:var(--terminal-text);margin:0.5rem 0 0">
-            ${this.chunksDone} / ${this.chunksTotal} chunks (${pct}%)
+          ${submitting ? `
+            <div style="background:rgba(255,255,255,0.08);border-radius:4px;height:10px;overflow:hidden">
+              <div style="background:var(--terminal-green);height:100%;width:${pct}%;transition:width 0.4s"></div>
+            </div>
+            <p style="font-size:0.78rem;color:var(--terminal-text);margin:0.5rem 0 0">
+              ${this.chunksDone} / ${this.chunksTotal} chunks (${pct}%)
+            </p>
+          ` : `
+            <p style="font-size:0.8rem;color:var(--terminal-text);margin:0">
+              ⏱ ${elapsed}s elapsed — confirming on the mirror node. This can take 1–2 minutes, keep this tab open.
+            </p>
+          `}
+        ` : `
+          <p style="font-size:0.8rem;color:var(--terminal-text);margin:0">
+            ⏱ ${elapsed}s elapsed — keep this tab open.
           </p>
-        ` : ''}
+        `}
         ${this.inscription?.mediaTopic ? `<p class="mono" style="font-size:0.75rem;color:var(--terminal-text);margin:0.6rem 0 0">media topic: ${this.inscription.mediaTopic}</p>` : ''}
         ${this.inscription?.metaTopic ? `<p class="mono" style="font-size:0.75rem;color:var(--terminal-text);margin:0.25rem 0 0">metadata topic: ${this.inscription.metaTopic}</p>` : ''}
         ${this.inscription?.registryTopic ? `<p class="mono" style="font-size:0.75rem;color:var(--terminal-text);margin:0.25rem 0 0">registry topic: ${this.inscription.registryTopic}</p>` : ''}
         ${this.error ? `<div class="cc-error-banner" style="margin-top:1rem">✗ ${this.escapeHtml(this.error)}</div>` : ''}
       </div>
     `
+  }
+
+  /** Phase states derived from the backend's live step text. */
+  private static phaseStates(): { media: 'done' | 'active' | 'pending'; meta: 'done' | 'active' | 'pending'; registry: 'done' | 'active' | 'pending' } {
+    const s = (this.statusMessage || '').toLowerCase()
+    const mediaDone = /media verified|metadata|registry|done/.test(s)
+    const metaDone = /metadata verified|registry|done/.test(s)
+    const registryDone = /registered|done/.test(s)
+    return {
+      media: mediaDone ? 'done' : 'active',
+      meta: metaDone ? 'done' : mediaDone ? 'active' : 'pending',
+      registry: registryDone ? 'done' : /registry/.test(s) ? 'active' : 'pending',
+    }
+  }
+
+  private static startTicker(): void {
+    this.stopTicker()
+    this.ticker = window.setInterval(() => {
+      if (this.step === 'inscribing' || this.step === 'minting') this.refresh()
+    }, 1000)
+  }
+
+  private static stopTicker(): void {
+    if (this.ticker !== null) { window.clearInterval(this.ticker); this.ticker = null }
   }
 
   private static renderComplete(): string {
@@ -540,6 +592,8 @@ export class InscribeNFTs {
 
     this.step = 'inscribing'
     this.statusMessage = 'Calculating total network fees…'
+    this.startedAt = Date.now()
+    this.startTicker()
     this.refresh()
 
     try {
@@ -612,11 +666,13 @@ export class InscribeNFTs {
 
       this.step = 'complete'
       this.statusMessage = ''
+      this.stopTicker()
       this.refresh()
     } catch (err: any) {
       console.error('Inscribe error:', err)
       this.error = err.message || 'Inscription failed'
       this.step = 'setup'
+      this.stopTicker()
       this.refresh()
     }
   }
@@ -660,6 +716,8 @@ export class InscribeNFTs {
 
   static resetState(): void {
     if (this.previewUrl) URL.revokeObjectURL(this.previewUrl)
+    this.stopTicker()
+    this.startedAt = null
     this.step = 'setup'
     this.error = null
     this.statusMessage = ''

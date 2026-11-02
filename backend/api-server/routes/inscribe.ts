@@ -208,7 +208,11 @@ async function runInscribeJob(
       doneKey: 'mediaDone',
       onProgress: (_d: number, _t: number, msg: string) => {
         const m = msg.match(/chunk (\d+) of (\d+)/);
-        if (m) updateInscribeJob(jobId, { chunksDone: Number(m[1]), chunksTotal: Number(m[2]), step: 'inscribing media' });
+        // chunk writes update the bar; the mirror-wait/verify messages pass through
+        // verbatim so the UI stays alive during the post-submit confirmations
+        updateInscribeJob(jobId, m
+          ? { chunksDone: Number(m[1]), chunksTotal: Number(m[2]), step: 'inscribing media' }
+          : { step: msg });
       },
     });
     updateInscribeJob(jobId, { mediaTopic: media.topicId, step: 'media verified' });
@@ -231,6 +235,10 @@ async function runInscribeJob(
     const metaResult = await inscribe(ctx, metaChunks, metaSha, {
       topicKey: 'meta',
       doneKey: 'metaDone',
+      onProgress: (_d: number, _t: number, msg: string) => {
+        const m = msg.match(/chunk (\d+) of (\d+)/);
+        updateInscribeJob(jobId, { step: m ? 'inscribing metadata' : `metadata: ${msg.toLowerCase()}` });
+      },
     });
     updateInscribeJob(jobId, { metaTopic: metaResult.topicId, step: 'metadata verified' });
 
