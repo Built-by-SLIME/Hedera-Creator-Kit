@@ -38,7 +38,6 @@ interface FileView {
 }
 
 export class TopicViewer {
-  private static network: 'mainnet' | 'testnet' = 'mainnet'
   private static topicIdInput = ''
   private static info: TopicInfo | null = null
   private static messages: TopicMessage[] = []
@@ -65,9 +64,6 @@ export class TopicViewer {
                 <h3 class="section-title">◆ Topic Viewer</h3>
                 <p class="cc-hip-badge">⬡ HCS-1 / HCS-6 · read-only mirror explorer</p>
                 ${this.renderLookup()}
-                ${this.info ? this.renderInfo() : ''}
-                ${this.messages.length ? this.renderMessages() : ''}
-                ${this.registryEntries.length ? this.renderRegistry() : ''}
                 ${this.error ? `<div class="cc-error-banner" style="margin-top:1rem">✗ ${this.escapeHtml(this.error)}</div>` : ''}
               </div>
             </div>
@@ -88,17 +84,10 @@ export class TopicViewer {
     return `
       <div class="cc-panel" style="margin-top:1rem">
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
-          <div style="display:flex;gap:0.25rem">
-            <button class="cc-btn cc-btn-secondary tv-net ${this.network === 'mainnet' ? 'tv-net-active' : ''}" data-net="mainnet" type="button">Mainnet</button>
-            <button class="cc-btn cc-btn-secondary tv-net ${this.network === 'testnet' ? 'tv-net-active' : ''}" data-net="testnet" type="button">Testnet</button>
-          </div>
           <input type="text" id="topic-id-input" class="cc-input mono" placeholder="0.0.XXXXXXX"
             value="${this.escapeHtml(this.topicIdInput)}" style="flex:1;min-width:140px" />
           <button id="topic-load" class="cc-btn" ${this.loading ? 'disabled' : ''}>${this.loading ? 'Loading…' : 'Load'}</button>
         </div>
-        <style>
-          .tv-net-active { background: var(--terminal-green) !important; color: #000 !important; }
-        </style>
       </div>
     `
   }
@@ -170,11 +159,24 @@ export class TopicViewer {
   }
 
   private static renderRightPanel(): string {
-    if (this.fileLoading) {
-      return `<h4 style="color:var(--terminal-green);margin:0 0 0.75rem">File</h4>
-        <p style="font-size:0.82rem;color:var(--terminal-text)">Reading chunks from the mirror node, decompressing, verifying the SHA-256 against the topic memo…</p>`
+    if (!this.info && !this.messages.length && !this.fileLoading && !this.file) {
+      return `
+        <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Topic Viewer</h4>
+        <p style="font-size:0.8rem;color:var(--terminal-text);margin:0 0 0.5rem">
+          Load a topic to decode its message stream. HCS-1 inscription topics reassemble
+          into their original file — compressed, hash-verified against the topic memo.
+        </p>
+        <p style="font-size:0.8rem;color:var(--terminal-text);margin:0">
+          Safety: SVG renders as a static image only, HTML shows as source text, and no
+          inscribed content is ever executed.
+        </p>
+      `
     }
-    if (this.file) {
+    let out = this.info ? this.renderInfo() : ''
+    if (this.fileLoading) {
+      out += `<h4 style="color:var(--terminal-green);margin:1rem 0 0.75rem">File</h4>
+        <p style="font-size:0.82rem;color:var(--terminal-text)">Reading chunks from the mirror node, decompressing, verifying the SHA-256 against the topic memo…</p>`
+    } else if (this.file) {
       const f = this.file
       const dlName = `${f.topicId.replace(/\./g, '-')}.${f.media.extension}`
       const download = `<a class="cc-btn cc-btn-secondary" style="display:inline-block;margin-top:0.6rem;text-decoration:none"
@@ -196,8 +198,8 @@ export class TopicViewer {
         default:
           body = `<p style="font-size:0.82rem;color:var(--terminal-text)">Binary file — download to inspect.</p>`
       }
-      return `
-        <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Verified File</h4>
+      out += `
+        <h4 style="color:var(--terminal-green);margin:1rem 0 0.75rem">Verified File</h4>
         ${body}
         ${f.media.note ? `<p style="font-size:0.72rem;color:var(--terminal-yellow);margin:0.5rem 0 0">${this.escapeHtml(f.media.note)}</p>` : ''}
         <p class="mono" style="font-size:0.7rem;color:var(--terminal-text);word-break:break-all;margin:0.6rem 0 0">${f.mime} · ${this.fmtBytes(f.size)} · ${f.chunks} chunks</p>
@@ -205,17 +207,9 @@ export class TopicViewer {
         ${download}
       `
     }
-    return `
-      <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Topic Viewer</h4>
-      <p style="font-size:0.8rem;color:var(--terminal-text);margin:0 0 0.5rem">
-        Load a topic to decode its message stream. HCS-1 inscription topics reassemble
-        into their original file — compressed, hash-verified against the topic memo.
-      </p>
-      <p style="font-size:0.8rem;color:var(--terminal-text);margin:0">
-        Safety: SVG renders as a static image only, HTML shows as source text, and no
-        inscribed content is ever executed.
-      </p>
-    `
+    if (this.messages.length) out += this.renderMessages()
+    if (this.registryEntries.length) out += this.renderRegistry()
+    return out
   }
 
   // ─── INIT ───────────────────────────────────────────────
@@ -225,12 +219,6 @@ export class TopicViewer {
       window.dispatchEvent(new CustomEvent('navigate-to-tool', { detail: { toolId: 'home' } }))
     })
 
-    document.querySelectorAll('.tv-net').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.network = (btn as HTMLElement).dataset.net as 'mainnet' | 'testnet'
-        this.refresh()
-      })
-    })
     document.getElementById('topic-id-input')?.addEventListener('input', (e) => {
       this.topicIdInput = (e.target as HTMLInputElement).value.trim()
     })
@@ -259,8 +247,8 @@ export class TopicViewer {
     this.refresh()
     try {
       const [infoRes, msgsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/hcs/topic/${topicId}/info?network=${this.network}`),
-        fetch(`${API_BASE_URL}/api/hcs/topic/${topicId}/messages?network=${this.network}`),
+        fetch(`${API_BASE_URL}/api/hcs/topic/${topicId}/info?network=mainnet`),
+        fetch(`${API_BASE_URL}/api/hcs/topic/${topicId}/messages?network=mainnet`),
       ])
       const info = await infoRes.json()
       if (!infoRes.ok || !info.success) throw new Error(info.error || `Mirror returned ${infoRes.status}`)
@@ -292,7 +280,7 @@ export class TopicViewer {
     this.fileLoading = true
     this.refresh()
     try {
-      const res = await fetch(`${API_BASE_URL}/api/hcs/topic/${topicId}/file?network=${this.network}`)
+      const res = await fetch(`${API_BASE_URL}/api/hcs/topic/${topicId}/file?network=mainnet`)
       const data = await res.json()
       if (!res.ok || !data.success) throw new Error(data.error || 'Reassembly failed')
       this.clearFile()
@@ -322,7 +310,6 @@ export class TopicViewer {
 
   static resetForm(): void {
     this.clearFile()
-    this.network = 'mainnet'
     this.topicIdInput = ''
     this.info = null
     this.messages = []
@@ -334,13 +321,17 @@ export class TopicViewer {
   }
 
   private static refresh(): void {
-    const scrollContainer = document.querySelector('.art-gen-left')
-    const scrollTop = scrollContainer?.scrollTop ?? 0
+    const left = document.querySelector('.art-gen-left')
+    const right = document.querySelector('.art-gen-right')
+    const leftTop = left?.scrollTop ?? 0
+    const rightTop = right?.scrollTop ?? 0
     const app = document.querySelector<HTMLDivElement>('#app')!
     app.innerHTML = this.render()
     this.init()
-    const newContainer = document.querySelector('.art-gen-left')
-    if (newContainer) newContainer.scrollTop = scrollTop
+    const newLeft = document.querySelector('.art-gen-left')
+    const newRight = document.querySelector('.art-gen-right')
+    if (newLeft) newLeft.scrollTop = leftTop
+    if (newRight) newRight.scrollTop = rightTop
   }
 
   private static fmtBytes(n: number): string {
