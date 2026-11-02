@@ -111,8 +111,12 @@ export class MintNFTs {
     return `
       <div class="terminal-window">
         <div class="window-chrome">
-          <div class="window-dots"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div>
-          <div class="window-title">SLIME TOOLS</div>
+          <div class="window-controls">
+            <div class="window-dot close"></div>
+            <div class="window-dot minimize"></div>
+            <div class="window-dot maximize"></div>
+          </div>
+          <div class="window-title">slime-tools — mint nfts</div>
         </div>
         <div class="terminal-content">
           <div class="art-gen-layout">
@@ -130,8 +134,15 @@ export class MintNFTs {
           </div>
         </div>
         <div class="status-bar">
-          <span class="status-left">${ws.accountId ? `⬡ ${ws.accountId}` : '⬡ Not connected'}</span>
-          <span class="status-right">${ws.hbarBalance ? `${ws.hbarBalance} ℏ` : ''} · Mainnet</span>
+          <div class="status-left">
+            <span class="status-item"><span class="status-indicator"></span><span class="status-value">${ws.accountId ?? 'Not Connected'}</span></span>
+            ${ws.hbarBalance ? `<span class="status-item"><span class="status-highlight">${ws.hbarBalance} ℏ</span></span>` : ''}
+          </div>
+          <div class="status-center"><span class="status-item">Built by SLIME</span></div>
+          <div class="status-right">
+            <span class="status-item">SLIME TOOLS v1.2</span>
+            <span class="status-item">MAINNET</span>
+          </div>
         </div>
       </div>`;
   }
