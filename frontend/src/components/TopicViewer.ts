@@ -100,7 +100,7 @@ export class TopicViewer {
     return `
       <div class="cc-panel" style="margin-top:1rem">
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-          <span class="cc-badge" style="background:var(--terminal-green);color:#000;font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:4px;font-weight:700">${kindLabel}</span>
+          <span class="cc-badge" style="background:var(--terminal-purple);color:var(--terminal-bg-dark);font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:4px;font-weight:700">${kindLabel}</span>
           <span style="font-size:0.78rem;color:var(--terminal-text)">${i.running ? '● running' : '■ stopped'} · ${i.sequenceEnd} messages</span>
         </div>
         ${i.memo ? `<p class="mono" style="font-size:0.72rem;color:var(--terminal-text);word-break:break-all;margin:0.6rem 0 0">memo: ${this.escapeHtml(i.memo)}</p>` : ''}
@@ -136,7 +136,7 @@ export class TopicViewer {
             padding:0.75rem 0.9rem; white-space:pre-wrap; word-break:break-word; font-size:0.75rem; line-height:1.55;
             max-height:340px; overflow-y:auto }
           .tv-j-key { color:#e8d44d }
-          .tv-j-str { color:var(--terminal-green) }
+          .tv-j-str { color:var(--terminal-purple) }
           .tv-j-num { color:#7dd3fc }
           .tv-j-bool { color:#c084fc }
           .tv-msg-plain { margin:0.65rem 0 0; white-space:pre-wrap; word-break:break-all; font-size:0.75rem;
@@ -147,7 +147,7 @@ export class TopicViewer {
           .tv-chip { font-size:0.62rem; padding:0.1rem 0.4rem; border-radius:3px; font-weight:700; letter-spacing:0.03em }
           .tv-chip-hcs1-chunk { background:#7c3aed33; color:#c4b5fd }
           .tv-chip-hcs6-register { background:#0891b233; color:#67e8f9 }
-          .tv-chip-json { background:#6bff9e22; color:var(--terminal-green) }
+          .tv-chip-json { background:#6bff9e22; color:#4ade80 }
           .tv-chip-text { background:#ffffff14; color:#cbd5e1 }
         </style>
       </div>
