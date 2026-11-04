@@ -25,6 +25,7 @@ interface SessionGenerateRequest {
     imageQuality?: number;
     startSerialNumber?: number;
     rarity?: RarityConfig;
+    outputMode?: 'ipfs' | 'download';
   };
 }
 
@@ -89,7 +90,8 @@ export async function generateFromSession(req: Request, res: Response) {
     }
 
     const jobId = uuidv4();
-    createJob(jobId, body.sessionId, totalNFTs);
+    const outputMode = body.config.outputMode === 'download' ? 'download' : 'ipfs';
+    createJob(jobId, body.sessionId, totalNFTs, outputMode);
 
     // Run the long generation/pinning work in the background. Do NOT await.
     runGenerationJob(jobId, body, sessionDir).catch((error) => {
@@ -177,6 +179,41 @@ async function runGenerationJob(
 
     if (result.failed > 0 && result.successful === 0) {
       throw new Error('Failed to generate NFT collection');
+    }
+
+    // Download mode: skip IPFS pinning entirely. Keep the output folder so the
+    // user can grab a ZIP of images/ + metadata/ (for inscription workflows),
+    // then remove only the uploaded-traits session.
+    if (body.config.outputMode === 'download') {
+      const imageFiles = (await fs.readdir(imagesDir)).filter(f => !f.startsWith('.'));
+      const metadataFiles = (await fs.readdir(metadataDir)).filter(f => !f.startsWith('.'));
+      const files = imageFiles.length + metadataFiles.length;
+
+      console.log(`[Job ${jobId}] ✅ Generated ${result.successful} NFTs (download mode, no pinning)`);
+
+      await fs.remove(sessionDir);
+
+      updateJob(jobId, {
+        status: 'completed',
+        outputDir,
+        result: {
+          nfts: [],
+          token_uris: [],
+          collection_info: {
+            name: collectionName,
+            description: body.config.collectionDescription,
+            total_nfts: totalNFTs
+          },
+          generation_stats: {
+            total: result.totalNFTs,
+            successful: result.successful,
+            failed: result.failed,
+            duration: result.duration
+          },
+          download: { files }
+        }
+      });
+      return;
     }
 
     // Pin each image individually and remember its CID for the result object

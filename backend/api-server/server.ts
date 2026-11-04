@@ -13,6 +13,7 @@ import { uploadLayers } from './routes/upload-layers';
 import { previewFromSession } from './routes/preview-session';
 import { generateFromSession } from './routes/generate-session';
 import { getGenerationStatus } from './routes/generate-status';
+import { downloadGeneratedZip } from './routes/generate-download';
 import { pinCollectionMetadata } from './routes/pin-collection-metadata';
 import { pinNftMetadata } from './routes/pin-nft-metadata';
 import { pinMetadataJson } from './routes/pin-metadata-json';
@@ -20,6 +21,7 @@ import { mintNfts } from './routes/mint-nfts';
 import { getMintStatus } from './routes/mint-status';
 import { calculateMintFee } from './routes/calculate-mint-fee';
 import { prepareInscribe, startInscribe, inscribeStatus } from './routes/inscribe';
+import { prepareBatchInscribe, startBatchInscribe, batchInscribeStatus, resumeBatchInscribe } from './routes/inscribe-batch';
 import { updateQuote, startUpdate } from './routes/inscribe-update';
 import { topicInfo, topicMessages, topicFile, resolvePointer } from './routes/hcs-viewer';
 import {
@@ -169,13 +171,16 @@ setInterval(() => {
 import { cleanupOldJobs } from './jobStore';
 import { cleanupOldMintJobs } from './mintJobStore';
 import { cleanupOldInscribeJobs } from './inscribeJobStore';
+import { cleanupBatchArtifacts } from './batchInscribeStore';
 setInterval(() => {
   const removedGen = cleanupOldJobs(24 * 60 * 60 * 1000);
   const removedMint = cleanupOldMintJobs(24 * 60 * 60 * 1000);
   const removedInscribe = cleanupOldInscribeJobs(24 * 60 * 60 * 1000);
-  if (removedGen > 0 || removedMint > 0 || removedInscribe > 0) {
-    console.log(`Cleaned up ${removedGen} old generation jobs, ${removedMint} old mint jobs, ${removedInscribe} old inscribe jobs`);
-  }
+  cleanupBatchArtifacts(24 * 60 * 60 * 1000).then(removedBatch => {
+    if (removedGen > 0 || removedMint > 0 || removedInscribe > 0 || removedBatch > 0) {
+      console.log(`Cleaned up ${removedGen} old generation jobs, ${removedMint} old mint jobs, ${removedInscribe} old inscribe jobs, ${removedBatch} old batch artifacts`);
+    }
+  }).catch(() => {});
 }, 60 * 60 * 1000);
 
 // Routes
@@ -185,6 +190,7 @@ app.post('/api/generate-collection', upload.single('zipFile'), generateCollectio
 app.post('/api/preview-session', previewFromSession);
 app.post('/api/generate-session', generateFromSession);
 app.get('/api/generate-status/:jobId', (req, res, next) => getGenerationStatus(req, res).catch(next));
+app.get('/api/generate-download/:jobId', (req, res, next) => downloadGeneratedZip(req, res).catch(next));
 app.post('/api/pin-collection-metadata', imageUpload.fields([
   { name: 'logo', maxCount: 1 },
   { name: 'banner', maxCount: 1 },
@@ -264,6 +270,15 @@ app.get('/api/inscribe/status/:jobId', (req, res, next) => inscribeStatus(req, r
 // HCS-6 metadata update: new metadata topic + new register version (reuses the job store/poller)
 app.post('/api/inscribe/update-quote', (req, res, next) => updateQuote(req, res).catch(next));
 app.post('/api/inscribe/update', (req, res, next) => startUpdate(req, res).catch(next));
+// Batch inscription: whole generated collection (ZIP of images/ + metadata/) inscribed + minted
+app.post('/api/inscribe-batch/prepare', inscribeUpload.single('zip'), (req, res, next) => {
+  prepareBatchInscribe(req, res).catch(next);
+});
+app.post('/api/inscribe-batch/start', (req, res, next) => {
+  startBatchInscribe(req, res).catch(next);
+});
+app.get('/api/inscribe-batch/status/:jobId', (req, res, next) => batchInscribeStatus(req, res).catch(next));
+app.post('/api/inscribe-batch/resume/:jobId', (req, res, next) => resumeBatchInscribe(req, res).catch(next));
 
 // Read-only HCS endpoints for the Topic Viewer (Tool #16)
 app.get('/api/hcs/topic/:topicId/info', (req, res, next) => topicInfo(req, res).catch(next));

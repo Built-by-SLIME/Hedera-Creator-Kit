@@ -1,3 +1,5 @@
+import fs from 'fs-extra';
+
 /**
  * In-memory job store for long-running art generation tasks.
  *
@@ -15,6 +17,8 @@ export type JobStatus =
   | 'completed'
   | 'failed';
 
+export type OutputMode = 'ipfs' | 'download';
+
 export interface GenerationResult {
   number: number;
   imageCID: string;
@@ -26,6 +30,9 @@ export interface GenerationJob {
   jobId: string;
   sessionId: string;
   status: JobStatus;
+  outputMode: OutputMode;
+  /** Local folder holding images/ + metadata/ in 'download' mode. Removed after the ZIP is downloaded. */
+  outputDir?: string;
   createdAt: number;
   updatedAt: number;
   totalNFTs: number;
@@ -47,17 +54,21 @@ export interface GenerationJob {
       failed: number;
       duration: number;
     };
+    download?: {
+      files: number;
+    };
   };
 }
 
 const jobs = new Map<string, GenerationJob>();
 
-export function createJob(jobId: string, sessionId: string, totalNFTs: number): GenerationJob {
+export function createJob(jobId: string, sessionId: string, totalNFTs: number, outputMode: OutputMode = 'ipfs'): GenerationJob {
   const now = Date.now();
   const job: GenerationJob = {
     jobId,
     sessionId,
     status: 'queued',
+    outputMode,
     createdAt: now,
     updatedAt: now,
     totalNFTs,
@@ -90,6 +101,7 @@ export function cleanupOldJobs(maxAgeMs: number): number {
   let removed = 0;
   for (const [jobId, job] of jobs.entries()) {
     if (job.createdAt < cutoff) {
+      if (job.outputDir) fs.remove(job.outputDir).catch(() => {});
       jobs.delete(jobId);
       removed++;
     }

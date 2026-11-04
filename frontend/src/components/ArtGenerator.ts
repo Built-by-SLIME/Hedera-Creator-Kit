@@ -32,6 +32,8 @@ export class ArtGenerator {
   private static nftResults: Array<{ number: number; imageCID: string; metadataCID: string; tokenURI: string }> = [];
   private static tokenURIs: string[] = [];
   private static generationStats: any = null;
+  private static outputMode: 'ipfs' | 'download' = 'ipfs';
+  private static downloaded = false;
 
   // Async generation job state
   private static jobId: string | null = null;
@@ -257,6 +259,9 @@ export class ArtGenerator {
         </div>
         <button id="regenerate-preview-btn" class="terminal-button" ${this.previewsRemaining <= 0 ? 'disabled' : ''}><span>REGENERATE PREVIEW (${this.previewsRemaining} left)</span></button>
         <button id="approve-generate-btn" class="terminal-button" style="margin-top:0.5rem"><span>APPROVE & GENERATE FULL COLLECTION →</span></button>
+        <div class="filter-divider"></div>
+        <p class="section-desc">Inscribing instead of pinning to IPFS? Generate the collection as a ZIP (images + metadata) to use with the Inscribe tool's Collection mode.</p>
+        <button id="download-zip-generate-btn" class="terminal-button secondary" style="margin-top:0.5rem"><span>GENERATE & DOWNLOAD ZIP (FOR INSCRIPTIONS)</span></button>
       </div>`;
   }
 
@@ -294,10 +299,13 @@ export class ArtGenerator {
   }
 
   private static renderCompleteInfo(): string {
+    const isDownload = this.outputMode === 'download';
     return `
       <div class="art-gen-section">
         <h3 class="section-title">◆ Generation Complete ✓</h3>
-        <p class="section-desc">Your NFT collection has been generated and pinned to IPFS.</p>
+        <p class="section-desc">${isDownload
+          ? 'Your NFT collection has been generated. Download the ZIP and use it with the Inscribe tool\'s Collection mode.'
+          : 'Your NFT collection has been generated and pinned to IPFS.'}</p>
         <div class="preview-info">
           <div class="info-row"><span>Collection:</span><span class="status-value">${this.collectionName}</span></div>
           <div class="info-row"><span>Total NFTs:</span><span class="status-value">${this.generationStats?.successful || this.collectionSize}</span></div>
@@ -309,6 +317,19 @@ export class ArtGenerator {
   }
 
   private static renderCompleteResults(): string {
+    if (this.outputMode === 'download') {
+      return `
+        <div class="complete-results-panel">
+          <h4 class="subsection-title">Collection ZIP (for inscriptions)</h4>
+          <div class="result-block">
+            <label>Ready to download</label>
+            <p class="dim" style="margin:0.25rem 0 0">Contains <code>images/</code> + <code>metadata/</code> for every generated NFT, numbered by serial.</p>
+            <p class="dim" style="margin:0.25rem 0 0">⚠ Files are removed from the server once downloaded — keep this ZIP safe.</p>
+            <button id="download-collection-zip" class="terminal-button" style="margin-top:0.75rem" ${this.downloaded ? 'disabled' : ''}><span>${this.downloaded ? '✓ ZIP DOWNLOADED' : '⬇ DOWNLOAD COLLECTION ZIP'}</span></button>
+            <p class="dim" style="margin:0.5rem 0 0">Next: Create your collection in the Create Collection tool, then use the Inscribe tool's <b>Collection</b> mode with this ZIP.</p>
+          </div>
+        </div>`;
+    }
     return `
       <div class="complete-results-panel">
         <h4 class="subsection-title">IPFS Results</h4>
@@ -459,7 +480,8 @@ export class ArtGenerator {
     // Preview & Generate buttons
     document.getElementById('preview-btn')?.addEventListener('click', () => this.generatePreview());
     document.getElementById('regenerate-preview-btn')?.addEventListener('click', () => this.generatePreview());
-    document.getElementById('approve-generate-btn')?.addEventListener('click', () => this.generateFull());
+    document.getElementById('approve-generate-btn')?.addEventListener('click', () => this.generateFull('ipfs'));
+    document.getElementById('download-zip-generate-btn')?.addEventListener('click', () => this.generateFull('download'));
 
     // Copy buttons
     document.querySelectorAll('.copy-btn').forEach(btn => {
@@ -471,6 +493,9 @@ export class ArtGenerator {
 
     // Download token URIs CSV
     document.getElementById('download-uris-csv')?.addEventListener('click', () => this.downloadTokenURIsCSV());
+
+    // Download collection ZIP (download mode)
+    document.getElementById('download-collection-zip')?.addEventListener('click', () => this.downloadCollectionZip());
   }
 
   private static attachWeightListeners(): void {
@@ -604,11 +629,13 @@ export class ArtGenerator {
     }
   }
 
-  private static async generateFull(): Promise<void> {
+  private static async generateFull(mode: 'ipfs' | 'download'): Promise<void> {
     if (!this.sessionId) { this.error = 'No session. Please upload a ZIP first.'; this.refresh(); return; }
     this.loading = true;
     this.error = null;
     this.step = 'generate';
+    this.outputMode = mode;
+    this.downloaded = false;
     this.statusMessage = 'Starting generation job...';
     this.refresh();
 
@@ -621,6 +648,7 @@ export class ArtGenerator {
         collectionDescription: this.collectionDescription,
         collectionSize: this.collectionSize,
         startSerialNumber: this.startSerialNumber,
+        outputMode: mode,
         traitOrder: this.layers.map(l => l.name),
         rarity: {
           weights: this.weights.length > 0 ? this.weights : undefined,
@@ -685,7 +713,9 @@ export class ArtGenerator {
         this.generationStats = result?.generation_stats || null;
         this.step = 'complete';
         this.loading = false;
-        this.statusMessage = 'Collection generated and pinned to IPFS!';
+        this.statusMessage = this.outputMode === 'download'
+          ? 'Collection generated! Download your ZIP below.'
+          : 'Collection generated and pinned to IPFS!';
         this.refresh();
         return;
       }
@@ -755,6 +785,20 @@ export class ArtGenerator {
     URL.revokeObjectURL(url);
   }
 
+  private static async downloadCollectionZip(): Promise<void> {
+    if (!this.jobId) return;
+    const a = document.createElement('a');
+    a.href = `${API_BASE_URL}/api/generate-download/${this.jobId}`;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // The server deletes the files after the download; reflect that in the UI
+    this.downloaded = true;
+    this.statusMessage = 'ZIP downloaded. Files removed from server.';
+    setTimeout(() => this.refresh(), 1500);
+  }
+
   static resetState(): void {
     this.step = 'upload';
     this.sessionId = null;
@@ -777,6 +821,8 @@ export class ArtGenerator {
     this.nftResults = [];
     this.tokenURIs = [];
     this.generationStats = null;
+    this.outputMode = 'ipfs';
+    this.downloaded = false;
     this.jobId = null;
     this.pollFailures = 0;
     this.clearPolling();
