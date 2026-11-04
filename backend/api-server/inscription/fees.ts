@@ -18,7 +18,8 @@ export const FEES_CHECKED = '2026-10-13';
 /** Hedera's fees, in USD, for what ĦashPress sends. Base fees first, then the extras it can incur. */
 export const HEDERA_FEES_USD = Object.freeze({
   // base fees
-  topic: 0.01,                 // ConsensusCreateTopic: one per inscribed file (and per HCS-6 registry); one key included
+  topic: 0.02,                 // ConsensusCreateTopic: one per inscribed file (and per HCS-6 registry); one key included
+                               // (measured on mainnet 2026-11-02 against operator 0.0.9348822 charged tx fees: ~0.287 HBAR ≈ $0.020)
   msg: 0.0008,                 // ConsensusSubmitMessage: covers the first msgIncludedBytes of the message
   tokenCreate: 1.0,            // TokenCreate: a new collection; one key included
   mint: 0.02,                  // TokenMint, one NFT
