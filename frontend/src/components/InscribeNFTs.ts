@@ -86,6 +86,26 @@ export class InscribeNFTs {
   private static startedAt: number | null = null
   private static ticker: number | null = null
 
+  // collection (batch) mode
+  private static mode: 'single' | 'collection' = 'single'
+  private static zipFile: File | null = null
+  private static batchPreparing = false
+  private static batchPrepareError: string | null = null
+  private static batchPrepared: {
+    preparedBatchId: string
+    count: number
+    totalChunks: number
+    totalSize: number
+    estCostUsd: number
+    estCostHbar: number
+    items: Array<{ serial: number; name: string; size: number; chunks: number; estCostUsd: number }>
+    unpaired?: string[]
+  } | null = null
+  private static batchJobId: string | null = null
+  private static batchJob: any = null
+  private static batchPollTimer: number | null = null
+  private static resuming = false
+
   // ─── RENDER ─────────────────────────────────────────────
 
   static render(): string {
@@ -139,19 +159,101 @@ export class InscribeNFTs {
   }
 
   private static renderContent(): string {
+    if (this.mode === 'collection') {
+      if (this.step === 'inscribing') return this.renderBatchProgress()
+      if (this.step === 'complete') return this.renderBatchComplete()
+    }
     if (this.step === 'inscribing') return this.renderProgress('INSCRIBING ON-CHAIN')
     if (this.step === 'minting') return this.renderProgress('MINTING NFT')
     if (this.step === 'complete') return this.renderComplete()
     return this.renderSetup()
   }
 
+  private static renderModeToggle(): string {
+    const btn = (m: 'single' | 'collection', label: string, hint: string) => `
+      <button class="cc-btn ${this.mode === m ? '' : 'cc-btn-secondary'}" data-inscribe-mode="${m}" type="button"
+        style="flex:1;padding:0.7rem 0.5rem;text-align:center">
+        <span style="display:block;font-weight:600">${label}</span>
+        <span style="display:block;font-size:0.7rem;opacity:0.75;margin-top:0.2rem">${hint}</span>
+      </button>`
+    return `
+      <div style="display:flex;gap:0.5rem;margin-top:1rem">
+        ${btn('single', 'Single NFT', 'one media file')}
+        ${btn('collection', 'Collection', 'ZIP from Art Generator')}
+      </div>`
+  }
+
   private static renderSetup(): string {
     return `
+      ${this.renderModeToggle()}
       ${this.renderTokenSection()}
       ${this.tokenValidated ? this.renderSupplyKeySection() : ''}
-      ${this.tokenValidated ? this.renderFileSection() : ''}
-      ${this.prepared ? this.renderMetadataSection() : ''}
+      ${this.tokenValidated ? (this.mode === 'collection' ? this.renderZipSection() : this.renderFileSection()) : ''}
+      ${this.mode === 'collection' ? (this.batchPrepared ? this.renderCollectionQuote() : '') : (this.prepared ? this.renderMetadataSection() : '')}
       ${this.error ? `<div class="cc-error-banner" style="margin-top:1rem">✗ ${this.escapeHtml(this.error)}</div>` : ''}
+    `
+  }
+
+  private static renderZipSection(): string {
+    return `
+      <div class="cc-panel" style="margin-top:1rem">
+        <h4 style="margin:0 0 0.75rem;color:var(--terminal-green)">3. Collection ZIP</h4>
+        <p style="font-size:0.78rem;color:var(--terminal-text);margin:0 0 0.5rem">
+          Upload the ZIP from the Art Generator's <strong>Download ZIP</strong> output (images/ + metadata/).
+          The <code>.json</code> metadata is used as-is — only the image pointer is rewritten on-chain.
+        </p>
+        <div id="inscribe-zip-drop" class="mint-upload-zone" style="cursor:pointer">
+          <input type="file" id="inscribe-zip-input" accept=".zip" style="display:none" />
+          ${this.zipFile ? `
+            <p style="margin:0;color:var(--terminal-green)">✓ ${this.escapeHtml(this.zipFile.name)}
+              (${this.fmtBytes(this.zipFile.size)})</p>
+            <p style="margin:0.25rem 0 0;font-size:0.78rem;color:var(--terminal-text)">Click to choose a different ZIP</p>
+          ` : `
+            <p style="margin:0">Drop your collection ZIP here or click to browse</p>
+            <p style="margin:0.25rem 0 0;font-size:0.78rem;color:var(--terminal-text)">
+              From Art Generator → GENERATE &amp; DOWNLOAD ZIP (FOR INSCRIPTIONS)
+            </p>
+          `}
+        </div>
+        ${this.batchPreparing ? `<p style="color:var(--terminal-text);font-size:0.82rem;margin:0.5rem 0 0">⟳ Validating + quoting (compressing every image)…</p>` : ''}
+        ${this.batchPrepareError ? `<p style="color:var(--terminal-red);font-size:0.82rem;margin:0.5rem 0 0">${this.escapeHtml(this.batchPrepareError)}</p>` : ''}
+      </div>
+    `
+  }
+
+  private static renderCollectionQuote(): string {
+    const b = this.batchPrepared!
+    return `
+      <div class="cc-panel" style="margin-top:1rem">
+        <h4 style="margin:0 0 0.75rem;color:var(--terminal-green)">4. Quote & Mint</h4>
+        <div class="cc-panel" style="background:rgba(0,0,0,0.25);margin:0 0 0.75rem">
+          <p style="margin:0;font-size:0.82rem;color:var(--terminal-text)">
+            <strong>${b.count} NFTs</strong> · ${this.fmtBytes(b.totalSize)} → ${b.totalChunks.toLocaleString()} HCS messages total
+          </p>
+          <p style="margin:0.35rem 0 0;font-size:0.82rem;color:var(--terminal-text)">
+            Inscription cost: ≈ <strong>${b.estCostHbar} HBAR</strong> (~$${b.estCostUsd.toFixed(2)}) + minting fees
+          </p>
+          <p style="margin:0.35rem 0 0;font-size:0.78rem;color:var(--terminal-yellow, #e5c07b)">
+            ⚠ Inscriptions are network-fee heavy — a 10k collection costs thousands of HBAR. Nothing is overcharged:
+            you pay the estimate, the operator fronts the transactions.
+          </p>
+          ${b.unpaired && b.unpaired.length ? `
+            <p style="margin:0.35rem 0 0;font-size:0.78rem;color:var(--terminal-red)">
+              ⚠ Ignored (no matching image/metadata pair): ${b.unpaired.slice(0, 5).join(', ')}${b.unpaired.length > 5 ? '…' : ''}
+            </p>` : ''}
+        </div>
+        <label style="display:flex;gap:0.4rem;align-items:center;font-size:0.82rem;color:var(--terminal-text);cursor:pointer;margin-bottom:0.75rem">
+          <input type="checkbox" id="inscribe-batch-updatable" ${this.updatable ? 'checked' : ''} />
+          Updatable (HCS-6 registry per NFT — metadata can be re-inscribed later)
+        </label>
+        <button id="inscribe-batch-start" class="cc-btn" style="width:100%">
+          ⚡ INSCRIBE & MINT ${b.count} NFTs
+        </button>
+        <p style="font-size:0.75rem;color:var(--terminal-text);margin:0.5rem 0 0">
+          One wallet signature covers inscription + mint network fees. If you close this tab or the connection drops,
+          reopen the tool and press Resume — the job continues where it stopped.
+        </p>
+      </div>
     `
   }
 
@@ -276,6 +378,96 @@ export class InscribeNFTs {
     `
   }
 
+  // ─── COLLECTION (BATCH) PROGRESS / COMPLETE ─────────────
+
+  private static statusColor(status: string): string {
+    switch (status) {
+      case 'minted': return 'var(--terminal-green)'
+      case 'inscribed': return 'var(--terminal-purple)'
+      case 'inscribing': case 'minting': return 'var(--terminal-yellow, #e5c07b)'
+      case 'failed': return 'var(--terminal-red)'
+      default: return 'var(--terminal-text)'
+    }
+  }
+
+  private static renderBatchProgress(): string {
+    const job = this.batchJob
+    const counts = job?.counts
+    const total = counts?.total || this.batchPrepared?.count || 0
+    const done = (counts?.minted || 0) + (counts?.failed || 0)
+    const pct = total ? Math.round((done / total) * 100) : 0
+    const elapsed = this.startedAt ? Math.floor((Date.now() - this.startedAt) / 1000) : 0
+    const interrupted = job?.status === 'interrupted'
+    const running = job?.status === 'running'
+    const items: any[] = job?.items || []
+    const statusLine = counts
+      ? `${counts.minted} minted · ${counts.inscribed + counts.minting} awaiting mint · ${counts.pending + (counts.inscribing || 0)} inscribing · ${counts.failed} failed`
+      : 'Starting…'
+    return `
+      <div class="cc-panel" style="margin-top:1rem">
+        <h4 style="margin:0 0 0.75rem;color:var(--terminal-green)">INSCRIBING COLLECTION ON-CHAIN</h4>
+        ${this.statusMessage ? `<p style="color:var(--terminal-text);font-size:0.85rem;margin:0 0 0.5rem">${this.escapeHtml(this.statusMessage)}</p>` : ''}
+        <p style="color:var(--terminal-text);font-size:0.82rem;margin:0 0 0.75rem">${this.escapeHtml(statusLine)}</p>
+        <div style="background:rgba(255,255,255,0.08);border-radius:4px;height:10px;overflow:hidden">
+          <div style="background:var(--terminal-green);height:100%;width:${pct}%;transition:width 0.5s"></div>
+        </div>
+        <p style="font-size:0.78rem;color:var(--terminal-text);margin:0.5rem 0 0">
+          ${done} / ${total} NFTs finished (${pct}%) · ⏱ ${elapsed}s
+          ${running ? '· keep this tab open — safe to close and Resume later' : ''}
+        </p>
+        ${interrupted ? `
+          <div class="cc-error-banner" style="margin-top:0.9rem">
+            Connection to the job was lost (tab closed or server restarted). Nothing is lost —
+            every finished NFT is on-chain and paid work resumes from its last step.
+          </div>
+          <button id="inscribe-batch-resume" class="cc-btn" style="margin-top:0.75rem;width:100%" ${this.resuming ? 'disabled' : ''}>
+            ${this.resuming ? 'Resuming…' : '▶ RESUME JOB'}
+          </button>
+        ` : ''}
+        ${job?.error ? `<div class="cc-error-banner" style="margin-top:0.9rem">✗ ${this.escapeHtml(job.error)}</div>` : ''}
+        ${this.error ? `<div class="cc-error-banner" style="margin-top:0.9rem">✗ ${this.escapeHtml(this.error)}</div>` : ''}
+        ${items.length ? `
+          <div style="margin-top:0.9rem;max-height:260px;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:6px">
+            ${items.map((i: any) => `
+              <div style="display:flex;align-items:center;gap:0.6rem;padding:0.32rem 0.6rem;font-size:0.76rem;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <span style="color:var(--terminal-text);opacity:0.7;min-width:44px">#${i.serial}</span>
+                <span style="color:var(--terminal-text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(i.name)}</span>
+                <span style="color:${this.statusColor(i.status)};min-width:82px;text-align:right">${i.status}${i.mintedSerial ? ` → #${i.mintedSerial}` : ''}</span>
+              </div>
+              ${i.error ? `<div style="padding:0 0.6rem 0.32rem;font-size:0.72rem;color:var(--terminal-red)">${this.escapeHtml(i.error)}</div>` : ''}
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `
+  }
+
+  private static renderBatchComplete(): string {
+    const job = this.batchJob
+    const counts = job?.counts
+    const items: any[] = job?.items || []
+    const failed = counts?.failed || 0
+    const minted = counts?.minted || 0
+    return `
+      <div class="cc-panel" style="margin-top:1rem">
+        <h4 style="margin:0 0 0.75rem;color:var(--terminal-green)">✓ Collection Inscribed & Minted</h4>
+        <p style="color:var(--terminal-text);font-size:0.85rem;margin:0 0 0.5rem">
+          ${minted} of ${counts?.total || items.length} NFTs minted${failed ? ` · <span style="color:var(--terminal-red)">${failed} failed</span>` : ''}
+        </p>
+        ${job?.error ? `<div class="cc-error-banner" style="margin-top:0.75rem">✗ ${this.escapeHtml(job.error)}</div>` : ''}
+        ${failed ? `
+          <button id="inscribe-batch-resume" class="cc-btn" style="margin-top:0.75rem;width:100%" ${this.resuming ? 'disabled' : ''}>
+            ${this.resuming ? 'Retrying…' : '↻ RETRY FAILED NFTs'}
+          </button>
+        ` : ''}
+        <button id="inscribe-batch-csv" class="cc-btn cc-btn-secondary" style="margin-top:0.75rem;width:100%">
+          ⬇ DOWNLOAD POINTERS CSV
+        </button>
+        <button id="inscribe-new" class="cc-btn cc-btn-secondary" style="margin-top:0.75rem;width:100%">Start New</button>
+      </div>
+    `
+  }
+
   private static renderProgress(title: string): string {
     const isInscribe = this.step === 'inscribing'
     const pct = this.chunksTotal ? Math.round((this.chunksDone / this.chunksTotal) * 100) : 0
@@ -377,6 +569,55 @@ export class InscribeNFTs {
   }
 
   private static renderRightPanel(): string {
+    if (this.mode === 'collection') {
+      if (this.step === 'complete' && this.batchJob) {
+        const items: any[] = this.batchJob.items || []
+        return `
+          <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Collection Manifest</h4>
+          <p style="font-size:0.8rem;color:var(--terminal-text);margin:0 0 0.5rem">
+            Every NFT in this collection lives fully on-chain. Each minted serial points at its
+            own inscription pointer — resolvable by HashPack and HCS-1/6-compatible viewers.
+          </p>
+          <div style="max-height:420px;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:6px">
+            ${items.map((i: any) => `
+              <div style="padding:0.4rem 0.6rem;font-size:0.74rem;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <div style="display:flex;gap:0.5rem">
+                  <span style="color:var(--terminal-text);opacity:0.7">#${i.mintedSerial ?? i.serial}</span>
+                  <span style="color:var(--terminal-text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.escapeHtml(i.name)}</span>
+                  <span style="color:${this.statusColor(i.status)}">${i.status}</span>
+                </div>
+                ${i.pointer ? `<div class="mono" style="color:var(--terminal-text);opacity:0.65;word-break:break-all;margin-top:0.15rem">${this.escapeHtml(i.pointer)}</div>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        `
+      }
+      if (this.step === 'inscribing' && this.batchJob) {
+        return `
+          <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Batch Inscription</h4>
+          <p style="font-size:0.8rem;color:var(--terminal-text);margin:0 0 0.5rem">
+            NFTs are inscribed ${2} at a time (media topic → metadata topic${this.updatable ? ' → HCS-6 registry' : ''}),
+            then minted in batches of 10. Progress is saved after every step — a dropped connection
+            never loses paid work.
+          </p>
+          <p style="font-size:0.8rem;color:var(--terminal-text);margin:0">
+            Mirror-node confirmations can take 1–2 minutes per file; the status line always shows
+            what the operator is waiting on.
+          </p>
+        `
+      }
+      return `
+        <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">Batch Inscription</h4>
+        <p style="font-size:0.8rem;color:var(--terminal-text);margin:0 0 0.5rem">
+          Inscribe a whole generated collection in one run: each image is zstd-compressed and written
+          to its own HCS topic, its metadata JSON (from the Art Generator) gets a fresh on-chain
+          pointer, and the operator mints every serial against your collection.
+        </p>
+        <p style="font-size:0.8rem;color:var(--terminal-text);margin:0">
+          Flow: Art Generator → <strong>Download ZIP</strong> → Create Collection → Inscribe (Collection mode).
+        </p>
+      `
+    }
     if (this.step === 'complete') {
       return `
         <h4 style="color:var(--terminal-green);margin:0 0 0.75rem">On-Chain Manifest</h4>
@@ -438,8 +679,43 @@ export class InscribeNFTs {
         this.resetState()
         this.refresh()
       })
+      document.getElementById('inscribe-batch-resume')?.addEventListener('click', () => this.resumeBatch())
+      document.getElementById('inscribe-batch-csv')?.addEventListener('click', () => this.downloadBatchCSV())
       return
     }
+
+    // Mode toggle
+    document.querySelectorAll('[data-inscribe-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.mode = (btn as HTMLElement).dataset.inscribeMode as 'single' | 'collection'
+        this.error = null
+        this.refresh()
+      })
+    })
+
+    // Collection ZIP drop zone
+    const zipDrop = document.getElementById('inscribe-zip-drop')
+    const zipInput = document.getElementById('inscribe-zip-input') as HTMLInputElement | null
+    if (zipDrop && zipInput) {
+      zipDrop.addEventListener('click', (e) => { if (e.target !== zipInput) zipInput.click() })
+      zipDrop.addEventListener('dragover', (e) => { e.preventDefault(); zipDrop.classList.add('drag-over') })
+      zipDrop.addEventListener('dragleave', () => zipDrop.classList.remove('drag-over'))
+      zipDrop.addEventListener('drop', (e) => {
+        e.preventDefault()
+        zipDrop.classList.remove('drag-over')
+        const f = e.dataTransfer?.files?.[0]
+        if (f) this.selectZip(f)
+      })
+      zipInput.addEventListener('change', () => {
+        const f = zipInput.files?.[0]
+        if (f) this.selectZip(f)
+      })
+    }
+
+    document.getElementById('inscribe-batch-updatable')?.addEventListener('change', (e) => {
+      this.updatable = (e.target as HTMLInputElement).checked
+    })
+    document.getElementById('inscribe-batch-start')?.addEventListener('click', () => this.startCollection())
 
     document.getElementById('inscribe-validate-token')?.addEventListener('click', () => this.validateToken())
     document.getElementById('inscribe-token-id')?.addEventListener('input', (e) => {
@@ -572,6 +848,196 @@ export class InscribeNFTs {
     }
     this.preparing = false
     this.refresh()
+  }
+
+  // ─── COLLECTION (BATCH) ACTIONS ─────────────────────────
+
+  private static async selectZip(file: File): Promise<void> {
+    this.zipFile = file
+    this.batchPrepared = null
+    this.batchPrepareError = null
+    this.batchPreparing = true
+    this.refresh()
+    try {
+      const formData = new FormData()
+      formData.append('zip', file)
+      const res = await fetch(`${API_BASE_URL}/api/inscribe-batch/prepare`, { method: 'POST', body: formData })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) throw new Error(data.error || `Server returned ${res.status}`)
+      this.batchPrepared = data
+    } catch (err: any) {
+      this.batchPrepareError = err.message || 'Failed to prepare collection'
+      this.zipFile = null
+      this.batchPrepared = null
+    }
+    this.batchPreparing = false
+    this.refresh()
+  }
+
+  private static async startCollection(): Promise<void> {
+    const ws = WalletConnectService.getState()
+    this.error = null
+    if (!ws.connected || !ws.accountId) { this.error = 'Wallet not connected'; this.refresh(); return }
+    if (!this.tokenInfo) { this.error = 'Validate the collection first'; this.refresh(); return }
+    if (!this.batchPrepared) { this.error = 'Upload a collection ZIP first'; this.refresh(); return }
+    if (!this.supplyKeyInput.trim()) { this.supplyKeyError = 'Supply private key is required'; this.refresh(); return }
+    try { PrivateKey.fromString(this.supplyKeyInput.trim()) } catch {
+      this.supplyKeyError = 'Invalid supply key format'; this.refresh(); return
+    }
+    const remaining = this.tokenInfo.maxSupply === 0 ? Infinity : this.tokenInfo.maxSupply - this.tokenInfo.totalSupply
+    if (this.batchPrepared.count > remaining) {
+      this.error = `Collection has only ${remaining} mints remaining but the ZIP contains ${this.batchPrepared.count} NFTs`
+      this.refresh(); return
+    }
+
+    this.step = 'inscribing'
+    this.statusMessage = 'Calculating total network fees…'
+    this.startedAt = Date.now()
+    this.startTicker()
+    this.refresh()
+
+    try {
+      // Mint-side fee from the existing estimator (same as single mode)
+      const metadataCIDs = Array(this.batchPrepared.count).fill('hcs://placeholder')
+      const feeRes = await fetch(`${API_BASE_URL}/api/calculate-mint-fee`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokenId: this.tokenInfo.tokenId, metadataCIDs }),
+      })
+      const feeData = await feeRes.json()
+      if (!feeRes.ok || !feeData.success) throw new Error(feeData.error || 'Fee calculation failed')
+
+      const totalHbar = this.batchPrepared.estCostHbar + feeData.totalFeeWithBuffer
+      const feeTinybars = Math.ceil(totalHbar * 1e8)
+
+      this.statusMessage = `Approve ONE transfer of ${totalHbar.toFixed(4)} HBAR — covers inscription of ${this.batchPrepared.count} NFTs (${this.batchPrepared.estCostHbar}) + minting (${feeData.totalFeeWithBuffer})…`
+      this.refresh()
+
+      const transferTx = new TransferTransaction()
+        .addHbarTransfer(AccountId.fromString(ws.accountId), Hbar.fromTinybars(-feeTinybars))
+        .addHbarTransfer(AccountId.fromString(BACKEND_MINTER_ACCOUNT), Hbar.fromTinybars(feeTinybars))
+      const signer = WalletConnectService.getSigner(ws.accountId)
+      const frozen = await transferTx
+        .setTransactionId(TransactionId.generate(AccountId.fromString(ws.accountId)))
+        .freezeWith(getHederaClient())
+      await frozen.executeWithSigner(signer)
+
+      this.statusMessage = 'Starting batch inscription job…'
+      this.refresh()
+      const startRes = await fetch(`${API_BASE_URL}/api/inscribe-batch/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          preparedBatchId: this.batchPrepared.preparedBatchId,
+          tokenId: this.tokenInfo.tokenId,
+          supplyKey: this.supplyKeyInput.trim(),
+          userAccountId: ws.accountId,
+          updatable: this.updatable,
+        }),
+      })
+      const startData = await startRes.json()
+      if (!startRes.ok || !startData.success) throw new Error(startData.error || 'Failed to start batch job')
+      this.batchJobId = startData.jobId
+      this.pollBatch()
+    } catch (err: any) {
+      console.error('Batch inscribe error:', err)
+      this.error = err.message || 'Batch inscription failed'
+      this.step = 'setup'
+      this.stopTicker()
+      this.refresh()
+    }
+  }
+
+  private static pollInFlight = false
+  private static async pollBatch(): Promise<void> {
+    if (!this.batchJobId || this.step !== 'inscribing') return
+    if (this.batchPollTimer !== null) { clearTimeout(this.batchPollTimer); this.batchPollTimer = null }
+    if (this.pollInFlight) {
+      this.batchPollTimer = window.setTimeout(() => this.pollBatch(), 3000)
+      return
+    }
+    this.pollInFlight = true
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/inscribe-batch/status/${this.batchJobId}`)
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.error || 'Lost batch job')
+      this.batchJob = data.job
+      const c = data.job.counts
+      this.chunksDone = c.minted
+      this.chunksTotal = c.total
+      if (data.job.status === 'running') {
+        this.statusMessage = data.job.phase === 'minting'
+          ? `Minting on-chain (serial batches of 10)…`
+          : `Inscribing NFTs — ${c.pending + c.inscribing} remaining…`
+      } else if (data.job.status === 'interrupted') {
+        this.statusMessage = 'Job paused — press Resume to continue.'
+      }
+      this.refresh()
+      if (data.job.status === 'completed') {
+        this.step = 'complete'
+        this.statusMessage = ''
+        this.stopTicker()
+        this.refresh()
+        return
+      }
+      if (data.job.status === 'failed') {
+        this.statusMessage = ''
+        this.stopTicker()
+        this.refresh()
+        return // renderBatchComplete offers RETRY via resume
+      }
+    } catch (err: any) {
+      this.statusMessage = `Status check hiccup — retrying… (${err.message || err})`
+      this.refresh()
+    } finally {
+      this.pollInFlight = false
+    }
+    this.batchPollTimer = window.setTimeout(() => this.pollBatch(), 4000)
+  }
+
+  private static async resumeBatch(): Promise<void> {
+    if (!this.batchJobId || this.resuming) return
+    if (!this.supplyKeyInput.trim()) { this.error = 'Supply key is required to resume — re-enter it below.'; this.refresh(); return }
+    this.resuming = true
+    this.refresh()
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/inscribe-batch/resume/${this.batchJobId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplyKey: this.supplyKeyInput.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) throw new Error(data.error || 'Resume failed')
+      if (this.step !== 'inscribing') { this.step = 'inscribing'; this.startTicker() }
+      this.error = null
+      this.statusMessage = 'Job resumed — continuing…'
+      this.pollBatch()
+    } catch (err: any) {
+      this.error = err.message || 'Resume failed'
+    }
+    this.resuming = false
+    this.refresh()
+  }
+
+  private static downloadBatchCSV(): void {
+    const items: any[] = this.batchJob?.items || []
+    const header = 'Serial,Source Serial,Name,Status,Minted Serial,Pointer,Media Topic,Metadata Topic,Registry Topic'
+    const rows = items.map(i =>
+      `${i.mintedSerial ?? ''},${i.serial},${this.csvCell(i.name)},${i.status},${i.mintedSerial ?? ''},${this.csvCell(i.pointer || '')},${i.mediaTopic || ''},${i.metaTopic || ''},${i.registryTopic || ''}`)
+    const csv = [header, ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `inscribed-collection-${this.batchJobId?.slice(0, 8) || 'job'}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  private static csvCell(s: string): string {
+    return /[",\n]/.test(s) ? `"${String(s).replace(/"/g, '""')}"` : s
   }
 
   private static async start(): Promise<void> {
@@ -716,7 +1182,16 @@ export class InscribeNFTs {
 
   static resetState(): void {
     if (this.previewUrl) URL.revokeObjectURL(this.previewUrl)
+    if (this.batchPollTimer !== null) { clearTimeout(this.batchPollTimer); this.batchPollTimer = null }
     this.stopTicker()
+    this.mode = 'single'
+    this.zipFile = null
+    this.batchPreparing = false
+    this.batchPrepareError = null
+    this.batchPrepared = null
+    this.batchJobId = null
+    this.batchJob = null
+    this.resuming = false
     this.startedAt = null
     this.step = 'setup'
     this.error = null
