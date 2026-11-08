@@ -658,6 +658,23 @@ export async function executeSwap(req: Request, res: Response): Promise<void> {
         return;
       }
 
+      // A royalty fallback fee on the TO token is assessed against the RECEIVER
+      // of the NFT (the swapper). Every leg below is an approved transfer signed
+      // only by the operator, so no wallet key ever signs — Hedera rejects such a
+      // transaction at consensus with INVALID_SIGNATURE because the fee requires
+      // the receiver's signature. Detect this upfront and direct the dApp to the
+      // prepare/sign/submit flow instead of burning a failed transaction.
+      const fallbackFees = await getFallbackFees(program.to_token_id);
+      if (fallbackFees.length > 0) {
+        console.log('[executeSwap NFT] TO token has royalty fallback fee(s) — wallet signature required:', program.to_token_id, fallbackFees);
+        res.status(400).json({
+          success: false,
+          code: 'ROYALTY_SIGNATURE_REQUIRED',
+          error: `Receive token ${program.to_token_id} charges a royalty fee that requires your wallet to sign. Use the prepare/sign/submit flow.`,
+        });
+        return;
+      }
+
       // Determine which toToken serials to send back.
       let treasurySerials: number[];
       if (program.serial_mode === 'random') {
