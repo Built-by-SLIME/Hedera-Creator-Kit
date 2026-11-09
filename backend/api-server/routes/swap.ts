@@ -568,15 +568,32 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
     // For fungible swaps: authorises the approved TO-token transfer.
     const signedTx = await tx.sign(operatorPk);
 
-    // DIAGNOSTIC: confirm the operator signature actually attached before executing.
+    // DIAGNOSTIC: dump the exact wire bytes + decoded legs/signature prefixes
+    // so the submitted transaction can be inspected byte-by-byte offline.
     try {
-      const sigMap = await signedTx.getSignatures();
-      const keys = Array.from(sigMap.values()).flatMap(nodeMap =>
-        Array.from(nodeMap.keys()).map(k => k.toString()));
-      console.log('[submitSwap DIAG] sig keys after operator sign:', keys,
-        '| operator public key:', operatorPk.publicKey.toString());
+      const finalBytes = signedTx.toBytes();
+      console.log('[submitSwap DIAG] final wire bytes b64:', Buffer.from(finalBytes).toString('base64'));
+      const proto = await import('@hashgraph/proto');
+      const list = proto.proto.TransactionList.decode(finalBytes);
+      list.transactionList.forEach((entry, i) => {
+        const st = proto.proto.SignedTransaction.decode(entry.signedTransactionBytes!);
+        const body = proto.proto.TransactionBody.decode(st.bodyBytes!);
+        const nftLegs = (body.cryptoTransfer?.tokenTransfers ?? []).flatMap(tt =>
+          (tt.nftTransfers ?? []).map(n => ({
+            token: tt.token?.tokenNum?.low,
+            serial: n.serialNumber?.low,
+            sender: n.senderAccountID?.accountNum?.low,
+            receiver: n.receiverAccountID?.accountNum?.low,
+            isApproval: n.isApproval,
+          })));
+        console.log(`[submitSwap DIAG] entry ${i} sigPrefixes=`,
+          (st.sigMap?.sigPair ?? []).map(p => Buffer.from(p.pubKeyPrefix ?? new Uint8Array()).toString('hex')),
+          'nftLegs=', JSON.stringify(nftLegs),
+          'txID=', body.transactionID?.accountID?.accountNum?.low);
+      });
+      console.log('[submitSwap DIAG] operator pub key DER:', operatorPk.publicKey.toString());
     } catch (diagErr: any) {
-      console.log('[submitSwap DIAG] getSignatures on signed tx failed:', diagErr?.message);
+      console.log('[submitSwap DIAG] wire dump failed:', diagErr?.message);
     }
     const txResponse = await signedTx.execute(client);
     await txResponse.getReceipt(client);
