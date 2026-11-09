@@ -88,7 +88,7 @@ async function getFallbackFees(tokenId: string): Promise<FallbackFee[]> {
           collector_account_id: string;
           fallback_fee?: {
             amount: number;
-            denominator_token_id: string | null;
+            denominating_token_id: string | null;
           };
         }>;
       };
@@ -98,7 +98,7 @@ async function getFallbackFees(tokenId: string): Promise<FallbackFee[]> {
     for (const royalty of (data.custom_fees?.royalty_fees ?? [])) {
       const fb = royalty.fallback_fee;
       if (!fb) continue;
-      if (fb.denominator_token_id !== null) {
+      if (fb.denominating_token_id !== null && fb.denominating_token_id !== undefined) {
         // Token-denominated fallback (rare) — not supported, skip with warning.
         // Would require a separate approval flow for the fungible token.
         console.warn(`[getFallbackFees] Token-denominated fallback on ${tokenId} — skipped (unsupported)`);
