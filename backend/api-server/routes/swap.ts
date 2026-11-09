@@ -425,20 +425,25 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
       // Hedera interprets this as fungible value exchanged from the NFT receiver (user)
       // to the NFT sender (treasury), which satisfies the royalty condition — the 5%
       // royalty (~0.05 ℏ) is applied and the fallback fee is NOT triggered.
-      // The user is the payer, so the user pays the network fee directly.
+      //
+      // CRITICAL: the operator MUST be the transaction fee payer. For an approved
+      // transfer, services looks up the allowance for (owner, spender = fee payer) —
+      // it does not accept "the spender signed" (Hedera docs: otherwise the tx errors
+      // with SPENDER_DOES_NOT_HAVE_ALLOWANCE). The operator is the approved spender
+      // for the treasury → user leg, so the operator is the payer. The swapper still
+      // signs for their own NFT leg and the 1 ℏ royalty leg.
+      const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
       const swapFee = new Hbar(1);
       transferTx
-        .addHbarTransfer(userAcct, swapFee.negated())   // swapper pays
+        .addHbarTransfer(userAcct, swapFee.negated())   // swapper pays royalty value
         .addHbarTransfer(treasuryAcct, swapFee)         // treasury receives (royalty deducted by Hedera)
-        // User is the payer so wallet signers won't rewrite the transaction.
-        // Operator signs as the approved spender for the treasury → user NFT transfer.
-        .setTransactionId(TransactionId.generate(userAcct));
+        .setTransactionId(TransactionId.generate(operatorAcct));
 
       const frozenTx = transferTx.freezeWith(client);
       const txId = frozenTx.transactionId!.toString();
       const txBytes = Buffer.from(frozenTx.toBytes()).toString('base64');
 
-      console.log('[prepareSwap NFT] built tx:', { txId, payer: userAcct.toString() });
+      console.log('[prepareSwap NFT] built tx:', { txId, payer: operatorAcct.toString() });
 
       res.json({
         success: true,
@@ -478,19 +483,19 @@ export async function prepareSwap(req: Request, res: Response): Promise<void> {
 
     // Transaction legs:
     //   1. FROM tokens (user → treasury):   standard transfer, user signs directly
-    //   2. TO tokens (treasury → user):     approved transfer, operator signs as spender
+    //   2. TO tokens (treasury → user):     approved transfer, operator is the spender
     //
-    // The user is the payer so wallet signers won't rewrite the transaction. The operator
-    // still signs as the approved spender for the treasury → user transfer.
+    // CRITICAL: the operator MUST be the transaction fee payer. For an approved
+    // transfer, services looks up the allowance for (owner, spender = fee payer) —
+    // it does not accept "the spender signed" (else SPENDER_DOES_NOT_HAVE_ALLOWANCE).
 
+    const operatorAcct = AccountId.fromString(BACKEND_ACCOUNT_ID!);
     const transferTx = new TransferTransaction()
       .addTokenTransfer(fromToken, userAcct, -rawAmount)
       .addTokenTransfer(fromToken, treasuryAcct, rawAmount)
       .addApprovedTokenTransfer(toToken, treasuryAcct, -outputAmount)
       .addTokenTransfer(toToken, userAcct, outputAmount)
-      // User is the payer so wallet signers won't rewrite the transaction.
-      // Operator signs as the approved spender for the treasury → user transfer.
-      .setTransactionId(TransactionId.generate(userAcct));
+      .setTransactionId(TransactionId.generate(operatorAcct));
 
     const frozenTx = transferTx.freezeWith(client);
 
