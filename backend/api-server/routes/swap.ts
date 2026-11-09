@@ -549,6 +549,17 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
     const txBuf = Buffer.from(txBytes, 'base64');
     const tx = Transaction.fromBytes(txBuf);
 
+    // DIAGNOSTIC: log parsed payer + signature public keys in the submitted bytes.
+    try {
+      const sigMap = await tx.getSignatures();
+      const keys = Array.from(sigMap.values()).flatMap(nodeMap =>
+        Array.from(nodeMap.keys()).map(k => k.toString()));
+      console.log('[submitSwap DIAG] parsed txId:', tx.transactionId?.toString(),
+        '| sig keys in submitted bytes:', keys);
+    } catch (diagErr: any) {
+      console.log('[submitSwap DIAG] getSignatures on parsed tx failed:', diagErr?.message);
+    }
+
     const client = getOperatorClient();
     const operatorPk = getOperatorKey();
 
@@ -556,6 +567,17 @@ export async function submitSwap(req: Request, res: Response): Promise<void> {
     // For NFT swaps: authorises the approved NFT transfers (uses stored allowances).
     // For fungible swaps: authorises the approved TO-token transfer.
     const signedTx = await tx.sign(operatorPk);
+
+    // DIAGNOSTIC: confirm the operator signature actually attached before executing.
+    try {
+      const sigMap = await signedTx.getSignatures();
+      const keys = Array.from(sigMap.values()).flatMap(nodeMap =>
+        Array.from(nodeMap.keys()).map(k => k.toString()));
+      console.log('[submitSwap DIAG] sig keys after operator sign:', keys,
+        '| operator public key:', operatorPk.publicKey.toString());
+    } catch (diagErr: any) {
+      console.log('[submitSwap DIAG] getSignatures on signed tx failed:', diagErr?.message);
+    }
     const txResponse = await signedTx.execute(client);
     await txResponse.getReceipt(client);
     const txId = txResponse.transactionId.toString();
